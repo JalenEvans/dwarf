@@ -35,6 +35,14 @@ impl Parser {
         let mut errors = Vec::new();
 
         while !self.is_at_end() {
+            // Skip doc comments at declaration level
+            while self.check(TokenKind::DocComment) {
+                self.advance();
+            }
+            if self.is_at_end() {
+                break;
+            }
+
             // The `pub` modifier is consumed *before* the declaration
             let is_pub = self.check_and_advance(TokenKind::Pub);
 
@@ -799,6 +807,14 @@ impl Parser {
         let start = self.consume(TokenKind::LBrace, "expected '{'")?.span;
         let mut stmts = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            // Skip doc comments inside blocks
+            while self.check(TokenKind::DocComment) {
+                self.advance();
+            }
+            if self.check(TokenKind::RBrace) || self.is_at_end() {
+                break;
+            }
+
             if self.match_token(TokenKind::Let) {
                 // let binding: let pattern = expr
                 let pattern = self.parse_pattern()?;

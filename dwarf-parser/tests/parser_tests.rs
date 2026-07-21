@@ -318,3 +318,48 @@ fn test_parse_pass_empty() {
     assert!(decls.is_empty());
     assert!(errors.is_empty());
 }
+
+// ============================================================================
+// Doc comment handling tests
+//
+// The lexer emits `TokenKind::DocComment` for `///` comments. The parser
+// should skip them anywhere they appear (before declarations, inside
+// function bodies). These tests will FAIL until the parser learns to skip
+// DocComment tokens instead of erroring on them.
+// ============================================================================
+
+#[test]
+fn test_doc_comment_before_function() {
+    let tokens = tokenize("/// This is a doc comment\nfn main() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert_eq!(decls.len(), 1, "Doc comment should be skipped");
+    assert!(errors.is_empty(), "No errors expected");
+
+    if let Decl::Function { name, .. } = &decls[0] {
+        assert_eq!(name, "main");
+    } else {
+        panic!("Expected Function decl");
+    }
+}
+
+#[test]
+fn test_doc_comment_inside_function_body() {
+    let tokens = tokenize("fn main() { /// inner doc\n 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert_eq!(decls.len(), 1, "Doc comment in body should be skipped");
+    assert!(errors.is_empty(), "No errors expected");
+}
+
+#[test]
+fn test_multiple_doc_comments() {
+    let tokens = tokenize("/// First\n/// Second\nfn main() { /// Third\n 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert_eq!(decls.len(), 1);
+    assert!(errors.is_empty());
+}
