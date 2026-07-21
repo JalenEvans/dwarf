@@ -6,3 +6,7 @@ edition = "2021"
 [dependencies]
 dwarf-syntax = { path = "../dwarf-syntax" }
 dwarf-lexer = { path = "../dwarf-lexer" }
+
+[dev-dependencies]
+dwarf-lexer = { path = "../dwarf-lexer" }
+dwarf-syntax = { path = "../dwarf-syntax" }
