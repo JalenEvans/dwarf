@@ -3,5 +3,6 @@
 //! used across the compiler pipeline.
 
 pub mod error;
-pub mod token;
+pub mod hir;
 pub mod span;
+pub mod token;
