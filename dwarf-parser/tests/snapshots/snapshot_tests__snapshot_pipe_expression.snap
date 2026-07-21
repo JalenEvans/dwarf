@@ -1,0 +1,97 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "pipe",
+      "params": [
+        {
+          "name": "x",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "return_type": null,
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Pipe": {
+                  "lhs": {
+                    "Pipe": {
+                      "lhs": {
+                        "Variable": "x"
+                      },
+                      "rhs": {
+                        "Call": {
+                          "func": {
+                            "Variable": "add"
+                          },
+                          "args": [
+                            {
+                              "Literal": {
+                                "Int": 1
+                              }
+                            }
+                          ],
+                          "span": {
+                            "file_id": 0,
+                            "start": 28,
+                            "end": 29
+                          }
+                        }
+                      },
+                      "span": {
+                        "file_id": 0,
+                        "start": 20,
+                        "end": 29
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "Call": {
+                      "func": {
+                        "Variable": "mul"
+                      },
+                      "args": [
+                        {
+                          "Literal": {
+                            "Int": 2
+                          }
+                        }
+                      ],
+                      "span": {
+                        "file_id": 0,
+                        "start": 38,
+                        "end": 39
+                      }
+                    }
+                  },
+                  "span": {
+                    "file_id": 0,
+                    "start": 30,
+                    "end": 39
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 16,
+            "end": 41
+          }
+        }
+      },
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 41
+      }
+    }
+  }
+]

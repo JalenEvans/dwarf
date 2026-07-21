@@ -1,0 +1,62 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "add",
+      "params": [
+        {
+          "name": "a",
+          "type_": {
+            "Named": "i32"
+          }
+        },
+        {
+          "name": "b",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "return_type": {
+        "Named": "i32"
+      },
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Binary": {
+                  "op": "Add",
+                  "lhs": {
+                    "Variable": "a"
+                  },
+                  "rhs": {
+                    "Variable": "b"
+                  },
+                  "span": {
+                    "file_id": 0,
+                    "start": 36,
+                    "end": 37
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 30,
+            "end": 39
+          }
+        }
+      },
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 39
+      }
+    }
+  }
+]

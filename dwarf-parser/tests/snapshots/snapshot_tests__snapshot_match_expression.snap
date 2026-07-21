@@ -1,0 +1,74 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "test",
+      "params": [
+        {
+          "name": "x",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "return_type": null,
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Match": {
+                  "expr": {
+                    "Variable": "x"
+                  },
+                  "arms": [
+                    {
+                      "pattern": {
+                        "Literal": {
+                          "Int": 0
+                        }
+                      },
+                      "guard": null,
+                      "body": {
+                        "Literal": {
+                          "Str": "zero"
+                        }
+                      }
+                    },
+                    {
+                      "pattern": "Wildcard",
+                      "guard": null,
+                      "body": {
+                        "Literal": {
+                          "Str": "other"
+                        }
+                      }
+                    }
+                  ],
+                  "span": {
+                    "file_id": 0,
+                    "start": 18,
+                    "end": 55
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 16,
+            "end": 57
+          }
+        }
+      },
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 57
+      }
+    }
+  }
+]
