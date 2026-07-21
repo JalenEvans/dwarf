@@ -2,5 +2,6 @@
 //! This crate defines the token kinds, AST nodes, and diagnostic types
 //! used across the compiler pipeline.
 
+pub mod error;
 pub mod token;
 pub mod span;

@@ -1,6 +1,8 @@
 //! Lexer for the Dwarf compiler.
 //! Converts source text into a stream of tokens.
 
+pub mod pass;
+
 use dwarf_syntax::span::Span;
 use dwarf_syntax::token::Token;
 use dwarf_syntax::token::TokenKind;
