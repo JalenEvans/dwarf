@@ -1,5 +1,7 @@
 //! Recursive-descent parser that produces HIR from token streams.
 
+pub mod pass;
+
 use dwarf_syntax::hir::*;
 use dwarf_syntax::span::Span;
 use dwarf_syntax::token::{Token, TokenKind};

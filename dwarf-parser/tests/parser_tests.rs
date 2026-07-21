@@ -275,3 +275,46 @@ fn test_error_recovery_preserves_valid_decls() {
         panic!("Expected third decl to be Function");
     }
 }
+
+// ============================================================================
+// ParsePass tests
+//
+// These tests will FAIL with a compile error because
+// `dwarf_parser::pass::ParsePass` does not exist yet.
+// ============================================================================
+
+#[test]
+fn test_parse_pass_simple() {
+    use dwarf_parser::pass::ParsePass;
+
+    let pass = ParsePass;
+    let result = pass.parse("fn main() { 42 }".to_string());
+    assert!(result.is_ok(), "ParsePass should succeed on valid input");
+    let (decls, errors) = result.unwrap();
+    assert_eq!(decls.len(), 1);
+    assert!(errors.is_empty());
+}
+
+#[test]
+fn test_parse_pass_with_errors() {
+    use dwarf_parser::pass::ParsePass;
+
+    let pass = ParsePass;
+    let result = pass.parse("fn broken( { 1 } fn ok() { 2 }".to_string());
+    assert!(result.is_ok(), "ParsePass should handle errors gracefully");
+    let (decls, errors) = result.unwrap();
+    assert!(!decls.is_empty(), "Should produce partial HIR");
+    assert!(!errors.is_empty(), "Should report errors");
+}
+
+#[test]
+fn test_parse_pass_empty() {
+    use dwarf_parser::pass::ParsePass;
+
+    let pass = ParsePass;
+    let result = pass.parse("".to_string());
+    assert!(result.is_ok());
+    let (decls, errors) = result.unwrap();
+    assert!(decls.is_empty());
+    assert!(errors.is_empty());
+}
