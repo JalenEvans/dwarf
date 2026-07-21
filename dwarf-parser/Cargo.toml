@@ -1,0 +1,8 @@
+[package]
+name = "dwarf-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dwarf-syntax = { path = "../dwarf-syntax" }
+dwarf-lexer = { path = "../dwarf-lexer" }

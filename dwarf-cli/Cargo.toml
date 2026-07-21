@@ -1,0 +1,9 @@
+[package]
+name = "dwarf-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dwarf-syntax = { path = "../dwarf-syntax" }
+dwarf-lexer = { path = "../dwarf-lexer" }
+dwarf-parser = { path = "../dwarf-parser" }
