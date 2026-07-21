@@ -71,7 +71,6 @@ pub enum TokenKind {
 
     // ---- Identifiers & Special ----
     Ident(String),
-    Comment,
     DocComment,
 
     // ---- End of File ----
@@ -147,7 +146,6 @@ impl TokenKind {
 
             // Identifiers
             Self::Ident(_) => "identifier",
-            Self::Comment => "comment",
             Self::DocComment => "doc comment",
 
             Self::Eof => "end of file",

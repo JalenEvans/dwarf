@@ -1,6 +1,5 @@
-use dwarf_lexer::{Lexer, LexError};
-use dwarf_syntax::token::{Token, TokenKind};
-use dwarf_syntax::span::Span;
+use dwarf_lexer::Lexer;
+use dwarf_syntax::token::TokenKind;
 
 // -----------------------------------------------------------------------
 // Helper: lex a single token and assert its kind
@@ -435,14 +434,14 @@ fn test_peek_returns_same_token_on_consecutive_calls() {
     let mut lexer = Lexer::new("hello world");
 
     // First peek should return the first token
-    let peeked1 = lexer.peek().cloned();
+    let peeked1 = lexer.peek().expect("peek should succeed").cloned();
     assert!(peeked1.is_some(), "first peek should return Some");
     if let Some(ref t) = peeked1 {
         assert_eq!(t.kind, TokenKind::Ident("hello".to_string()));
     }
 
     // Second peek should return the SAME token (lazy — doesn't advance)
-    let peeked2 = lexer.peek().cloned();
+    let peeked2 = lexer.peek().expect("peek should succeed").cloned();
     assert_eq!(
         peeked1, peeked2,
         "consecutive peek() calls should return the same token"
@@ -453,7 +452,7 @@ fn test_peek_returns_same_token_on_consecutive_calls() {
     assert_eq!(consumed.kind, TokenKind::Ident("hello".to_string()));
 
     // After advancing, peek should now show the next token
-    let peeked3 = lexer.peek().cloned();
+    let peeked3 = lexer.peek().expect("peek should succeed").cloned();
     assert!(peeked3.is_some(), "peek after advancing should return next token");
     if let Some(ref t) = peeked3 {
         assert_eq!(t.kind, TokenKind::Ident("world".to_string()));
@@ -470,9 +469,9 @@ fn test_peek_after_eof() {
     let eof = lexer.next_token().expect("EOF should succeed");
     assert_eq!(eof.kind, TokenKind::Eof);
 
-    // Peek at EOF should return Some(&Token { kind: Eof }) or None — but
+    // Peek at EOF should return Ok(Some(...)) — but
     // the important thing is it doesn't panic and is consistent
-    let _peek_result = lexer.peek();
+    let _ = lexer.peek();
     let next = lexer.next_token().expect("subsequent next_token should succeed");
     assert_eq!(next.kind, TokenKind::Eof);
 }
