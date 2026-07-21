@@ -1,7 +1,9 @@
 //! Source location tracking.
 
+use serde::{Deserialize, Serialize};
+
 /// A span represents a range of bytes in a source file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Span {
     /// Index into the source file table (file_id).
     pub file_id: usize,
