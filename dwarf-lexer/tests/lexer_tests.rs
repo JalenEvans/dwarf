@@ -699,3 +699,122 @@ fn test_sequence_with_literals() {
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Int(42));
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
 }
+
+// =======================================================================
+// COMMENT HANDLING (RED Phase — expected to fail)
+// =======================================================================
+
+#[test]
+fn test_line_comment() {
+    let mut lexer = Lexer::new("// this is a comment\nfn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
+}
+
+#[test]
+fn test_line_comment_eof() {
+    let mut lexer = Lexer::new("// just a comment");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
+}
+
+#[test]
+fn test_block_comment() {
+    let mut lexer = Lexer::new("/* block comment */fn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
+}
+
+#[test]
+fn test_block_comment_multiline() {
+    let mut lexer = Lexer::new("/* multi\nline */fn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+}
+
+#[test]
+fn test_block_comment_empty() {
+    let mut lexer = Lexer::new("/**/fn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+}
+
+#[test]
+fn test_doc_comment() {
+    let mut lexer = Lexer::new("/// this is a doc comment\nfn");
+    let tok = lexer.next_token().unwrap();
+    // DocComment tokens should be emitted, not skipped
+    assert_eq!(tok.kind, TokenKind::DocComment);
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+}
+
+#[test]
+fn test_comment_after_token() {
+    let mut lexer = Lexer::new("fn // comment after\nlet");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Let);
+}
+
+#[test]
+fn test_comments_only() {
+    let mut lexer = Lexer::new("// line\n/* block */");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
+}
+
+// =======================================================================
+// UTF-8 SUPPORT (RED Phase — expected to fail)
+// =======================================================================
+
+#[test]
+fn test_utf8_string_content() {
+    let mut lexer = Lexer::new("\"hello 世界\"");
+    if let TokenKind::Str(s) = lexer.next_token().unwrap().kind {
+        assert_eq!(s, "hello 世界");
+    } else {
+        panic!("Expected Str token");
+    }
+}
+
+#[test]
+fn test_utf8_in_comment() {
+    let mut lexer = Lexer::new("// 日本語 comment\nfn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+}
+
+#[test]
+fn test_utf8_block_comment() {
+    let mut lexer = Lexer::new("/* комментарий */fn");
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Fn);
+}
+
+#[test]
+fn test_non_ascii_identifier_rejected() {
+    let mut lexer = Lexer::new("café");
+    // Should NOT produce an Ident — non-ASCII in identifiers should error
+    let result = lexer.next_token();
+    assert!(result.is_err(), "Non-ASCII identifiers should be rejected");
+}
+
+// =======================================================================
+// SOURCE FILE / SPAN LOCATION TRACKING (RED Phase — expected to fail)
+// =======================================================================
+
+#[test]
+fn test_span_line_col_tracking() {
+    let mut lexer = Lexer::new("fn\nlet\nx");
+    // After consuming all tokens, spans should be correct
+    let t1 = lexer.next_token().unwrap(); // "fn" at line 1
+    let t2 = lexer.next_token().unwrap(); // "let" at line 2
+    let t3 = lexer.next_token().unwrap(); // "x" at line 3
+    // We check spans by comparing byte offsets (easier)
+    assert_eq!(t1.span.start, 0);
+    assert_eq!(t2.span.start, 3); // "fn\n" = 3 bytes
+    assert_eq!(t3.span.start, 7); // "fn\nlet\n" = 7 bytes
+}
+
+#[test]
+fn test_span_after_utf8() {
+    let mut lexer = Lexer::new("\"héllo\"");
+    let tok = lexer.next_token().unwrap();
+    // String content is "héllo" — the span tracks byte offsets not char offsets
+    assert_eq!(tok.span.start, 0);
+    // "héllo" is 7 bytes: h=1, é=2, l=1, l=1, o=1, plus 2 quote chars = 8 total
+    assert_eq!(tok.span.end, 8);
+}

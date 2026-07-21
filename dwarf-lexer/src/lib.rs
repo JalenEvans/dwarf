@@ -85,6 +85,67 @@ impl<'a> Lexer<'a> {
         self.input.as_bytes().get(self.position + 1).copied()
     }
 
+    // ---- UTF-8 aware char helpers ----
+
+    /// Return the Unicode character starting at the current position, if any.
+    fn current_char(&self) -> Option<char> {
+        self.input[self.position..].chars().next()
+    }
+
+    /// Advance `position` by the byte length of the character at the current
+    /// position.  Does nothing if already at EOF.
+    fn advance_char(&mut self) {
+        if let Some(c) = self.current_char() {
+            self.position += c.len_utf8();
+        }
+    }
+
+    // ---- Comment helpers ----
+
+    /// Skip a line comment.  Assumes `//` has already been consumed.
+    /// Advances position past all content until `\n` or EOF (consuming the
+    /// newline if present).
+    fn skip_line_comment(&mut self) {
+        while self.position < self.input.len() {
+            if self.input.as_bytes()[self.position] == b'\n' {
+                self.position += 1; // consume newline
+                break;
+            }
+            self.position += 1;
+        }
+    }
+
+    /// Skip a block comment.  Assumes `/*` has already been consumed.
+    /// Advances position past `*/`.  If EOF is reached before `*/`, the
+    /// comment is truncated silently.
+    fn skip_block_comment(&mut self) {
+        while self.position + 1 < self.input.len() {
+            if self.input.as_bytes()[self.position] == b'*'
+                && self.input.as_bytes()[self.position + 1] == b'/'
+            {
+                self.position += 2; // consume `*/`
+                return;
+            }
+            self.position += 1;
+        }
+        // EOF before `*/` — skip to end gracefully
+        self.position = self.input.len();
+    }
+
+    /// Lex a doc comment starting after `///`.  Assumes `///` has already been
+    /// consumed.  Consumes everything up to (but not including) the newline or
+    /// EOF, and returns a `DocComment` token whose span covers the entire
+    /// `/// comment` range.
+    fn lex_doc_comment(&mut self, start: usize) -> Result<Token, LexError> {
+        while self.position < self.input.len() {
+            if self.input.as_bytes()[self.position] == b'\n' {
+                break;
+            }
+            self.position += 1;
+        }
+        Ok(Token::new(TokenKind::DocComment, Span::new(0, start, self.position)))
+    }
+
     /// Lex the next token starting at the current position.
     /// Assumes there is at least one byte remaining.
     fn lex_token(&mut self) -> Result<Token, LexError> {
@@ -138,6 +199,40 @@ impl<'a> Lexer<'a> {
             return Ok(Token::new(TokenKind::PipePipe, Span::new(0, start, self.position)));
         }
 
+        // --- Comments and slash (must be checked before single-char `b'/'`) ---
+
+        if c == b'/' {
+            match self.next_byte() {
+                Some(b'/') => {
+                    // Check for `///` (doc comment)
+                    if self.position + 2 < self.input.len()
+                        && self.input.as_bytes()[self.position + 2] == b'/'
+                    {
+                        self.position += 3; // skip `///`
+                        return self.lex_doc_comment(start);
+                    }
+                    // `//` line comment — skip without emitting a token
+                    self.position += 2; // skip `//`
+                    self.skip_line_comment();
+                    return self.next_token();
+                }
+                Some(b'*') => {
+                    // `/*` block comment — skip without emitting a token
+                    self.position += 2; // skip `/*`
+                    self.skip_block_comment();
+                    return self.next_token();
+                }
+                _ => {
+                    // Plain `/` operator
+                    self.position += 1;
+                    return Ok(Token::new(
+                        TokenKind::Slash,
+                        Span::new(0, start, self.position),
+                    ));
+                }
+            }
+        }
+
         // --- Single-character tokens ---
 
         match c {
@@ -152,10 +247,6 @@ impl<'a> Lexer<'a> {
             b'*' => {
                 self.position += 1;
                 Ok(Token::new(TokenKind::Star, Span::new(0, start, self.position)))
-            }
-            b'/' => {
-                self.position += 1;
-                Ok(Token::new(TokenKind::Slash, Span::new(0, start, self.position)))
             }
             b'<' => {
                 self.position += 1;
@@ -382,6 +473,9 @@ impl<'a> Lexer<'a> {
 
     /// Lex a string literal (escape-processed) starting at the current
     /// position.  The opening `"` has already been consumed.
+    ///
+    /// Multi-byte UTF-8 characters in the string body are decoded correctly
+    /// rather than being pushed byte-by-byte.
     fn lex_string(&mut self, start: usize) -> Result<Token, LexError> {
         let mut value = String::new();
         loop {
@@ -443,15 +537,20 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                         }
-                        Some(c) => {
-                            self.position += 1;
-                            value.push(c as char);
+                        Some(_) => {
+                            // Unknown escape — include the literal character
+                            // (use UTF-8 aware reading for correctness)
+                            let ch = self.current_char().unwrap();
+                            value.push(ch);
+                            self.advance_char();
                         }
                     }
                 }
-                Some(b) => {
-                    value.push(b as char);
-                    self.position += 1;
+                Some(_) => {
+                    // Regular content character — decode UTF-8 correctly
+                    let ch = self.current_char().unwrap();
+                    value.push(ch);
+                    self.advance_char();
                 }
             }
         }
@@ -481,14 +580,31 @@ impl<'a> Lexer<'a> {
 
     /// Lex an identifier or keyword starting at the current position.
     /// The first character has already been verified to be a letter or `_`.
+    ///
+    /// Only ASCII characters are accepted in identifiers.  If a non-ASCII
+    /// character is encountered (e.g. `é` in `café`), an
+    /// [`LexError::UnexpectedCharacter`] is returned at its byte offset.
     fn lex_identifier_or_keyword(&mut self, start: usize) -> Result<Token, LexError> {
+        let mut first_non_ascii_pos = None;
         while self.position < self.input.len() {
-            let c = self.input.as_bytes()[self.position];
-            if c.is_ascii_alphanumeric() || c == b'_' {
+            let b = self.input.as_bytes()[self.position];
+            if b.is_ascii_alphanumeric() || b == b'_' {
                 self.position += 1;
+            } else if b >= 128 {
+                // Non-ASCII byte — remember the first occurrence and advance
+                // past the full character so position stays correct.
+                if first_non_ascii_pos.is_none() {
+                    first_non_ascii_pos = Some(self.position);
+                }
+                self.advance_char();
             } else {
                 break;
             }
+        }
+        // If any non-ASCII content was embedded in the identifier, error out.
+        if let Some(pos) = first_non_ascii_pos {
+            let ch = self.input[pos..].chars().next().unwrap();
+            return Err(LexError::UnexpectedCharacter(ch, pos));
         }
         let word = &self.input[start..self.position];
         let kind = match word {
