@@ -1,0 +1,12 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Str(\"hello\\nworld\")",
+    "Str(\"tab\\there\")",
+    "Str(\"path\\\\to\\\\file\")",
+    "Str(\"she said \\\"hi\\\"\")",
+    "Str(\"hexHi\")",
+    "Eof",
+]

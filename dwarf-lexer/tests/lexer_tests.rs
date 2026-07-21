@@ -593,6 +593,7 @@ fn test_int_zero() {
 // Float literals
 // -----------------------------------------------------------------------
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_float_simple() {
     let mut lexer = Lexer::new("3.14");
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Float(3.14));
@@ -817,4 +818,118 @@ fn test_span_after_utf8() {
     assert_eq!(tok.span.start, 0);
     // "héllo" is 7 bytes: h=1, é=2, l=1, l=1, o=1, plus 2 quote chars = 8 total
     assert_eq!(tok.span.end, 8);
+}
+
+// =======================================================================
+// TokenizePass (RED Phase — expected to fail)
+// =======================================================================
+
+#[test]
+fn test_tokenize_pass_simple_input() {
+    use dwarf_lexer::pass::TokenizePass;
+
+    let pass = TokenizePass;
+    let result = pass.tokenize("fn main() -> i32");
+    assert!(result.is_ok(), "TokenizePass should succeed on valid input");
+    let tokens = result.unwrap();
+    assert!(!tokens.is_empty(), "Should produce at least one token");
+    assert_eq!(tokens.last().unwrap().kind, TokenKind::Eof);
+}
+
+#[test]
+fn test_tokenize_pass_empty() {
+    use dwarf_lexer::pass::TokenizePass;
+
+    let pass = TokenizePass;
+    let tokens = pass.tokenize("").unwrap();
+    assert_eq!(tokens.len(), 1, "Empty input should produce just Eof");
+    assert_eq!(tokens[0].kind, TokenKind::Eof);
+}
+
+// =======================================================================
+// Insta Snapshot Tests
+// =======================================================================
+
+#[test]
+fn test_snapshot_keywords() {
+    let input = "fn type let match if else for import from module pub true false null";
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("keywords", tokens);
+}
+
+#[test]
+fn test_snapshot_operators() {
+    let input = "+ - * / == != < > <= >= && || ! = : -> |> ? _ . , @ ( ) { } [ ]";
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("operators", tokens);
+}
+
+#[test]
+fn test_snapshot_literals() {
+    let input = r#"42 0xFF 0b1010 0o77 1_000_000 3.14 1e10 "hello" r"raw" true false null"#;
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("literals", tokens);
+}
+
+#[test]
+fn test_snapshot_fn_declaration() {
+    let input = "fn add(a: i32, b: i32) -> i32 { a + b }";
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("fn_declaration", tokens);
+}
+
+#[test]
+fn test_snapshot_comments_and_whitespace() {
+    let input = "// line comment\nfn /* block */ let /// doc\nimport";
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("comments_and_whitespace", tokens);
+}
+
+#[test]
+fn test_snapshot_string_escapes() {
+    let input = r#""hello\nworld" "tab\there" "path\\to\\file" "she said \"hi\"" "hex\x48\x69""#;
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof { break; }
+    }
+    insta::assert_debug_snapshot!("string_escapes", tokens);
 }

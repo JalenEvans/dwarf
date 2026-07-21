@@ -1,0 +1,35 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Plus",
+    "Minus",
+    "Star",
+    "Slash",
+    "EqEq",
+    "BangEq",
+    "Lt",
+    "Gt",
+    "LtEq",
+    "GtEq",
+    "AmpAmp",
+    "PipePipe",
+    "Bang",
+    "Eq",
+    "Colon",
+    "Arrow",
+    "PipeGt",
+    "Question",
+    "Underscore",
+    "Dot",
+    "Comma",
+    "At",
+    "LParen",
+    "RParen",
+    "LBrace",
+    "RBrace",
+    "LBracket",
+    "RBracket",
+    "Eof",
+]
