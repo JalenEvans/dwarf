@@ -24,15 +24,46 @@ impl Parser {
     }
 
     /// Parse the full token stream into a list of declarations.
-    pub fn parse(&mut self) -> Result<Vec<Decl>, ParseError> {
+    /// Returns a tuple of (successful declarations, parse errors).
+    /// When a declaration fails to parse, the parser enters panic-mode
+    /// recovery: it skips tokens until it finds a declaration boundary
+    /// (fn, type, import, @, pub, or eof), then continues.
+    pub fn parse(&mut self) -> (Vec<Decl>, Vec<ParseError>) {
         let mut decls = Vec::new();
+        let mut errors = Vec::new();
+
         while !self.is_at_end() {
             // The `pub` modifier is consumed *before* the declaration
             let is_pub = self.check_and_advance(TokenKind::Pub);
-            let decl = self.parse_declaration(is_pub)?;
-            decls.push(decl);
+
+            match self.parse_declaration(is_pub) {
+                Ok(decl) => decls.push(decl),
+                Err(e) => {
+                    errors.push(e);
+                    // Panic-mode recovery: skip to next declaration boundary
+                    self.sync_to_declaration_boundary();
+                }
+            }
         }
-        Ok(decls)
+
+        (decls, errors)
+    }
+
+    /// Panic-mode recovery: skip tokens until we reach a declaration
+    /// boundary (fn, type, import, @, pub, or eof).
+    fn sync_to_declaration_boundary(&mut self) {
+        while !self.is_at_end() {
+            match &self.peek().kind {
+                TokenKind::Fn
+                | TokenKind::Type
+                | TokenKind::Import
+                | TokenKind::At
+                | TokenKind::Pub => return,
+                _ => {
+                    self.advance();
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -985,7 +1016,7 @@ mod tests {
     fn test_parse_empty_input() {
         let tokens = tokenize("");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert!(program.is_empty());
     }
 
@@ -993,7 +1024,7 @@ mod tests {
     fn test_parse_single_literal_expr() {
         let tokens = tokenize("42");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert!(!program.is_empty());
     }
 
@@ -1001,7 +1032,7 @@ mod tests {
     fn test_parse_fn_declaration() {
         let tokens = tokenize("fn add(a: i32, b: i32) -> i32 { a + b }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
         match &program[0] {
             Decl::Function {
@@ -1022,7 +1053,7 @@ mod tests {
     fn test_parse_fn_no_params() {
         let tokens = tokenize("fn main() { 42 }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
         assert!(matches!(&program[0], Decl::Function { name, .. } if name == "main"));
     }
@@ -1031,7 +1062,7 @@ mod tests {
     fn test_parse_import_decl() {
         let tokens = tokenize("import math from \"std\"");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
         assert!(matches!(&program[0], Decl::Import { module, .. } if module == "std"));
     }
@@ -1040,7 +1071,7 @@ mod tests {
     fn test_parse_type_alias() {
         let tokens = tokenize("type Age = i32");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
         assert!(matches!(&program[0], Decl::TypeDef { name, .. } if name == "Age"));
     }
@@ -1049,7 +1080,7 @@ mod tests {
     fn test_parse_record_def() {
         let tokens = tokenize("type Person = { name: string, age: i32 }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1057,7 +1088,7 @@ mod tests {
     fn test_parse_union_def() {
         let tokens = tokenize("type Option = Some(value) | None");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1065,7 +1096,7 @@ mod tests {
     fn test_parse_if_expr() {
         let tokens = tokenize("fn test() { if x > 0 { 1 } else { 0 } }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1073,7 +1104,7 @@ mod tests {
     fn test_parse_match_expr() {
         let tokens = tokenize("fn test() { match x { 1 => \"one\", _ => \"other\" } }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1081,7 +1112,7 @@ mod tests {
     fn test_parse_pipe_expr() {
         let tokens = tokenize("fn test() { x |> transform }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1089,7 +1120,7 @@ mod tests {
     fn test_parse_lambda() {
         let tokens = tokenize("fn test() { |x: i32| x + 1 }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1097,7 +1128,7 @@ mod tests {
     fn test_parse_for_loop() {
         let tokens = tokenize("fn test() { for x in items { process(x) } }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1105,7 +1136,7 @@ mod tests {
     fn test_parse_pub_decl() {
         let tokens = tokenize("pub fn add(a: i32) -> i32 { a }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 1);
     }
 
@@ -1113,7 +1144,7 @@ mod tests {
     fn test_parse_multiple_decls() {
         let tokens = tokenize("fn a() { 1 } fn b() { 2 }");
         let mut parser = Parser::new(tokens);
-        let program = parser.parse().unwrap();
+        let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 2);
     }
 }
