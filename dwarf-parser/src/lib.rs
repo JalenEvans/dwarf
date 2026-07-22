@@ -10,7 +10,17 @@ use dwarf_syntax::token::{Token, TokenKind};
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
+    depth: usize,
 }
+
+/// Maximum allowed recursion depth for parsing.
+/// Exceeding this produces a `ParseError` instead of a stack overflow.
+///
+/// Chosen conservatively at 128 so that worst-case debug-mode frames
+/// (~12 frames per expression-nesting level × ~1 KB each) fit within
+/// a typical 2 MiB Rust test-thread stack.  This is the same limit
+/// rustc uses for its parser.
+const MAX_DEPTH: usize = 128;
 
 /// An error produced by the parser when it encounters invalid syntax.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +32,11 @@ pub struct ParseError {
 impl Parser {
     /// Create a new parser from a vector of tokens (including the final Eof).
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, position: 0 }
+        Self {
+            tokens,
+            position: 0,
+            depth: 0,
+        }
     }
 
     /// Parse the full token stream into a list of declarations.
@@ -400,7 +414,17 @@ impl Parser {
     //   Call / Primary (f() .field ?)
 
     fn parse_expression(&mut self) -> Result<Expr, ParseError> {
-        self.parse_pipe()
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            self.depth -= 1;
+            return Err(ParseError {
+                message: "recursion depth limit exceeded".to_string(),
+                span: self.peek().span,
+            });
+        }
+        let result = self.parse_pipe();
+        self.depth -= 1;
+        result
     }
 
     fn parse_pipe(&mut self) -> Result<Expr, ParseError> {
@@ -896,11 +920,24 @@ impl Parser {
     // ========================================================================
 
     fn parse_type(&mut self) -> Result<Type, ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            self.depth -= 1;
+            return Err(ParseError {
+                message: "recursion depth limit exceeded".to_string(),
+                span: self.peek().span,
+            });
+        }
+
         if self.check(TokenKind::LBrace) {
-            return self.parse_record_type();
+            let result = self.parse_record_type();
+            self.depth -= 1;
+            return result;
         }
         if self.check(TokenKind::LParen) {
-            return self.parse_func_type();
+            let result = self.parse_func_type();
+            self.depth -= 1;
+            return result;
         }
 
         // Simple named type, possibly with generics and/or union suffix.
@@ -917,11 +954,15 @@ impl Parser {
             let base_type = Type::Generic { base: name, args };
 
             // Union suffix: Type<A> | B
-            return self.parse_union_suffix(base_type);
+            let result = self.parse_union_suffix(base_type);
+            self.depth -= 1;
+            return result;
         }
 
         // Union suffix: Type1 | Type2
-        self.parse_union_suffix(Type::Named(name))
+        let result = self.parse_union_suffix(Type::Named(name));
+        self.depth -= 1;
+        result
     }
 
     /// If the next token is `|`, parse additional union type members and

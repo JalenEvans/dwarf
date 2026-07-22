@@ -363,3 +363,77 @@ fn test_multiple_doc_comments() {
     assert_eq!(decls.len(), 1);
     assert!(errors.is_empty());
 }
+
+// ============================================================================
+// Recursion depth limiting tests
+//
+// The parser is recursive descent with no depth guard. Deeply nested input
+// (e.g. thousands of '(') overflows the stack and aborts the process.
+// The parser should enforce a recursion depth limit and report a graceful
+// ParseError instead of crashing.
+//
+// The deep-nesting tests will FAIL until the depth limit is implemented:
+// either the process aborts with a stack overflow, or the input parses
+// successfully and the `!errors.is_empty()` assertion fails.
+// ============================================================================
+
+#[test]
+fn test_deeply_nested_expression_graceful_error() {
+    // 1000 nested parens should error gracefully, not crash
+    let mut input = String::new();
+    for _ in 0..1000 {
+        input.push('(');
+    }
+    input.push('1');
+    for _ in 0..1000 {
+        input.push(')');
+    }
+
+    let tokens = tokenize(&input);
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+
+    // Should have a recursion depth error, not crash
+    assert!(!errors.is_empty(), "Should report recursion depth error");
+    assert!(errors.iter().any(|e| e.message.contains("recursion") || e.message.contains("depth") || e.message.contains("too deep")),
+        "Error should mention recursion/depth");
+}
+
+#[test]
+fn test_moderate_nesting_works() {
+    // 50 nested parens should still work
+    let mut input = String::new();
+    for _ in 0..50 {
+        input.push('(');
+    }
+    input.push('1');
+    for _ in 0..50 {
+        input.push(')');
+    }
+
+    let tokens = tokenize(&input);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "Moderate nesting should parse fine");
+    assert_eq!(decls.len(), 1);
+}
+
+#[test]
+fn test_deeply_nested_type_graceful_error() {
+    // Deeply nested type: ((((((...i32...))))))
+    let mut input = String::from("type X = ");
+    for _ in 0..1000 {
+        input.push('(');
+    }
+    input.push_str("i32");
+    for _ in 0..1000 {
+        input.push(')');
+    }
+
+    let tokens = tokenize(&input);
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+
+    assert!(!errors.is_empty(), "Should report recursion depth error for types");
+}
