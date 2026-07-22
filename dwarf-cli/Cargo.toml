@@ -3,6 +3,14 @@ name = "dwarf-cli"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "dwarf_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dwarf-cli"
+path = "src/main.rs"
+
 [dependencies]
 dwarf-syntax = { path = "../dwarf-syntax" }
 dwarf-lexer = { path = "../dwarf-lexer" }
