@@ -361,7 +361,12 @@ impl Parser {
     }
 
     /// Parse a record definition: `type Name = { field: Type, ... }`.
-    fn parse_record_def(&mut self, name: String, start: Span, is_pub: bool) -> Result<Decl, ParseError> {
+    fn parse_record_def(
+        &mut self,
+        name: String,
+        start: Span,
+        is_pub: bool,
+    ) -> Result<Decl, ParseError> {
         self.advance(); // consume '{'
         let mut fields = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
@@ -384,7 +389,12 @@ impl Parser {
     }
 
     /// Parse a union definition: `type Name = Variant(Type) | Variant2 | ...`.
-    fn parse_union_def(&mut self, name: String, start: Span, is_pub: bool) -> Result<Decl, ParseError> {
+    fn parse_union_def(
+        &mut self,
+        name: String,
+        start: Span,
+        is_pub: bool,
+    ) -> Result<Decl, ParseError> {
         let mut variants = Vec::new();
         loop {
             let var_name = self.consume_ident("expected variant name")?;
@@ -408,7 +418,10 @@ impl Parser {
                 self.consume(TokenKind::RBrace, "expected '}' after variant fields")?;
                 // Store braced variant arg as a Record type
                 Some(Type::Record(
-                    fields.into_iter().map(|f| (f.name, Box::new(f.type_))).collect(),
+                    fields
+                        .into_iter()
+                        .map(|f| (f.name, Box::new(f.type_)))
+                        .collect(),
                 ))
             } else {
                 None
@@ -764,10 +777,7 @@ impl Parser {
                 self.consume(TokenKind::RParen, "expected ')' after expression")?;
                 Ok(expr)
             }
-            _ => Err(self.error(&format!(
-                "unexpected token: {:?}",
-                self.peek().kind
-            ))),
+            _ => Err(self.error(&format!("unexpected token: {:?}", self.peek().kind))),
         }
     }
 
@@ -1010,7 +1020,10 @@ impl Parser {
                         self.match_token(TokenKind::Comma);
                     }
                     self.consume(TokenKind::RBrace, "expected '}' after record pattern")?;
-                    Ok(Pat::Record { fields, rest: false })
+                    Ok(Pat::Record {
+                        fields,
+                        rest: false,
+                    })
                 } else if name.starts_with(|c: char| c.is_uppercase()) {
                     // Uppercase identifier without payload → unit variant
                     Ok(Pat::Variant { name, arg: None })

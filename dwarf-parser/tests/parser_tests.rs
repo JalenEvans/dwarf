@@ -29,7 +29,10 @@ fn test_parse_empty_input() {
     let tokens = tokenize("");
     let mut parser = Parser::new(tokens);
     let (program, _errors) = parser.parse();
-    assert!(program.is_empty(), "Empty input should produce no declarations");
+    assert!(
+        program.is_empty(),
+        "Empty input should produce no declarations"
+    );
 }
 
 #[test]
@@ -181,9 +184,16 @@ fn test_error_recovery_missing_rparen() {
     let (decls, errors) = parser.parse();
 
     // Should recover past the broken function and parse the next one
-    assert!(!decls.is_empty(), "Should parse at least one declaration despite error");
+    assert!(
+        !decls.is_empty(),
+        "Should parse at least one declaration despite error"
+    );
     // The second function 'ok' should still be parsed
-    assert_eq!(decls.len(), 1, "Only the valid function parses; broken one is skipped");
+    assert_eq!(
+        decls.len(),
+        1,
+        "Only the valid function parses; broken one is skipped"
+    );
     if let Decl::Function { name, .. } = &decls[0] {
         assert_eq!(name, "ok", "The recovered function should be 'ok'");
     } else {
@@ -261,7 +271,10 @@ fn test_error_recovery_preserves_valid_decls() {
 
     // first() and third() are valid; broken( errors and is skipped
     assert_eq!(decls.len(), 2, "Should parse the two valid functions");
-    assert!(!errors.is_empty(), "Should record the broken function error");
+    assert!(
+        !errors.is_empty(),
+        "Should record the broken function error"
+    );
 
     // Verify first and third are valid
     if let Decl::Function { name, .. } = &decls[0] {
@@ -395,8 +408,12 @@ fn test_deeply_nested_expression_graceful_error() {
 
     // Should have a recursion depth error, not crash
     assert!(!errors.is_empty(), "Should report recursion depth error");
-    assert!(errors.iter().any(|e| e.message.contains("recursion") || e.message.contains("depth") || e.message.contains("too deep")),
-        "Error should mention recursion/depth");
+    assert!(
+        errors.iter().any(|e| e.message.contains("recursion")
+            || e.message.contains("depth")
+            || e.message.contains("too deep")),
+        "Error should mention recursion/depth"
+    );
 }
 
 #[test]
@@ -435,7 +452,10 @@ fn test_deeply_nested_type_graceful_error() {
     let mut parser = Parser::new(tokens);
     let (_decls, errors) = parser.parse();
 
-    assert!(!errors.is_empty(), "Should report recursion depth error for types");
+    assert!(
+        !errors.is_empty(),
+        "Should report recursion depth error for types"
+    );
 }
 
 // ============================================================================
@@ -525,7 +545,11 @@ fn test_union_def_braced_variant() {
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
 
-    assert!(errors.is_empty(), "No errors for braced union: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "No errors for braced union: {:?}",
+        errors
+    );
     assert_eq!(decls.len(), 1);
 
     match &decls[0] {
@@ -533,7 +557,10 @@ fn test_union_def_braced_variant() {
             assert_eq!(name, "Shape");
             assert_eq!(variants.len(), 2);
             assert_eq!(variants[0].name, "Circle");
-            assert!(variants[0].arg.is_some(), "Circle should have record payload");
+            assert!(
+                variants[0].arg.is_some(),
+                "Circle should have record payload"
+            );
             assert_eq!(variants[1].name, "Nothing");
             assert!(variants[1].arg.is_none());
         }
@@ -605,7 +632,10 @@ fn test_literal_has_span() {
                 if let Expr::Literal { value, span } = expr {
                     assert_eq!(*value, LiteralValue::Int(42));
                     assert!(span.start > 0, "Literal span should not be zero");
-                    assert!(span.end > span.start, "Literal span should have positive length");
+                    assert!(
+                        span.end > span.start,
+                        "Literal span should have positive length"
+                    );
                 } else {
                     panic!("Expected Expr::Literal");
                 }
@@ -796,7 +826,11 @@ fn test_match_variant_pattern_some() {
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
 
-    assert!(errors.is_empty(), "Variant patterns should parse: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "Variant patterns should parse: {:?}",
+        errors
+    );
     assert_eq!(decls.len(), 1);
 
     if let Decl::Function { body, .. } = &decls[0] {
@@ -804,11 +838,15 @@ fn test_match_variant_pattern_some() {
             if let Some(Stmt::Expr(Expr::Match { arms, .. })) = stmts.first() {
                 assert_eq!(arms.len(), 2);
                 // First arm: Some(val) => val
-                assert!(matches!(&arms[0].pattern, Pat::Variant { name, .. } if name == "Some"),
-                    "Expected Pat::Variant for Some");
+                assert!(
+                    matches!(&arms[0].pattern, Pat::Variant { name, .. } if name == "Some"),
+                    "Expected Pat::Variant for Some"
+                );
                 // Second arm: None => 0
-                assert!(matches!(&arms[1].pattern, Pat::Variant { name, .. } if name == "None"),
-                    "Expected Pat::Variant for None");
+                assert!(
+                    matches!(&arms[1].pattern, Pat::Variant { name, .. } if name == "None"),
+                    "Expected Pat::Variant for None"
+                );
             } else {
                 panic!("Expected Match expr");
             }
@@ -834,7 +872,11 @@ fn test_match_nested_variant_pattern() {
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
 
-    assert!(errors.is_empty(), "Nested variant patterns should parse: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "Nested variant patterns should parse: {:?}",
+        errors
+    );
     assert_eq!(decls.len(), 1);
 }
 

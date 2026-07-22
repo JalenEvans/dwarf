@@ -1,6 +1,6 @@
 //! Pass wrappers for the lexer.
 
-use crate::{Lexer, LexError};
+use crate::{LexError, Lexer};
 use dwarf_syntax::token::Token;
 
 /// A pass that tokenizes source text into a token stream.

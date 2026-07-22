@@ -90,15 +90,9 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     /// Literal value (int, float, string, bool, null)
-    Literal {
-        value: LiteralValue,
-        span: Span,
-    },
+    Literal { value: LiteralValue, span: Span },
     /// Variable reference
-    Variable {
-        name: String,
-        span: Span,
-    },
+    Variable { name: String, span: Span },
     /// Function call
     Call {
         func: Box<Expr>,
@@ -125,10 +119,7 @@ pub enum Expr {
         span: Span,
     },
     /// Block expression (sequence of statements)
-    Block {
-        stmts: Vec<Stmt>,
-        span: Span,
-    },
+    Block { stmts: Vec<Stmt>, span: Span },
     /// Pipe operator (|>)
     Pipe {
         lhs: Box<Expr>,
@@ -136,10 +127,7 @@ pub enum Expr {
         span: Span,
     },
     /// Propagate operator (?)
-    Propagate {
-        expr: Box<Expr>,
-        span: Span,
-    },
+    Propagate { expr: Box<Expr>, span: Span },
     /// For loop
     For {
         binding: Pat,
@@ -171,14 +159,9 @@ pub enum Expr {
         span: Span,
     },
     /// Array literal
-    Array {
-        items: Vec<Expr>,
-        span: Span,
-    },
+    Array { items: Vec<Expr>, span: Span },
     /// Wildcard expression
-    Wildcard {
-        span: Span,
-    },
+    Wildcard { span: Span },
     /// Binary operation
     Binary {
         op: BinaryOp,

@@ -16,7 +16,11 @@ pub struct Span {
 impl Span {
     /// Create a new span.
     pub fn new(file_id: usize, start: usize, end: usize) -> Self {
-        Self { file_id, start, end }
+        Self {
+            file_id,
+            start,
+            end,
+        }
     }
 
     /// Create a zero-length span at the given position (for synthetic tokens).

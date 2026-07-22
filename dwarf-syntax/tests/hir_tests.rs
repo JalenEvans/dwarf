@@ -42,7 +42,13 @@ fn test_function_decl_construction() {
         span: Default::default(),
     };
 
-    if let Decl::Function { name, params, return_type, .. } = &decl {
+    if let Decl::Function {
+        name,
+        params,
+        return_type,
+        ..
+    } = &decl
+    {
         assert_eq!(name, "add");
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");
@@ -171,7 +177,10 @@ fn test_decorator_decl_construction() {
         span: Default::default(),
     };
 
-    if let Decl::Decorator { name, args, target, .. } = &decl {
+    if let Decl::Decorator {
+        name, args, target, ..
+    } = &decl
+    {
         assert_eq!(name, "route");
         assert_eq!(args.len(), 1);
         assert!(matches!(target.as_ref(), Decl::Function { name, .. } if name == "hello"));
@@ -215,9 +224,24 @@ fn test_if_expr_no_else() {
         span: Default::default(),
     };
 
-    if let Expr::If { cond, then, else_, .. } = &expr {
-        assert!(matches!(cond.as_ref(), Expr::Literal { value: LiteralValue::Bool(true), .. }));
-        assert!(matches!(then.as_ref(), Expr::Literal { value: LiteralValue::Int(1), .. }));
+    if let Expr::If {
+        cond, then, else_, ..
+    } = &expr
+    {
+        assert!(matches!(
+            cond.as_ref(),
+            Expr::Literal {
+                value: LiteralValue::Bool(true),
+                ..
+            }
+        ));
+        assert!(matches!(
+            then.as_ref(),
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                ..
+            }
+        ));
         assert!(else_.is_none());
     } else {
         panic!("Expected If expr");
@@ -383,7 +407,13 @@ fn test_assign_expr() {
 
     if let Expr::Assign { target, value, .. } = &expr {
         assert!(matches!(target.as_ref(), Expr::Variable { name, .. } if name == "x"));
-        assert!(matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Int(42), .. }));
+        assert!(matches!(
+            value.as_ref(),
+            Expr::Literal {
+                value: LiteralValue::Int(42),
+                ..
+            }
+        ));
     } else {
         panic!("Expected Assign expr");
     }
@@ -414,7 +444,13 @@ fn test_lambda_expr() {
     if let Expr::Lambda { params, body, .. } = &expr {
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "x");
-        assert!(matches!(body.as_ref(), Expr::Binary { op: BinaryOp::Add, .. }));
+        assert!(matches!(
+            body.as_ref(),
+            Expr::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        ));
     } else {
         panic!("Expected Lambda expr");
     }
@@ -424,14 +460,20 @@ fn test_lambda_expr() {
 fn test_record_literal_expr() {
     let expr = Expr::Record {
         fields: vec![
-            ("x".to_string(), Expr::Literal {
-                value: LiteralValue::Int(10),
-                span: Span::default(),
-            }),
-            ("y".to_string(), Expr::Literal {
-                value: LiteralValue::Int(20),
-                span: Span::default(),
-            }),
+            (
+                "x".to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Int(10),
+                    span: Span::default(),
+                },
+            ),
+            (
+                "y".to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Int(20),
+                    span: Span::default(),
+                },
+            ),
         ],
         span: Default::default(),
     };
@@ -439,7 +481,13 @@ fn test_record_literal_expr() {
     if let Expr::Record { fields, .. } = &expr {
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].0, "x");
-        assert!(matches!(fields[0].1, Expr::Literal { value: LiteralValue::Int(10), .. }));
+        assert!(matches!(
+            fields[0].1,
+            Expr::Literal {
+                value: LiteralValue::Int(10),
+                ..
+            }
+        ));
         assert_eq!(fields[1].0, "y");
     } else {
         panic!("Expected Record expr");
@@ -600,7 +648,10 @@ fn test_type_record() {
 #[test]
 fn test_type_func() {
     let type_ = Type::Func {
-        params: vec![Type::Named("i32".to_string()), Type::Named("i32".to_string())],
+        params: vec![
+            Type::Named("i32".to_string()),
+            Type::Named("i32".to_string()),
+        ],
         return_: Box::new(Type::Named("i32".to_string())),
     };
 
@@ -713,7 +764,13 @@ fn test_unary_op_variants() {
 
     if let Expr::Unary { op, expr, .. } = &expr {
         assert!(matches!(op, UnaryOp::Neg));
-        assert!(matches!(expr.as_ref(), Expr::Literal { value: LiteralValue::Int(42), .. }));
+        assert!(matches!(
+            expr.as_ref(),
+            Expr::Literal {
+                value: LiteralValue::Int(42),
+                ..
+            }
+        ));
     } else {
         panic!("Expected Unary expr");
     }
@@ -734,7 +791,13 @@ fn test_binary_expr_comparison() {
         span: Default::default(),
     };
 
-    assert!(matches!(expr, Expr::Binary { op: BinaryOp::Gt, .. }));
+    assert!(matches!(
+        expr,
+        Expr::Binary {
+            op: BinaryOp::Gt,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -776,7 +839,12 @@ fn test_deeply_nested_expr() {
         assert_eq!(args.len(), 2);
         // Second arg should be a nested Call
         assert!(matches!(&args[1], Expr::Call { .. }));
-        if let Expr::Call { func: nested_func, args: nested_args, .. } = &args[1] {
+        if let Expr::Call {
+            func: nested_func,
+            args: nested_args,
+            ..
+        } = &args[1]
+        {
             assert!(matches!(nested_func.as_ref(), Expr::Variable { name, .. } if name == "mul"));
             assert_eq!(nested_args.len(), 2);
         } else {

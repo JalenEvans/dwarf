@@ -1,7 +1,7 @@
 //! Implementation of the `dwarf check` subcommand.
 
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 use std::process;
 
 use dwarf_cli::pass_manager::*;
@@ -60,26 +60,29 @@ pub fn run_check(
     if json {
         let output = JsonOutput {
             ok: !has_errors,
-            results: all_results.iter().map(|r| {
-                json!({
-                    "file": r.file,
-                    "success": r.success,
-                    "errors": r.diagnostics.iter().map(|d| {
-                        json!({
-                            "code": d.code,
-                            "severity": match d.severity {
-                                Severity::Error => "error",
-                                Severity::Warning => "warning",
-                                Severity::Info => "info",
-                            },
-                            "message": d.message,
-                            "file": d.file,
-                            "line": d.line,
-                            "col": d.col,
-                        })
-                    }).collect::<Vec<_>>(),
+            results: all_results
+                .iter()
+                .map(|r| {
+                    json!({
+                        "file": r.file,
+                        "success": r.success,
+                        "errors": r.diagnostics.iter().map(|d| {
+                            json!({
+                                "code": d.code,
+                                "severity": match d.severity {
+                                    Severity::Error => "error",
+                                    Severity::Warning => "warning",
+                                    Severity::Info => "info",
+                                },
+                                "message": d.message,
+                                "file": d.file,
+                                "line": d.line,
+                                "col": d.col,
+                            })
+                        }).collect::<Vec<_>>(),
+                    })
                 })
-            }).collect::<Vec<_>>(),
+                .collect::<Vec<_>>(),
         };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
