@@ -5,7 +5,7 @@
 //! NOTE: These are expected to FAIL until the Parser is implemented.
 
 use dwarf_lexer::Lexer;
-use dwarf_parser::Parser;
+use dwarf_parser::{ParseError, Parser};
 use dwarf_syntax::hir::*;
 use dwarf_syntax::token::TokenKind;
 
@@ -846,4 +846,25 @@ fn test_match_variant_pattern_single_arm() {
 
     assert!(errors.is_empty());
     assert_eq!(decls.len(), 1);
+}
+
+// ============================================================================
+// ParseError code field tests
+//
+// These tests will FAIL with a compile error because `ParseError` does not
+// yet have a `code` field. The `code` field should be of type `&'static str`
+// and hold an error code like "DWARF-E-PARSE-0001".
+// ============================================================================
+
+#[test]
+fn test_parse_error_has_code() {
+    use dwarf_syntax::span::Span;
+
+    // ParseError should have a code field
+    let err = ParseError {
+        message: "test error".to_string(),
+        span: Span::default(),
+        code: "DWARF-E-PARSE-0001",
+    };
+    assert_eq!(err.code, "DWARF-E-PARSE-0001");
 }

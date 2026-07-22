@@ -26,6 +26,7 @@ const MAX_DEPTH: usize = 64;
 pub struct ParseError {
     pub message: String,
     pub span: Span,
+    pub code: &'static str,
 }
 
 impl Parser {
@@ -171,6 +172,7 @@ impl Parser {
         ParseError {
             message: message.to_string(),
             span: self.peek().span,
+            code: "", // generic — no specific code
         }
     }
 
@@ -477,6 +479,7 @@ impl Parser {
             return Err(ParseError {
                 message: "recursion depth limit exceeded".to_string(),
                 span: self.peek().span,
+                code: "DWARF-E-PARSE-0004",
             });
         }
         let result = self.parse_pipe();
@@ -1030,6 +1033,7 @@ impl Parser {
             return Err(ParseError {
                 message: "recursion depth limit exceeded".to_string(),
                 span: self.peek().span,
+                code: "DWARF-E-PARSE-0004",
             });
         }
 

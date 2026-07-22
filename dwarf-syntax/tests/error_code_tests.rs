@@ -20,3 +20,16 @@ fn test_error_code_format() {
         assert!(code.len() > 8, "Error code should have more than just prefix: {}", code);
     }
 }
+
+#[test]
+fn test_parser_error_codes_registered() {
+    // Check that DWARF-E-PARSE codes are in the registry
+    let has_parse_codes = ERROR_CODES.iter().any(|c| c.starts_with("DWARF-E-PARSE"));
+    assert!(has_parse_codes, "Parser error codes must be registered");
+}
+
+#[test]
+fn test_error_code_count_increased() {
+    // Should be at least 10 error codes (5 lex + 5+ parse)
+    assert!(ERROR_CODES.len() >= 10, "Expected at least 10 error codes");
+}
