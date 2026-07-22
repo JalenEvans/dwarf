@@ -147,7 +147,7 @@ fn test_cli_json_output_with_errors() {
     assert_eq!(json["ok"], false, "JSON should have ok: false for errors");
     assert!(json["errors"].is_array(), "JSON should have errors array");
     assert!(
-        json["errors"].as_array().map_or(false, |e| !e.is_empty()),
+        json["errors"].as_array().is_some_and(|e| !e.is_empty()),
         "JSON errors array should not be empty"
     );
 

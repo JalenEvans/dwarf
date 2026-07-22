@@ -7,6 +7,7 @@ use std::process;
 use dwarf_cli::pass_manager::*;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
+use dwarf_syntax::diagnostic::format_diagnostic;
 
 use serde::Serialize;
 use serde_json::json;
@@ -84,11 +85,16 @@ pub fn run_check(
     } else {
         for result in &all_results {
             for diag in &result.diagnostics {
-                let file_info = match &diag.file {
-                    Some(f) => format!("{}:{}:{}", f.display(), diag.line.unwrap_or(0), diag.col.unwrap_or(0)),
-                    None => format!("{}:{}", diag.line.unwrap_or(0), diag.col.unwrap_or(0)),
-                };
-                eprintln!("error[{}]: {} at {}", diag.code, diag.message, file_info);
+                let file_str = diag.file.as_ref().map(|f| f.to_string_lossy().to_string());
+                let formatted = format_diagnostic(
+                    file_str.as_deref(),
+                    &result.source,
+                    &diag.code,
+                    &diag.message,
+                    diag.line.unwrap_or(0),
+                    diag.col.unwrap_or(0),
+                );
+                eprint!("{}", formatted);
             }
         }
     }
@@ -102,6 +108,7 @@ struct FileResult {
     file: String,
     success: bool,
     diagnostics: Vec<Diagnostic>,
+    source: String,
 }
 
 fn process_file(file_path: &PathBuf, pm: &PassManager, options: &CompileOptions) -> FileResult {
@@ -122,10 +129,12 @@ fn process_file(file_path: &PathBuf, pm: &PassManager, options: &CompileOptions)
                     line: None,
                     col: None,
                 }],
+                source: String::new(),
             };
         }
     };
 
+    let source_for_result = source.clone();
     let mut unit = CompilationUnit::new(source);
     unit.path = Some(file_path.clone());
 
@@ -140,6 +149,7 @@ fn process_file(file_path: &PathBuf, pm: &PassManager, options: &CompileOptions)
         file: path_str,
         success: ctx.diagnostics().is_empty(),
         diagnostics: ctx.diagnostics().to_vec(),
+        source: source_for_result,
     }
 }
 

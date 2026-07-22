@@ -223,13 +223,16 @@ impl Pass for ParsePass {
         match self.parse(unit.source.clone()) {
             Ok((decls, parse_errors)) => {
                 for err in &parse_errors {
+                    let (line, col) =
+                        dwarf_syntax::diagnostic::byte_to_line_col(&unit.source, err.span.start)
+                            .unwrap_or((0, 0));
                     ctx.push_diagnostic(Diagnostic {
-                        code: "DWARF-E-PARSE-0001".to_string(),
+                        code: err.code.to_string(),
                         severity: Severity::Error,
                         message: err.message.clone(),
                         file: unit.path.clone(),
-                        line: None,
-                        col: None,
+                        line: Some(line),
+                        col: Some(col),
                     });
                 }
                 unit.decls = Some(decls);
