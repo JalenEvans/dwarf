@@ -38,6 +38,7 @@ fn test_function_decl_construction() {
             value: LiteralValue::Int(0),
             span: Span::default(),
         },
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -57,6 +58,7 @@ fn test_import_decl_construction() {
     let decl = Decl::Import {
         module: "std.io".to_string(),
         names: vec!["println".to_string(), "readln".to_string()],
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -74,6 +76,7 @@ fn test_type_def_decl_construction() {
     let decl = Decl::TypeDef {
         name: "MyInt".to_string(),
         type_: Type::Named("i64".to_string()),
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -99,6 +102,7 @@ fn test_record_def_decl_construction() {
                 type_: Type::Named("f64".to_string()),
             },
         ],
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -126,6 +130,7 @@ fn test_union_def_decl_construction() {
                 arg: None,
             },
         ],
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -151,6 +156,7 @@ fn test_decorator_decl_construction() {
             value: LiteralValue::Null,
             span: Span::default(),
         },
+        is_pub: false,
         span: Default::default(),
     };
 
@@ -161,6 +167,7 @@ fn test_decorator_decl_construction() {
             span: Span::default(),
         }],
         target: Box::new(inner),
+        is_pub: false,
         span: Default::default(),
     };
 

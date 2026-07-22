@@ -187,9 +187,9 @@ impl Parser {
         }
 
         match &self.peek().kind {
-            TokenKind::Import => self.parse_import(),
+            TokenKind::Import => self.parse_import(is_pub),
             TokenKind::Fn => self.parse_function(is_pub),
-            TokenKind::Type => self.parse_type_decl(),
+            TokenKind::Type => self.parse_type_decl(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
                 // function so the top-level parse produces at least one decl.
@@ -200,6 +200,7 @@ impl Parser {
                     params: Vec::new(),
                     return_type: None,
                     body: expr,
+                    is_pub,
                     span,
                 })
             }
@@ -207,7 +208,7 @@ impl Parser {
     }
 
     /// Parse `import names from "module"`.
-    fn parse_import(&mut self) -> Result<Decl, ParseError> {
+    fn parse_import(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
         let start = self.advance().span; // consume `import`
         let names = self.parse_import_names()?;
         self.consume(TokenKind::From, "expected 'from' after import names")?;
@@ -215,6 +216,7 @@ impl Parser {
         Ok(Decl::Import {
             module,
             names,
+            is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -236,7 +238,7 @@ impl Parser {
     }
 
     /// Parse a function declaration: `fn name(params) -> ret { body }`.
-    fn parse_function(&mut self, _is_pub: bool) -> Result<Decl, ParseError> {
+    fn parse_function(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
         let fn_start = self.advance().span; // consume `fn`
         let name = self.consume_ident("expected function name")?;
 
@@ -257,6 +259,7 @@ impl Parser {
             params,
             return_type,
             body,
+            is_pub,
             span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
         })
     }
@@ -283,20 +286,21 @@ impl Parser {
     }
 
     /// Parse a type-level declaration: type alias, record, or union.
-    fn parse_type_decl(&mut self) -> Result<Decl, ParseError> {
+    fn parse_type_decl(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
         let start = self.advance().span; // consume `type`
         let name = self.consume_ident("expected type name")?;
         self.consume(TokenKind::Eq, "expected '=' after type name")?;
 
         if self.check(TokenKind::LBrace) {
-            self.parse_record_def(name, start)
+            self.parse_record_def(name, start, is_pub)
         } else if self.is_at_union_start() {
-            self.parse_union_def(name, start)
+            self.parse_union_def(name, start, is_pub)
         } else {
             let type_ = self.parse_type()?;
             Ok(Decl::TypeDef {
                 name,
                 type_,
+                is_pub,
                 span: Span::new(start.file_id, start.start, self.previous().span.end),
             })
         }
@@ -355,7 +359,7 @@ impl Parser {
     }
 
     /// Parse a record definition: `type Name = { field: Type, ... }`.
-    fn parse_record_def(&mut self, name: String, start: Span) -> Result<Decl, ParseError> {
+    fn parse_record_def(&mut self, name: String, start: Span, is_pub: bool) -> Result<Decl, ParseError> {
         self.advance(); // consume '{'
         let mut fields = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
@@ -372,12 +376,13 @@ impl Parser {
         Ok(Decl::RecordDef {
             name,
             fields,
+            is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
 
     /// Parse a union definition: `type Name = Variant(Type) | Variant2 | ...`.
-    fn parse_union_def(&mut self, name: String, start: Span) -> Result<Decl, ParseError> {
+    fn parse_union_def(&mut self, name: String, start: Span, is_pub: bool) -> Result<Decl, ParseError> {
         let mut variants = Vec::new();
         loop {
             let var_name = self.consume_ident("expected variant name")?;
@@ -418,6 +423,7 @@ impl Parser {
         Ok(Decl::UnionDef {
             name,
             variants,
+            is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -444,6 +450,7 @@ impl Parser {
             name,
             args,
             target,
+            is_pub: false, // decorator itself is not pub; the target has its own is_pub
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -981,7 +988,32 @@ impl Parser {
             TokenKind::Ident(name) => {
                 let name = name.clone();
                 self.advance();
-                Ok(Pat::Variable(name))
+                // Check for variant pattern: Some(val)
+                if self.match_token(TokenKind::LParen) {
+                    let arg = self.parse_pattern()?;
+                    self.consume(TokenKind::RParen, "expected ')' after variant pattern arg")?;
+                    Ok(Pat::Variant {
+                        name,
+                        arg: Some(Box::new(arg)),
+                    })
+                } else if self.match_token(TokenKind::LBrace) {
+                    // Record pattern: { field: pat, ... }
+                    let mut fields = Vec::new();
+                    while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                        let field_name = self.consume_ident("expected field name")?;
+                        self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                        let field_pat = self.parse_pattern()?;
+                        fields.push((field_name, field_pat));
+                        self.match_token(TokenKind::Comma);
+                    }
+                    self.consume(TokenKind::RBrace, "expected '}' after record pattern")?;
+                    Ok(Pat::Record { fields, rest: false })
+                } else if name.starts_with(|c: char| c.is_uppercase()) {
+                    // Uppercase identifier without payload → unit variant
+                    Ok(Pat::Variant { name, arg: None })
+                } else {
+                    Ok(Pat::Variable(name))
+                }
             }
             _ => Err(self.error("expected pattern")),
         }

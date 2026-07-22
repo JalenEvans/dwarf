@@ -718,3 +718,132 @@ fn test_comparison_span_covers_full_expression() {
         }
     }
 }
+
+// ============================================================================
+// Visibility / is_pub tests
+//
+// These tests will FAIL with a compile error because the HIR Decl variants do
+// not yet have an `is_pub` field.  After `is_pub` is added to the relevant
+// Decl variants and threaded through the parser, these should pass.
+// ============================================================================
+
+#[test]
+fn test_pub_function_parsed() {
+    let tokens = tokenize("pub fn main() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for pub fn: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Function { name, is_pub, .. } => {
+            assert_eq!(name, "main");
+            assert!(is_pub, "Public function should have is_pub = true");
+        }
+        other => panic!("Expected Function, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_private_function_parsed() {
+    let tokens = tokenize("fn main() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Function { name, is_pub, .. } => {
+            assert_eq!(name, "main");
+            assert!(!is_pub, "Private function should have is_pub = false");
+        }
+        other => panic!("Expected Function, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_pub_type_decl_parsed() {
+    let tokens = tokenize("pub type Option = Some(i32) | None");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, is_pub, .. } => {
+            assert_eq!(name, "Option");
+            assert!(is_pub);
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Variant pattern tests
+//
+// `Pat::Variant` and `Pat::Record` exist in `hir.rs` but `parse_pattern` only
+// handles wildcard, literal, and variable patterns.  These tests will FAIL
+// with parse errors until `parse_pattern` is extended to handle variant
+// destructuring.
+// ============================================================================
+
+#[test]
+fn test_match_variant_pattern_some() {
+    let tokens = tokenize("fn f(x: Option) { match x { Some(val) => val, None => 0 } }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "Variant patterns should parse: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    if let Decl::Function { body, .. } = &decls[0] {
+        if let Expr::Block { stmts, .. } = body {
+            if let Some(Stmt::Expr(Expr::Match { arms, .. })) = stmts.first() {
+                assert_eq!(arms.len(), 2);
+                // First arm: Some(val) => val
+                assert!(matches!(&arms[0].pattern, Pat::Variant { name, .. } if name == "Some"),
+                    "Expected Pat::Variant for Some");
+                // Second arm: None => 0
+                assert!(matches!(&arms[1].pattern, Pat::Variant { name, .. } if name == "None"),
+                    "Expected Pat::Variant for None");
+            } else {
+                panic!("Expected Match expr");
+            }
+        } else {
+            panic!("Expected Block");
+        }
+    }
+}
+
+#[test]
+fn test_match_literal_pattern() {
+    let tokens = tokenize("fn f() { match x { 0 => \"zero\", _ => \"other\" } }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+}
+
+#[test]
+fn test_match_nested_variant_pattern() {
+    let tokens = tokenize("fn f(x: Option) { match x { Some(Some(val)) => val, _ => 0 } }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "Nested variant patterns should parse: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+}
+
+#[test]
+fn test_match_variant_pattern_single_arm() {
+    let tokens = tokenize("fn f() { match x { Some(val) => val } }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+}

@@ -251,6 +251,7 @@ pub enum Decl {
     Import {
         module: String,
         names: Vec<String>,
+        is_pub: bool,
         span: Span,
     },
     Function {
@@ -258,27 +259,32 @@ pub enum Decl {
         params: Vec<Param>,
         return_type: Option<Type>,
         body: Expr,
+        is_pub: bool,
         span: Span,
     },
     TypeDef {
         name: String,
         type_: Type,
+        is_pub: bool,
         span: Span,
     },
     RecordDef {
         name: String,
         fields: Vec<Field>,
+        is_pub: bool,
         span: Span,
     },
     UnionDef {
         name: String,
         variants: Vec<Variant>,
+        is_pub: bool,
         span: Span,
     },
     Decorator {
         name: String,
         args: Vec<Expr>,
         target: Box<Decl>,
+        is_pub: bool,
         span: Span,
     },
 }
