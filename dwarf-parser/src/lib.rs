@@ -304,22 +304,55 @@ impl Parser {
     }
 
     /// Returns true when the current position looks like a union definition
-    /// (a variant name immediately followed by `(`).
+    /// (variant names with optional payloads, separated by `|`).
+    ///
+    /// Heuristic: the first token must be an identifier.  If it is followed
+    /// by `(` or `{` it is definitely a union variant (even a single-variant
+    /// union like `type Wrapper = Wrapped(i32)`).  Otherwise we scan forward
+    /// past any payload and check for `|`, but only treat it as a union
+    /// definition when the first identifier starts with an uppercase letter
+    /// (union variants, e.g. `Red | Green | Blue`) — lowercase identifiers
+    /// like `i32 | string` are type-alias union types, not union definitions.
     fn is_at_union_start(&self) -> bool {
         if self.is_at_end() {
             return false;
         }
-        if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+
+        let mut pos = self.position;
+
+        // First token must be an identifier (the first variant name)
+        if pos >= self.tokens.len() {
             return false;
         }
-        // Look ahead: if the identifier is followed by '(', it's a variant
-        // with an argument (e.g. `Some(value)`).
-        if self.position + 1 < self.tokens.len() {
-            let next = &self.tokens[self.position + 1];
-            matches!(next.kind, TokenKind::LParen)
-        } else {
-            false
+        if !matches!(&self.tokens[pos].kind, TokenKind::Ident(_)) {
+            return false;
         }
+        pos += 1;
+
+        // If the first identifier is immediately followed by `(` or `{`,
+        // it is definitely a union variant (even single-variant unions).
+        if pos < self.tokens.len() {
+            match &self.tokens[pos].kind {
+                TokenKind::LParen => return true,
+                TokenKind::LBrace => return true,
+                _ => {}
+            }
+        }
+
+        // No paren/brace payload on the first identifier.  Scan forward to
+        // see if there is a `|` (indicating at least a second variant).
+        // But only treat this as a union definition if the first identifier
+        // starts with uppercase — union variant names start uppercase,
+        // while bare type names in union type aliases are lowercase.
+        if pos < self.tokens.len() && self.tokens[pos].kind == TokenKind::Pipe {
+            if let TokenKind::Ident(name) = &self.tokens[self.position].kind {
+                if name.starts_with(|c: char| c.is_uppercase()) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Parse a record definition: `type Name = { field: Type, ... }`.
@@ -353,6 +386,24 @@ impl Parser {
                 let arg_type = self.parse_type()?;
                 self.consume(TokenKind::RParen, "expected ')' after variant arg")?;
                 Some(arg_type)
+            } else if self.match_token(TokenKind::LBrace) {
+                // Braced variant: Variant { field: Type, ... }
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+                    let field_name = self.consume_ident("expected field name")?;
+                    self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                    let field_type = self.parse_type()?;
+                    fields.push(Field {
+                        name: field_name,
+                        type_: field_type,
+                    });
+                    self.match_token(TokenKind::Comma);
+                }
+                self.consume(TokenKind::RBrace, "expected '}' after variant fields")?;
+                // Store braced variant arg as a Record type
+                Some(Type::Record(
+                    fields.into_iter().map(|f| (f.name, Box::new(f.type_))).collect(),
+                ))
             } else {
                 None
             };

@@ -437,3 +437,146 @@ fn test_deeply_nested_type_graceful_error() {
 
     assert!(!errors.is_empty(), "Should report recursion depth error for types");
 }
+
+// ============================================================================
+// Union definition parsing tests
+//
+// These tests verify that union definitions produce Decl::UnionDef with the
+// correct variants. Several will FAIL under the current parser because:
+//   1. `is_at_union_start()` only checks for `(` after the first variant,
+//      missing unit-only and braced-variant unions.
+//   2. Variants without a parenthesized payload cause the parser to fall
+//      through to parse_type(), producing Decl::TypeDef(Union(...)) instead
+//      of Decl::UnionDef.
+//   3. Braced variant payloads (`Circle { radius: f64 }`) are not supported.
+//   4. `None | Some(i32)` silently loses the `(i32)` payload and creates a
+//      phantom bare-expression declaration for the leftover tokens.
+// ============================================================================
+
+#[test]
+fn test_union_def_mixed_payloads() {
+    // Unit-only + paren-payload variants
+    let tokens = tokenize("type Option = None | Some(i32)");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for valid union: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Option");
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "None");
+            assert!(variants[0].arg.is_none());
+            assert_eq!(variants[1].name, "Some");
+            assert!(variants[1].arg.is_some(), "Some should have payload");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_union_def_unit_only() {
+    // All unit variants
+    let tokens = tokenize("type Color = Red | Green | Blue");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for unit union: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Color");
+            assert_eq!(variants.len(), 3);
+            assert_eq!(variants[0].name, "Red");
+            assert_eq!(variants[1].name, "Green");
+            assert_eq!(variants[2].name, "Blue");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_union_def_single_variant() {
+    let tokens = tokenize("type Wrapper = Wrapped(i32)");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Wrapper");
+            assert_eq!(variants.len(), 1);
+            assert_eq!(variants[0].name, "Wrapped");
+            assert!(variants[0].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_union_def_braced_variant() {
+    // Braced variant payload: Circle { radius: f64 }
+    let tokens = tokenize("type Shape = Circle { radius: f64 } | Nothing");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for braced union: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Shape");
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Circle");
+            assert!(variants[0].arg.is_some(), "Circle should have record payload");
+            assert_eq!(variants[1].name, "Nothing");
+            assert!(variants[1].arg.is_none());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_union_def_all_braced_variants() {
+    let tokens = tokenize("type Shape = Circle { radius: f64 } | Rect { width: f64, height: f64 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { variants, .. } => {
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Circle");
+            assert!(variants[0].arg.is_some());
+            assert_eq!(variants[1].name, "Rect");
+            assert!(variants[1].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_union_def_type_alias_not_confused() {
+    // type alias with union type should still be TypeDef, not UnionDef
+    let tokens = tokenize("type IntOrString = i32 | string");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "IntOrString");
+            assert!(matches!(type_, Type::Union(_)));
+        }
+        other => panic!("Expected TypeDef, got {:?}", other),
+    }
+}
