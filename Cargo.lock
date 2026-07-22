@@ -129,6 +129,7 @@ dependencies = [
  "dwarf-lexer",
  "dwarf-parser",
  "dwarf-syntax",
+ "dwarf-typecheck",
  "serde",
  "serde_json",
 ]
@@ -154,6 +155,15 @@ dependencies = [
 name = "dwarf-syntax"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dwarf-typecheck"
+version = "0.1.0"
+dependencies = [
+ "dwarf-syntax",
  "serde",
  "serde_json",
 ]
