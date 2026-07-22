@@ -1,0 +1,19 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Int(42)",
+    "Int(255)",
+    "Int(10)",
+    "Int(63)",
+    "Int(1000000)",
+    "Float(3.14)",
+    "Float(10000000000.0)",
+    "Str(\"hello\")",
+    "RawStr(\"raw\")",
+    "True",
+    "False",
+    "Null",
+    "Eof",
+]

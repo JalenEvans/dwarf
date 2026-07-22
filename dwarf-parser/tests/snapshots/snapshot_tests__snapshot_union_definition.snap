@@ -1,0 +1,31 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "UnionDef": {
+      "name": "Shape",
+      "variants": [
+        {
+          "name": "Circle",
+          "arg": {
+            "Named": "f64"
+          }
+        },
+        {
+          "name": "Square",
+          "arg": {
+            "Named": "f64"
+          }
+        }
+      ],
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 38
+      }
+    }
+  }
+]

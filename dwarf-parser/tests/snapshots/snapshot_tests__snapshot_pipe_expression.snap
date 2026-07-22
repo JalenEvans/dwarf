@@ -1,0 +1,133 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "pipe",
+      "params": [
+        {
+          "name": "x",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "return_type": null,
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Pipe": {
+                  "lhs": {
+                    "Pipe": {
+                      "lhs": {
+                        "Variable": {
+                          "name": "x",
+                          "span": {
+                            "file_id": 0,
+                            "start": 18,
+                            "end": 19
+                          }
+                        }
+                      },
+                      "rhs": {
+                        "Call": {
+                          "func": {
+                            "Variable": {
+                              "name": "add",
+                              "span": {
+                                "file_id": 0,
+                                "start": 23,
+                                "end": 26
+                              }
+                            }
+                          },
+                          "args": [
+                            {
+                              "Literal": {
+                                "value": {
+                                  "Int": 1
+                                },
+                                "span": {
+                                  "file_id": 0,
+                                  "start": 27,
+                                  "end": 28
+                                }
+                              }
+                            }
+                          ],
+                          "span": {
+                            "file_id": 0,
+                            "start": 23,
+                            "end": 29
+                          }
+                        }
+                      },
+                      "span": {
+                        "file_id": 0,
+                        "start": 18,
+                        "end": 29
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "Call": {
+                      "func": {
+                        "Variable": {
+                          "name": "mul",
+                          "span": {
+                            "file_id": 0,
+                            "start": 33,
+                            "end": 36
+                          }
+                        }
+                      },
+                      "args": [
+                        {
+                          "Literal": {
+                            "value": {
+                              "Int": 2
+                            },
+                            "span": {
+                              "file_id": 0,
+                              "start": 37,
+                              "end": 38
+                            }
+                          }
+                        }
+                      ],
+                      "span": {
+                        "file_id": 0,
+                        "start": 33,
+                        "end": 39
+                      }
+                    }
+                  },
+                  "span": {
+                    "file_id": 0,
+                    "start": 18,
+                    "end": 39
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 16,
+            "end": 41
+          }
+        }
+      },
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 41
+      }
+    }
+  }
+]

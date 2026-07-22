@@ -1,0 +1,44 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "main",
+      "params": [],
+      "return_type": null,
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Literal": {
+                  "value": {
+                    "Int": 42
+                  },
+                  "span": {
+                    "file_id": 0,
+                    "start": 12,
+                    "end": 14
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 10,
+            "end": 16
+          }
+        }
+      },
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 16
+      }
+    }
+  }
+]

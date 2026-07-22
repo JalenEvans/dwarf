@@ -1,0 +1,13 @@
+[package]
+name = "dwarf-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dwarf-syntax = { path = "../dwarf-syntax" }
+dwarf-lexer = { path = "../dwarf-lexer" }
+
+[dev-dependencies]
+dwarf-lexer = { path = "../dwarf-lexer" }
+dwarf-syntax = { path = "../dwarf-syntax" }
+insta = { version = "1", features = ["json"] }

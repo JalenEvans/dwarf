@@ -1,0 +1,11 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Fn",
+    "Let",
+    "DocComment",
+    "Import",
+    "Eof",
+]

@@ -1,0 +1,23 @@
+[package]
+name = "dwarf-cli"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dwarf_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dwarf-cli"
+path = "src/main.rs"
+
+[dependencies]
+dwarf-syntax = { path = "../dwarf-syntax" }
+dwarf-lexer = { path = "../dwarf-lexer" }
+dwarf-parser = { path = "../dwarf-parser" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"

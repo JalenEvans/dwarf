@@ -1,0 +1,96 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Function": {
+      "name": "test",
+      "params": [
+        {
+          "name": "x",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "return_type": null,
+      "body": {
+        "Block": {
+          "stmts": [
+            {
+              "Expr": {
+                "Match": {
+                  "expr": {
+                    "Variable": {
+                      "name": "x",
+                      "span": {
+                        "file_id": 0,
+                        "start": 24,
+                        "end": 25
+                      }
+                    }
+                  },
+                  "arms": [
+                    {
+                      "pattern": {
+                        "Literal": {
+                          "Int": 0
+                        }
+                      },
+                      "guard": null,
+                      "body": {
+                        "Literal": {
+                          "value": {
+                            "Str": "zero"
+                          },
+                          "span": {
+                            "file_id": 0,
+                            "start": 33,
+                            "end": 39
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "pattern": "Wildcard",
+                      "guard": null,
+                      "body": {
+                        "Literal": {
+                          "value": {
+                            "Str": "other"
+                          },
+                          "span": {
+                            "file_id": 0,
+                            "start": 46,
+                            "end": 53
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "span": {
+                    "file_id": 0,
+                    "start": 18,
+                    "end": 55
+                  }
+                }
+              }
+            }
+          ],
+          "span": {
+            "file_id": 0,
+            "start": 16,
+            "end": 57
+          }
+        }
+      },
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 57
+      }
+    }
+  }
+]

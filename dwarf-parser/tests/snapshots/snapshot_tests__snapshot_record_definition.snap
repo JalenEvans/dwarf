@@ -1,0 +1,31 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "RecordDef": {
+      "name": "Point",
+      "fields": [
+        {
+          "name": "x",
+          "type_": {
+            "Named": "i32"
+          }
+        },
+        {
+          "name": "y",
+          "type_": {
+            "Named": "i32"
+          }
+        }
+      ],
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 31
+      }
+    }
+  }
+]

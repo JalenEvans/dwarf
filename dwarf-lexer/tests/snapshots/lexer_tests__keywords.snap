@@ -1,0 +1,21 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Fn",
+    "Type",
+    "Let",
+    "Match",
+    "If",
+    "Else",
+    "For",
+    "Import",
+    "From",
+    "Module",
+    "Pub",
+    "True",
+    "False",
+    "Null",
+    "Eof",
+]
