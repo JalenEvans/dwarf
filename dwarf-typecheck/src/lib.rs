@@ -5,6 +5,7 @@
 pub mod compat;
 pub mod error;
 pub mod infer;
+pub mod pass;
 pub mod registry;
 pub mod resolve;
 pub mod types;

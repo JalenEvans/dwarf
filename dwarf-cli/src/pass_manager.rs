@@ -177,6 +177,7 @@ impl Default for PassManager {
 
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
+use dwarf_typecheck::pass::TypeCheckPass;
 
 impl Pass for TokenizePass {
     fn name(&self) -> &str {
@@ -248,5 +249,35 @@ impl Pass for ParsePass {
                 PassResult::Halt
             }
         }
+    }
+}
+
+impl Pass for TypeCheckPass {
+    fn name(&self) -> &str {
+        "typecheck"
+    }
+
+    fn description(&self) -> &str {
+        "Check types and infer expressions"
+    }
+
+    fn run(&self, ctx: &mut PassContext, unit: &mut CompilationUnit) -> PassResult {
+        if let Some(decls) = &unit.decls {
+            let (_registry, errors) = self.check(decls);
+            for err in &errors {
+                let (line, col) =
+                    dwarf_syntax::diagnostic::byte_to_line_col(&unit.source, err.span.start)
+                        .unwrap_or((0, 0));
+                ctx.push_diagnostic(Diagnostic {
+                    code: err.code.to_string(),
+                    severity: Severity::Error,
+                    message: err.message.clone(),
+                    file: unit.path.clone(),
+                    line: Some(line),
+                    col: Some(col),
+                });
+            }
+        }
+        PassResult::Continue
     }
 }

@@ -14,6 +14,7 @@
 use dwarf_cli::pass_manager::*;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
+use dwarf_typecheck::pass::TypeCheckPass;
 
 #[test]
 fn test_pass_manager_register() {
@@ -103,4 +104,65 @@ fn test_compile_options_selected_passes() {
         skip_passes: vec![],
     };
     assert_eq!(options.passes.unwrap(), vec!["tokenize"]);
+}
+
+#[test]
+fn test_typecheck_pass_registration() {
+    let mut pm = PassManager::new();
+    pm.register(Box::new(TokenizePass));
+    pm.register(Box::new(ParsePass));
+    pm.register(Box::new(TypeCheckPass::new()));
+
+    let passes = pm.list_passes();
+    assert_eq!(passes.len(), 3);
+    assert!(passes.iter().any(|(n, _)| *n == "typecheck"));
+}
+
+#[test]
+fn test_typecheck_pass_runs_after_parse() {
+    let mut pm = PassManager::new();
+    pm.register(Box::new(TokenizePass));
+    pm.register(Box::new(ParsePass));
+    pm.register(Box::new(TypeCheckPass::new()));
+
+    // A valid simple function
+    let mut unit = CompilationUnit::new("fn answer() { 42 }".to_string());
+    let mut ctx = PassContext::new(CompileOptions::default());
+
+    pm.run_all(&mut unit, &mut ctx);
+
+    assert!(unit.tokens.is_some(), "Tokens should be populated");
+    assert!(unit.decls.is_some(), "Decls should be populated");
+    // Type checking should complete without errors for valid code
+    // (Type errors would show up in diagnostics, but this is valid)
+}
+
+#[test]
+fn test_typecheck_pass_type_error() {
+    let mut pm = PassManager::new();
+    pm.register(Box::new(TokenizePass));
+    pm.register(Box::new(ParsePass));
+    pm.register(Box::new(TypeCheckPass::new()));
+
+    // Code with a type error: adding int and string
+    let mut unit = CompilationUnit::new("fn broken() { 1 + \"hello\" }".to_string());
+    let mut ctx = PassContext::new(CompileOptions::default());
+
+    pm.run_all(&mut unit, &mut ctx);
+
+    // Should have at least one diagnostic for the type error
+    assert!(
+        !ctx.diagnostics().is_empty(),
+        "Should have diagnostic for type error"
+    );
+
+    // The diagnostic should be a TYPE error
+    let has_type_error = ctx
+        .diagnostics()
+        .iter()
+        .any(|d| d.code.starts_with("DWARF-E-TYPE-"));
+    assert!(
+        has_type_error,
+        "Should have at least one DWARF-E-TYPE- diagnostic"
+    );
 }
