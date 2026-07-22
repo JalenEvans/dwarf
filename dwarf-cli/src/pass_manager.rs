@@ -44,6 +44,7 @@ impl CompilationUnit {
 }
 
 /// A diagnostic message produced during compilation.
+#[derive(Clone)]
 pub struct Diagnostic {
     pub code: String,
     pub severity: Severity,
@@ -54,6 +55,7 @@ pub struct Diagnostic {
 }
 
 /// Severity of a diagnostic.
+#[derive(Clone)]
 pub enum Severity {
     Error,
     Warning,
@@ -94,7 +96,7 @@ impl PassContext {
 }
 
 /// Configuration for which passes to run.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CompileOptions {
     /// If `Some`, only run passes whose names appear in this list.
     pub passes: Option<Vec<String>>,
