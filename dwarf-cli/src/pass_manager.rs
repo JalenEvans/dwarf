@@ -111,9 +111,7 @@ pub struct PassManager {
 
 impl PassManager {
     pub fn new() -> Self {
-        PassManager {
-            passes: Vec::new(),
-        }
+        PassManager { passes: Vec::new() }
     }
 
     pub fn register(&mut self, pass: Box<dyn Pass>) {

@@ -84,7 +84,11 @@ pub fn format_diagnostic(
     let line_content = extract_line(source, line);
     if !line_content.is_empty() {
         output.push_str(&format!("   |\n{:>4} | {}\n", line, line_content));
-        output.push_str(&format!("   | {:>width$}", "", width = col.saturating_sub(1)));
+        output.push_str(&format!(
+            "   | {:>width$}",
+            "",
+            width = col.saturating_sub(1)
+        ));
         output.push('^');
         output.push('\n');
     }
@@ -147,7 +151,14 @@ mod tests {
     #[test]
     fn test_format_diagnostic() {
         let source = "fn main() {\n    42\n}";
-        let output = format_diagnostic(Some("test.kzd"), source, "E-PARSE-0001", "expected ';'", 2, 5);
+        let output = format_diagnostic(
+            Some("test.kzd"),
+            source,
+            "E-PARSE-0001",
+            "expected ';'",
+            2,
+            5,
+        );
         assert!(output.contains("E-PARSE-0001"));
         assert!(output.contains("expected ';'"));
         assert!(output.contains("test.kzd:2:5"));

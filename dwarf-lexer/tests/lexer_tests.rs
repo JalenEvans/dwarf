@@ -23,7 +23,10 @@ fn assert_token_sequence(input: &str, expected: &[TokenKind]) {
     let mut lexer = Lexer::new(input);
     for (i, expected_kind) in expected.iter().enumerate() {
         let token = lexer.next_token().unwrap_or_else(|e| {
-            panic!("lexer error at position {} for input {:?}: {:?}", i, input, e)
+            panic!(
+                "lexer error at position {} for input {:?}: {:?}",
+                i, input, e
+            )
         });
         assert_eq!(
             &token.kind, expected_kind,
@@ -49,7 +52,9 @@ fn assert_token_sequence(input: &str, expected: &[TokenKind]) {
 #[test]
 fn test_empty_input() {
     let mut lexer = Lexer::new("");
-    let token = lexer.next_token().expect("lexing empty input should succeed");
+    let token = lexer
+        .next_token()
+        .expect("lexing empty input should succeed");
     assert_eq!(token.kind, TokenKind::Eof);
 }
 
@@ -422,7 +427,9 @@ fn test_whitespace_leading_and_trailing() {
 #[test]
 fn test_whitespace_only() {
     let mut lexer = Lexer::new("   \t\n  ");
-    let token = lexer.next_token().expect("lexing whitespace-only input should succeed");
+    let token = lexer
+        .next_token()
+        .expect("lexing whitespace-only input should succeed");
     assert_eq!(token.kind, TokenKind::Eof);
 }
 
@@ -448,12 +455,17 @@ fn test_peek_returns_same_token_on_consecutive_calls() {
     );
 
     // Now consume the peeked token
-    let consumed = lexer.next_token().expect("next_token after peek should succeed");
+    let consumed = lexer
+        .next_token()
+        .expect("next_token after peek should succeed");
     assert_eq!(consumed.kind, TokenKind::Ident("hello".to_string()));
 
     // After advancing, peek should now show the next token
     let peeked3 = lexer.peek().expect("peek should succeed").cloned();
-    assert!(peeked3.is_some(), "peek after advancing should return next token");
+    assert!(
+        peeked3.is_some(),
+        "peek after advancing should return next token"
+    );
     if let Some(ref t) = peeked3 {
         assert_eq!(t.kind, TokenKind::Ident("world".to_string()));
     }
@@ -472,7 +484,9 @@ fn test_peek_after_eof() {
     // Peek at EOF should return Ok(Some(...)) — but
     // the important thing is it doesn't panic and is consistent
     let _ = lexer.peek();
-    let next = lexer.next_token().expect("subsequent next_token should succeed");
+    let next = lexer
+        .next_token()
+        .expect("subsequent next_token should succeed");
     assert_eq!(next.kind, TokenKind::Eof);
 }
 
@@ -504,7 +518,9 @@ fn test_eof_after_multi_token_input() {
     let _a = lexer.next_token();
     let _plus = lexer.next_token();
     let _b = lexer.next_token();
-    let eof = lexer.next_token().expect("EOF after consuming all tokens should succeed");
+    let eof = lexer
+        .next_token()
+        .expect("EOF after consuming all tokens should succeed");
     assert_eq!(eof.kind, TokenKind::Eof);
 }
 
@@ -523,7 +539,9 @@ fn test_span_basic() {
 #[test]
 fn test_span_after_whitespace() {
     let mut lexer = Lexer::new("  let");
-    let token = lexer.next_token().expect("should lex 'let' after whitespace");
+    let token = lexer
+        .next_token()
+        .expect("should lex 'let' after whitespace");
     assert_eq!(token.kind, TokenKind::Let);
     assert_eq!(token.span.start, 2);
     assert_eq!(token.span.end, 5);
@@ -616,43 +634,64 @@ fn test_float_sci_neg() {
 #[test]
 fn test_string_simple() {
     let mut lexer = Lexer::new("\"hello\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("hello".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("hello".to_string())
+    );
 }
 
 #[test]
 fn test_string_escape_newline() {
     let mut lexer = Lexer::new("\"hello\\nworld\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("hello\nworld".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("hello\nworld".to_string())
+    );
 }
 
 #[test]
 fn test_string_escape_tab() {
     let mut lexer = Lexer::new("\"hello\\tworld\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("hello\tworld".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("hello\tworld".to_string())
+    );
 }
 
 #[test]
 fn test_string_escape_backslash() {
     let mut lexer = Lexer::new("\"path\\\\to\\\\file\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("path\\to\\file".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("path\\to\\file".to_string())
+    );
 }
 
 #[test]
 fn test_string_escape_quote() {
     let mut lexer = Lexer::new("\"she said \\\"hi\\\"\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("she said \"hi\"".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("she said \"hi\"".to_string())
+    );
 }
 
 #[test]
 fn test_string_escape_hex() {
     let mut lexer = Lexer::new("\"\\x48\\x69\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("Hi".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("Hi".to_string())
+    );
 }
 
 #[test]
 fn test_string_interpolation_escape() {
     let mut lexer = Lexer::new("\"escape \\{ curly\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Str("escape { curly".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Str("escape { curly".to_string())
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -661,13 +700,19 @@ fn test_string_interpolation_escape() {
 #[test]
 fn test_raw_string_simple() {
     let mut lexer = Lexer::new("r\"hello\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::RawStr("hello".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::RawStr("hello".to_string())
+    );
 }
 
 #[test]
 fn test_raw_string_with_backslash() {
     let mut lexer = Lexer::new("r\"C:\\\\path\"");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::RawStr("C:\\\\path".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::RawStr("C:\\\\path".to_string())
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -694,7 +739,10 @@ fn test_unterminated_raw_string() {
 fn test_sequence_with_literals() {
     let mut lexer = Lexer::new("let x = 42");
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Let);
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Ident("x".to_string()));
+    assert_eq!(
+        lexer.next_token().unwrap().kind,
+        TokenKind::Ident("x".to_string())
+    );
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eq);
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Int(42));
     assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Eof);
@@ -803,7 +851,7 @@ fn test_span_line_col_tracking() {
     let t1 = lexer.next_token().unwrap(); // "fn" at line 1
     let t2 = lexer.next_token().unwrap(); // "let" at line 2
     let t3 = lexer.next_token().unwrap(); // "x" at line 3
-    // We check spans by comparing byte offsets (easier)
+                                          // We check spans by comparing byte offsets (easier)
     assert_eq!(t1.span.start, 0);
     assert_eq!(t2.span.start, 3); // "fn\n" = 3 bytes
     assert_eq!(t3.span.start, 7); // "fn\nlet\n" = 7 bytes
@@ -858,7 +906,9 @@ fn test_snapshot_keywords() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("keywords", tokens);
 }
@@ -872,7 +922,9 @@ fn test_snapshot_operators() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("operators", tokens);
 }
@@ -886,7 +938,9 @@ fn test_snapshot_literals() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("literals", tokens);
 }
@@ -900,7 +954,9 @@ fn test_snapshot_fn_declaration() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("fn_declaration", tokens);
 }
@@ -914,7 +970,9 @@ fn test_snapshot_comments_and_whitespace() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("comments_and_whitespace", tokens);
 }
@@ -928,7 +986,9 @@ fn test_snapshot_string_escapes() {
         let token = lexer.next_token().unwrap();
         let is_eof = token.kind == TokenKind::Eof;
         tokens.push(format!("{:?}", token.kind));
-        if is_eof { break; }
+        if is_eof {
+            break;
+        }
     }
     insta::assert_debug_snapshot!("string_escapes", tokens);
 }

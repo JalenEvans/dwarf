@@ -75,8 +75,7 @@ fn test_pass_manager_collects_errors() {
     pm.register(Box::new(TokenizePass));
     pm.register(Box::new(ParsePass));
 
-    let mut unit =
-        CompilationUnit::new("fn broken( { 1 } fn ok() { 2 }".to_string());
+    let mut unit = CompilationUnit::new("fn broken( { 1 } fn ok() { 2 }".to_string());
     let mut ctx = PassContext::new(CompileOptions::default());
 
     pm.run_all(&mut unit, &mut ctx);

@@ -23,45 +23,45 @@ pub enum TokenKind {
     Null,
 
     // ---- Arithmetic Operators ----
-    Plus,       // +
-    Minus,      // -
-    Star,       // *
-    Slash,      // /
+    Plus,  // +
+    Minus, // -
+    Star,  // *
+    Slash, // /
 
     // ---- Comparison Operators ----
-    EqEq,       // ==
-    BangEq,     // !=
-    Lt,         // <
-    Gt,         // >
-    LtEq,       // <=
-    GtEq,       // >=
+    EqEq,   // ==
+    BangEq, // !=
+    Lt,     // <
+    Gt,     // >
+    LtEq,   // <=
+    GtEq,   // >=
 
     // ---- Logical Operators ----
-    AmpAmp,     // &&
-    PipePipe,   // ||
-    Bang,       // !
+    AmpAmp,   // &&
+    PipePipe, // ||
+    Bang,     // !
 
     // ---- Assignment ----
-    Eq,         // =
+    Eq, // =
 
     // ---- Delimiters & Punctuation ----
-    Colon,       // :
-    Arrow,       // ->
-    Pipe,        // | (union type, lambda)
-    PipeGt,      // |>
-    Question,    // ?
-    Underscore,  // _
-    Dot,         // .
-    Comma,       // ,
-    At,          // @
+    Colon,      // :
+    Arrow,      // ->
+    Pipe,       // | (union type, lambda)
+    PipeGt,     // |>
+    Question,   // ?
+    Underscore, // _
+    Dot,        // .
+    Comma,      // ,
+    At,         // @
 
     // ---- Brackets ----
-    LParen,      // (
-    RParen,      // )
-    LBrace,      // {
-    RBrace,      // }
-    LBracket,    // [
-    RBracket,    // ]
+    LParen,   // (
+    RParen,   // )
+    LBrace,   // {
+    RBrace,   // }
+    LBracket, // [
+    RBracket, // ]
 
     // ---- Literals ----
     Int(i64),

@@ -25,13 +25,20 @@ fn test_cli_help() {
     assert!(
         output.status.success(),
         "dwarf check --help should succeed.\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        stdout,
+        stderr
     );
     assert!(stdout.contains("check"), "Help should mention 'check'");
     assert!(stdout.contains("--json"), "Help should mention --json");
     assert!(stdout.contains("--passes"), "Help should mention --passes");
-    assert!(stdout.contains("--skip-passes"), "Help should mention --skip-passes");
-    assert!(stdout.contains("--list-passes"), "Help should mention --list-passes");
+    assert!(
+        stdout.contains("--skip-passes"),
+        "Help should mention --skip-passes"
+    );
+    assert!(
+        stdout.contains("--list-passes"),
+        "Help should mention --list-passes"
+    );
 }
 
 #[test]
@@ -58,7 +65,8 @@ fn test_cli_valid_file() {
     assert!(
         output.status.success(),
         "Valid file should exit 0.\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        stdout,
+        stderr
     );
 
     // Cleanup
@@ -79,7 +87,8 @@ fn test_cli_invalid_file() {
     assert!(
         !output.status.success(),
         "Invalid file should exit non-zero.\nstdout: {}\nstderr: {}",
-        stdout, stderr
+        stdout,
+        stderr
     );
     assert!(
         stdout.contains("error") || stderr.contains("error"),
@@ -154,12 +163,7 @@ fn test_cli_passes_filter() {
     std::fs::write(&file_path, "fn main() { 42 }").unwrap();
 
     // Only run tokenize pass
-    let output = dwarf(&[
-        "check",
-        "--passes",
-        "tokenize",
-        file_path.to_str().unwrap(),
-    ]);
+    let output = dwarf(&["check", "--passes", "tokenize", file_path.to_str().unwrap()]);
     assert!(output.status.success(), "Filtered passes should work");
 
     // Cleanup

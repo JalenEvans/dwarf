@@ -9,7 +9,6 @@ pub const ERROR_CODES: &[&str] = &[
     "DWARF-E-LEX-0003", // Invalid integer literal
     "DWARF-E-LEX-0004", // Invalid float literal
     "DWARF-E-LEX-0005", // Non-ASCII identifier
-
     // Parser errors (DWARF-E-PARSE-*)
     "DWARF-E-PARSE-0001", // Expected token
     "DWARF-E-PARSE-0002", // Expected identifier

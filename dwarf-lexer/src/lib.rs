@@ -31,7 +31,11 @@ impl fmt::Display for LexError {
                 write!(f, "unexpected character '{}' at position {}", ch, pos)
             }
             LexError::UnterminatedString(pos) => {
-                write!(f, "unterminated string literal starting at position {}", pos)
+                write!(
+                    f,
+                    "unterminated string literal starting at position {}",
+                    pos
+                )
             }
             LexError::InvalidIntegerLiteral(pos) => {
                 write!(f, "invalid integer literal at position {}", pos)
@@ -199,7 +203,10 @@ impl<'a> Lexer<'a> {
             }
             self.position += 1;
         }
-        Ok(Token::new(TokenKind::DocComment, Span::new(self.file_id, start, self.position)))
+        Ok(Token::new(
+            TokenKind::DocComment,
+            Span::new(self.file_id, start, self.position),
+        ))
     }
 
     /// Lex the next token starting at the current position.
@@ -224,35 +231,59 @@ impl<'a> Lexer<'a> {
 
         if c == b'=' && self.next_byte() == Some(b'=') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::EqEq, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::EqEq,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'!' && self.next_byte() == Some(b'=') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::BangEq, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::BangEq,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'<' && self.next_byte() == Some(b'=') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::LtEq, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::LtEq,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'>' && self.next_byte() == Some(b'=') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::GtEq, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::GtEq,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'-' && self.next_byte() == Some(b'>') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::Arrow, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::Arrow,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'|' && self.next_byte() == Some(b'>') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::PipeGt, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::PipeGt,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'&' && self.next_byte() == Some(b'&') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::AmpAmp, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::AmpAmp,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
         if c == b'|' && self.next_byte() == Some(b'|') {
             self.position += 2;
-            return Ok(Token::new(TokenKind::PipePipe, Span::new(self.file_id, start, self.position)));
+            return Ok(Token::new(
+                TokenKind::PipePipe,
+                Span::new(self.file_id, start, self.position),
+            ));
         }
 
         // --- Comments and slash (must be checked before single-char `b'/'`) ---
@@ -294,83 +325,140 @@ impl<'a> Lexer<'a> {
         match c {
             b'+' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Plus, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Plus,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'-' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Minus, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Minus,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'*' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Star, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Star,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'<' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Lt, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Lt,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'>' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Gt, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Gt,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'!' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Bang, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Bang,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'=' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Eq, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Eq,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'|' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Pipe, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Pipe,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'?' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Question, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Question,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'.' => {
                 if self.next_byte().is_some_and(|b| b.is_ascii_digit()) {
                     self.lex_number(start)
                 } else {
                     self.position += 1;
-                    Ok(Token::new(TokenKind::Dot, Span::new(self.file_id, start, self.position)))
+                    Ok(Token::new(
+                        TokenKind::Dot,
+                        Span::new(self.file_id, start, self.position),
+                    ))
                 }
             }
             b',' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Comma, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Comma,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b':' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::Colon, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::Colon,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'@' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::At, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::At,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'(' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::LParen, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::LParen,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b')' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::RParen, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::RParen,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'{' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::LBrace, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::LBrace,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'}' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::RBrace, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::RBrace,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b'[' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::LBracket, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::LBracket,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             b']' => {
                 self.position += 1;
-                Ok(Token::new(TokenKind::RBracket, Span::new(self.file_id, start, self.position)))
+                Ok(Token::new(
+                    TokenKind::RBracket,
+                    Span::new(self.file_id, start, self.position),
+                ))
             }
             _ => {
                 if c.is_ascii_digit() {
@@ -431,9 +519,7 @@ impl<'a> Lexer<'a> {
         }
 
         // Check for fractional part ('.' followed by a digit).
-        if self.curr_byte() == Some(b'.')
-            && self.next_byte().is_some_and(|b| b.is_ascii_digit())
-        {
+        if self.curr_byte() == Some(b'.') && self.next_byte().is_some_and(|b| b.is_ascii_digit()) {
             is_float = true;
             self.position += 1; // consume '.'
             self.skip_digits_and_underscores();
@@ -486,9 +572,7 @@ impl<'a> Lexer<'a> {
             let b = self.input.as_bytes()[self.position];
             let is_valid = match base {
                 16 => {
-                    b.is_ascii_digit()
-                        || (b'a'..=b'f').contains(&b)
-                        || (b'A'..=b'F').contains(&b)
+                    b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || (b'A'..=b'F').contains(&b)
                 }
                 2 => b == b'0' || b == b'1',
                 8 => (b'0'..=b'7').contains(&b),
@@ -681,7 +765,9 @@ impl<'a> Lexer<'a> {
             "null" => TokenKind::Null,
             _ => TokenKind::Ident(word.to_string()),
         };
-        Ok(Token::new(kind, Span::new(self.file_id, start, self.position)))
+        Ok(Token::new(
+            kind,
+            Span::new(self.file_id, start, self.position),
+        ))
     }
 }
-

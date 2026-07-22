@@ -1,6 +1,6 @@
 //! Pass wrappers for the parser.
 
-use crate::{Parser, ParseError};
+use crate::{ParseError, Parser};
 use dwarf_lexer::Lexer;
 use dwarf_syntax::hir::Decl;
 use dwarf_syntax::token::TokenKind;

@@ -44,7 +44,14 @@ fn test_source_line_content() {
 #[test]
 fn test_format_diagnostic_integration() {
     let source = "fn main() {\n    42\n}";
-    let output = format_diagnostic(Some("test.kzd"), source, "E-PARSE-0001", "expected ';'", 2, 5);
+    let output = format_diagnostic(
+        Some("test.kzd"),
+        source,
+        "E-PARSE-0001",
+        "expected ';'",
+        2,
+        5,
+    );
     assert!(output.contains("E-PARSE-0001"));
     assert!(output.contains("expected ';'"));
     assert!(output.contains("test.kzd:2:5"));
