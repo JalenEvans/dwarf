@@ -531,3 +531,175 @@ fn test_missing_type_name() {
         other => panic!("Expected Record at ID 5, got {:?}", other),
     }
 }
+
+// ===========================================================================
+// 10. Generic type resolution
+//     A `Generic { base, args }` HIR type is registered as a
+//     `GenericInstance` TypeDef in the registry (if the base is known).
+// ===========================================================================
+
+#[test]
+fn test_resolve_generic_type_simple() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![
+        Decl::UnionDef {
+            name: "Option".to_string(),
+            variants: vec![
+                Variant {
+                    name: "None".to_string(),
+                    arg: None,
+                },
+                Variant {
+                    name: "Some".to_string(),
+                    arg: Some(Type::Named("int".to_string())),
+                },
+            ],
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::RecordDef {
+            name: "Container".to_string(),
+            fields: vec![Field {
+                name: "value".to_string(),
+                type_: Type::Generic {
+                    base: "Option".to_string(),
+                    args: vec![Type::Named("int".to_string())],
+                },
+            }],
+            is_pub: true,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // 5 primitives + 1 union + 1 GenericInstance + 1 record = 8 entries
+    assert_eq!(result.registry.len(), 8);
+
+    // Option at ID 5
+    assert_eq!(result.name_map.get("Option"), Some(&5));
+
+    // GenericInstance { base: Option(5), args: [Int(0)] } at ID 6
+    assert_eq!(
+        result.registry.get(6),
+        Some(&TypeDef::GenericInstance {
+            base: 5,
+            args: vec![0],
+        })
+    );
+
+    // Container at ID 7 referencing the GenericInstance at ID 6
+    assert_eq!(
+        result.registry.get(7),
+        Some(&TypeDef::Record(vec![FieldDef {
+            name: "value".to_string(),
+            type_id: 6,
+        }]))
+    );
+
+    assert_eq!(result.name_map.get("Container"), Some(&7));
+    assert_eq!(result.name_map.get("Option"), Some(&5));
+}
+
+#[test]
+fn test_resolve_generic_type_nested() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![
+        Decl::RecordDef {
+            name: "HashMap".to_string(),
+            fields: vec![],
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::RecordDef {
+            name: "List".to_string(),
+            fields: vec![],
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::RecordDef {
+            name: "Container".to_string(),
+            fields: vec![Field {
+                name: "map".to_string(),
+                type_: Type::Generic {
+                    base: "HashMap".to_string(),
+                    args: vec![
+                        Type::Named("str".to_string()),
+                        Type::Generic {
+                            base: "List".to_string(),
+                            args: vec![Type::Named("int".to_string())],
+                        },
+                    ],
+                },
+            }],
+            is_pub: true,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // 5 primitives + 2 named records + 2 GenericInstances + 1 container = 10
+    assert_eq!(result.registry.len(), 10);
+
+    assert_eq!(result.name_map.get("HashMap"), Some(&5));
+    assert_eq!(result.name_map.get("List"), Some(&6));
+
+    // Inner GenericInstance: List<int> at ID 7
+    assert_eq!(
+        result.registry.get(7),
+        Some(&TypeDef::GenericInstance {
+            base: 6,       // List
+            args: vec![0], // Int
+        })
+    );
+
+    // Outer GenericInstance: HashMap<str, List<int>> at ID 8
+    assert_eq!(
+        result.registry.get(8),
+        Some(&TypeDef::GenericInstance {
+            base: 5,          // HashMap
+            args: vec![2, 7], // str, List<int>
+        })
+    );
+
+    // Container at ID 9
+    assert_eq!(
+        result.registry.get(9),
+        Some(&TypeDef::Record(vec![FieldDef {
+            name: "map".to_string(),
+            type_id: 8,
+        }]))
+    );
+}
+
+#[test]
+fn test_resolve_generic_unknown_base() {
+    let mut registry = TypeRegistry::new();
+    let result = register_decls(
+        &mut registry,
+        &[Decl::RecordDef {
+            name: "Foo".to_string(),
+            fields: vec![Field {
+                name: "x".to_string(),
+                type_: Type::Generic {
+                    base: "NonExistent".to_string(),
+                    args: vec![Type::Named("int".to_string())],
+                },
+            }],
+            is_pub: true,
+            span: dummy_span(),
+        }],
+    );
+
+    // Should not panic — the record should still be registered
+    assert_eq!(result.registry.len(), 6);
+    assert_eq!(result.name_map.get("Foo"), Some(&5));
+    match result.registry.get(5) {
+        Some(TypeDef::Record(fields)) => {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].name, "x");
+        }
+        other => panic!("Expected Record at ID 5, got {:?}", other),
+    }
+}

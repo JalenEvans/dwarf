@@ -843,3 +843,64 @@ fn test_primitive_vs_func_incompatible() {
     let result = compat::check(&r, 0, 5);
     assert!(!result.compatible, "Int vs Func should be incompatible");
 }
+
+// ===========================================================================
+// GenericInstance compatibility tests
+// ===========================================================================
+
+#[test]
+fn test_compat_generic_instance_identical() {
+    let mut registry = TypeRegistry::new();
+    // Register a "fake" user type at ID 5 as the base
+    registry.register(TypeDef::Record(vec![FieldDef {
+        name: "dummy".to_string(),
+        type_id: 0,
+    }]));
+    // Register two identical GenericInstances
+    let id_a = registry.register(TypeDef::GenericInstance {
+        base: 5,
+        args: vec![0, 2],
+    });
+    let id_b = registry.register(TypeDef::GenericInstance {
+        base: 5,
+        args: vec![0, 2],
+    });
+    // Same TypeId always compatible
+    assert!(compat::check(&registry, id_a, id_a).compatible);
+    // Different TypeId with same structure should be compatible
+    assert!(compat::check(&registry, id_a, id_b).compatible);
+}
+
+#[test]
+fn test_compat_generic_instance_different_args() {
+    let mut registry = TypeRegistry::new();
+    registry.register(TypeDef::Record(vec![FieldDef {
+        name: "dummy".to_string(),
+        type_id: 0,
+    }]));
+    let id_a = registry.register(TypeDef::GenericInstance {
+        base: 5,
+        args: vec![0, 2],
+    });
+    let id_b = registry.register(TypeDef::GenericInstance {
+        base: 5,
+        args: vec![0, 0],
+    });
+    // Different type args → NOT compatible
+    assert!(!compat::check(&registry, id_a, id_b).compatible);
+}
+
+#[test]
+fn test_compat_generic_instance_record() {
+    let mut registry = TypeRegistry::new();
+    let id_record = registry.register(TypeDef::Record(vec![FieldDef {
+        name: "x".to_string(),
+        type_id: 0,
+    }]));
+    let id_generic = registry.register(TypeDef::GenericInstance {
+        base: 5,
+        args: vec![0],
+    });
+    // Different kinds → NOT compatible
+    assert!(!compat::check(&registry, id_record, id_generic).compatible);
+}

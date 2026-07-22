@@ -161,13 +161,18 @@ fn resolve_hir_type(
             let resolved_return = resolve_hir_type(return_, registry, name_map);
             registry.register(TypeDef::Func(resolved_params, resolved_return))
         }
-        HirType::Generic { base, args: _ } => {
-            // For now, try to resolve the base name; if known, return its ID.
-            // Otherwise, use the Null primitive (ID 4).
-            match name_map.get(base) {
-                Some(id) => *id,
-                None => 4,
+        HirType::Generic { base, args } => match name_map.get(base).copied() {
+            Some(base_id) => {
+                let resolved_args: Vec<TypeId> = args
+                    .iter()
+                    .map(|arg| resolve_hir_type(arg, registry, name_map))
+                    .collect();
+                registry.register(TypeDef::GenericInstance {
+                    base: base_id,
+                    args: resolved_args,
+                })
             }
-        }
+            None => 4,
+        },
     }
 }

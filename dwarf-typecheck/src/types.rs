@@ -42,4 +42,7 @@ pub enum TypeDef {
     Union(Vec<VariantDef>),
     /// A function type: (param_types...) -> return_type.
     Func(Vec<TypeId>, TypeId),
+    /// A concrete instantiation of a generic type.
+    /// e.g., `Option<int>` where base is the TypeId of `Option` and args is `[0]` (Int).
+    GenericInstance { base: TypeId, args: Vec<TypeId> },
 }

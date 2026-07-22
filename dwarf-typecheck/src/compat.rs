@@ -75,6 +75,13 @@ pub fn check(registry: &TypeRegistry, expected: TypeId, actual: TypeId) -> Compa
         (Some(TypeDef::Func(e_params, e_ret)), Some(TypeDef::Func(a_params, a_ret))) => {
             check_funcs(registry, e_params, e_ret, a_params, a_ret)
         }
+        (
+            Some(TypeDef::GenericInstance { base, args }),
+            Some(TypeDef::GenericInstance {
+                base: actual_base,
+                args: actual_args,
+            }),
+        ) => check_generic_instances(registry, base, args, actual_base, actual_args),
         // Cross-kind (or unresolved types) are always incompatible.
         _ => CompatibilityResult {
             compatible: false,
@@ -262,6 +269,45 @@ fn check_funcs(
             expected: *e_ret,
             actual: *a_ret,
         });
+    }
+
+    let compatible = details.iter().all(|d| *d == CompatDetail::Ok);
+    CompatibilityResult {
+        compatible,
+        details,
+    }
+}
+
+fn check_generic_instances(
+    registry: &TypeRegistry,
+    base: &TypeId,
+    args: &[TypeId],
+    actual_base: &TypeId,
+    actual_args: &[TypeId],
+) -> CompatibilityResult {
+    let mut details = Vec::new();
+
+    if base != actual_base {
+        return CompatibilityResult {
+            compatible: false,
+            details: vec![],
+        };
+    }
+
+    if args.len() != actual_args.len() {
+        return CompatibilityResult {
+            compatible: false,
+            details: vec![],
+        };
+    }
+
+    for (a, b) in args.iter().zip(actual_args.iter()) {
+        let result = check(registry, *a, *b);
+        if result.compatible {
+            details.push(CompatDetail::Ok);
+        } else {
+            details.extend(result.details);
+        }
     }
 
     let compatible = details.iter().all(|d| *d == CompatDetail::Ok);
