@@ -35,8 +35,9 @@ impl TypeCheckPass {
         let mut errors = Vec::new();
 
         // Phase 1: Register all type declarations (RecordDef, UnionDef, TypeDef)
-        let result = resolve::register_decls(&mut registry, decls);
-        let _name_map = result.name_map;
+        let _result = resolve::register_decls(&mut registry, decls);
+        // TODO: Thread name_map from resolve into Phase 2 so param type
+        // annotations can resolve user-defined types (not just primitives).
 
         // Phase 2: Infer types for function declarations
         for decl in decls {
@@ -77,7 +78,6 @@ impl TypeCheckPass {
                                     "int" | "Int" | "float" | "Float" | "str" | "Str"
                                     | "string" | "String" | "bool" | "Bool" | "null" | "Null" => {
                                         // Use the concrete registration for generic types
-                                        let _args: Vec<()> = Vec::new();
                                         errors.push(TypeCheckError::new(
                                             "DWARF-E-TYPE-0008",
                                             format!(
