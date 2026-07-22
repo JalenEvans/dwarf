@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1.85.0 is the MSRV for this project — bump this when the minimum is raised
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.0
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo check --workspace
+
+      - run: cargo fmt --all -- --check
+
+      - run: cargo clippy --workspace -- -D warnings
+
+      - run: cargo test --workspace
