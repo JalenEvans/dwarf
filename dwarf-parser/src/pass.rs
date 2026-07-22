@@ -11,9 +11,9 @@ pub struct ParsePass;
 impl ParsePass {
     /// Parse the given source text.
     /// Returns (declarations, errors) — partial HIR even on errors.
-    pub fn parse(&self, input: String) -> Result<(Vec<Decl>, Vec<ParseError>), String> {
+    pub fn parse(&self, input: &str) -> Result<(Vec<Decl>, Vec<ParseError>), String> {
         // Tokenize
-        let mut lexer = Lexer::new(&input);
+        let mut lexer = Lexer::new(input);
         let mut tokens = Vec::new();
         loop {
             match lexer.next_token() {

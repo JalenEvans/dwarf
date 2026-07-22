@@ -12,7 +12,7 @@ use insta::assert_json_snapshot;
 /// parsing both succeeded without errors.
 fn parse_ok(input: &str) -> Vec<Decl> {
     let pass = ParsePass;
-    let (decls, errors) = pass.parse(input.to_string()).unwrap();
+    let (decls, errors) = pass.parse(input).unwrap();
     assert!(
         errors.is_empty(),
         "expected no parse errors for {input:?}, got: {errors:?}"

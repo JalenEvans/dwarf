@@ -220,7 +220,7 @@ impl Pass for ParsePass {
     }
 
     fn run(&self, ctx: &mut PassContext, unit: &mut CompilationUnit) -> PassResult {
-        match self.parse(unit.source.clone()) {
+        match self.parse(&unit.source) {
             Ok((decls, parse_errors)) => {
                 for err in &parse_errors {
                     let (line, col) =
@@ -240,7 +240,7 @@ impl Pass for ParsePass {
             }
             Err(e) => {
                 ctx.push_diagnostic(Diagnostic {
-                    code: "DWARF-E-PARSE-0001".to_string(),
+                    code: "DWARF-E-LEX-0001".to_string(),
                     severity: Severity::Error,
                     message: e,
                     file: unit.path.clone(),

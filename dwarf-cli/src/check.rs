@@ -60,7 +60,7 @@ pub fn run_check(
     if json {
         let output = JsonOutput {
             ok: !has_errors,
-            errors: all_results.iter().map(|r| {
+            results: all_results.iter().map(|r| {
                 json!({
                     "file": r.file,
                     "success": r.success,
@@ -172,5 +172,5 @@ fn read_source_file(path: &PathBuf) -> Result<String, String> {
 #[derive(Serialize)]
 struct JsonOutput {
     ok: bool,
-    errors: Vec<serde_json::Value>,
+    results: Vec<serde_json::Value>,
 }

@@ -12,18 +12,9 @@ fn dwarf(args: &[&str]) -> std::process::Output {
 
 /// Find the dwarf binary in cargo's build output.
 fn get_binary_path() -> PathBuf {
-    // Check common build output directories
-    let candidates = vec![
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/dwarf-cli"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/debug/dwarf-cli"),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/dwarf-cli"),
-    ];
-    for p in &candidates {
-        if p.exists() {
-            return p.clone();
-        }
-    }
-    panic!("Cannot find dwarf-cli binary. Tried: {:?}", candidates);
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Workspace root is parent of crate directory
+    manifest.parent().unwrap().join("target/debug/dwarf-cli")
 }
 
 #[test]
@@ -145,10 +136,10 @@ fn test_cli_json_output_with_errors() {
         serde_json::from_str(&stdout).expect("Output should be valid JSON even with errors");
 
     assert_eq!(json["ok"], false, "JSON should have ok: false for errors");
-    assert!(json["errors"].is_array(), "JSON should have errors array");
+    assert!(json["results"].is_array(), "JSON should have results array");
     assert!(
-        json["errors"].as_array().is_some_and(|e| !e.is_empty()),
-        "JSON errors array should not be empty"
+        json["results"].as_array().is_some_and(|e| !e.is_empty()),
+        "JSON results array should not be empty"
     );
 
     // Cleanup

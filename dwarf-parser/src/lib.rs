@@ -172,7 +172,7 @@ impl Parser {
         ParseError {
             message: message.to_string(),
             span: self.peek().span,
-            code: "", // generic — no specific code
+            code: "DWARF-E-PARSE-0003",
         }
     }
 
