@@ -46,5 +46,5 @@ fn test_parser_error_codes_registered() {
 #[test]
 fn test_error_code_count_increased() {
     // Should be at least 10 error codes (5 lex + 5+ parse)
-    assert!(ERROR_CODES.len() >= 10, "Expected at least 10 error codes");
+    assert!(ERROR_CODES.len() >= 18, "Expected at least 18 error codes");
 }

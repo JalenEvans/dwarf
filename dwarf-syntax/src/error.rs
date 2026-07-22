@@ -15,4 +15,13 @@ pub const ERROR_CODES: &[&str] = &[
     "DWARF-E-PARSE-0003", // Unexpected token
     "DWARF-E-PARSE-0004", // Recursion depth limit exceeded
     "DWARF-E-PARSE-0005", // Invalid pattern
+    // Type-checking errors (DWARF-E-TYPE-*)
+    "DWARF-E-TYPE-0001", // Type mismatch (expected X, got Y)
+    "DWARF-E-TYPE-0002", // Type not found
+    "DWARF-E-TYPE-0003", // Argument count mismatch
+    "DWARF-E-TYPE-0004", // Generic constraint violation
+    "DWARF-E-TYPE-0005", // Structural field mismatch
+    "DWARF-E-TYPE-0006", // Refinement constraint violation
+    "DWARF-E-TYPE-0007", // Circular type definition
+    "DWARF-E-TYPE-0008", // Cannot infer type
 ];
