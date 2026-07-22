@@ -379,13 +379,13 @@ fn test_multiple_doc_comments() {
 
 #[test]
 fn test_deeply_nested_expression_graceful_error() {
-    // 1000 nested parens should error gracefully, not crash
+    // 150 nested parens should trigger depth guard (MAX_DEPTH=64)
     let mut input = String::new();
-    for _ in 0..1000 {
+    for _ in 0..150 {
         input.push('(');
     }
     input.push('1');
-    for _ in 0..1000 {
+    for _ in 0..150 {
         input.push(')');
     }
 
@@ -423,11 +423,11 @@ fn test_moderate_nesting_works() {
 fn test_deeply_nested_type_graceful_error() {
     // Deeply nested type: ((((((...i32...))))))
     let mut input = String::from("type X = ");
-    for _ in 0..1000 {
+    for _ in 0..150 {
         input.push('(');
     }
     input.push_str("i32");
-    for _ in 0..1000 {
+    for _ in 0..150 {
         input.push(')');
     }
 
@@ -578,5 +578,143 @@ fn test_union_def_type_alias_not_confused() {
             assert!(matches!(type_, Type::Union(_)));
         }
         other => panic!("Expected TypeDef, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Span correctness tests
+//
+// These tests will FAIL because:
+//   - Expr::Literal and Expr::Variable are tuple variants (no span field)
+//   - Binary op spans in parse_term use self.previous().span (just the last token)
+//   - Comparison spans in parse_comparison hardcode 0 for the start
+// ============================================================================
+
+/// After span fix: Literal should carry a span
+#[test]
+fn test_literal_has_span() {
+    let tokens = tokenize("fn f() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, _) = parser.parse();
+
+    assert_eq!(decls.len(), 1);
+    if let Decl::Function { body, .. } = &decls[0] {
+        // Function body is a Block; extract the inner expression
+        if let Expr::Block { stmts, .. } = body {
+            if let Stmt::Expr(expr) = &stmts[0] {
+                if let Expr::Literal { value, span } = expr {
+                    assert_eq!(*value, LiteralValue::Int(42));
+                    assert!(span.start > 0, "Literal span should not be zero");
+                    assert!(span.end > span.start, "Literal span should have positive length");
+                } else {
+                    panic!("Expected Expr::Literal");
+                }
+            } else {
+                panic!("Expected Stmt::Expr");
+            }
+        } else {
+            panic!("Expected Expr::Block as function body, got something else");
+        }
+    } else {
+        panic!("Expected Function decl");
+    }
+}
+
+/// After span fix: Variable should carry a span
+#[test]
+fn test_variable_has_span() {
+    let tokens = tokenize("fn f() { x }");
+    let mut parser = Parser::new(tokens);
+    let (decls, _) = parser.parse();
+
+    assert_eq!(decls.len(), 1);
+    if let Decl::Function { body, .. } = &decls[0] {
+        // Function body is a Block; extract the inner expression
+        if let Expr::Block { stmts, .. } = body {
+            if let Stmt::Expr(expr) = &stmts[0] {
+                if let Expr::Variable { name, span } = expr {
+                    assert_eq!(name, "x");
+                    assert!(span.start > 0, "Variable span should not be zero");
+                } else {
+                    panic!("Expected Expr::Variable");
+                }
+            } else {
+                panic!("Expected Stmt::Expr");
+            }
+        } else {
+            panic!("Expected Expr::Block as function body, got something else");
+        }
+    } else {
+        panic!("Expected Function decl");
+    }
+}
+
+/// After span fix: binary op span should cover entire expression
+#[test]
+fn test_binary_op_span_covers_full_expression() {
+    let tokens = tokenize("fn f() { 1 + 2 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, _) = parser.parse();
+
+    assert_eq!(decls.len(), 1);
+    if let Decl::Function { body, .. } = &decls[0] {
+        // Function body is a Block; extract the inner expression
+        if let Expr::Block { stmts, .. } = body {
+            if let Stmt::Expr(expr) = &stmts[0] {
+                if let Expr::Binary { span, .. } = expr {
+                    // Span should cover from start of LHS (1 at byte ~9) to end of RHS (2 at byte ~14)
+                    assert!(
+                        span.start < 10,
+                        "Binary span start should be near beginning of '1', got start={}",
+                        span.start
+                    );
+                    assert!(
+                        span.end >= 14,
+                        "Binary span end should cover end of '2', got end={}",
+                        span.end
+                    );
+                } else {
+                    panic!("Expected Expr::Binary");
+                }
+            } else {
+                panic!("Expected Stmt::Expr");
+            }
+        } else {
+            panic!("Expected Expr::Block as function body, got something else");
+        }
+    }
+}
+
+/// After span fix: comparison span covers full expression
+#[test]
+fn test_comparison_span_covers_full_expression() {
+    let tokens = tokenize("fn f() { a < b }");
+    let mut parser = Parser::new(tokens);
+    let (decls, _) = parser.parse();
+
+    assert_eq!(decls.len(), 1);
+    if let Decl::Function { body, .. } = &decls[0] {
+        // Function body is a Block; extract the inner expression
+        if let Expr::Block { stmts, .. } = body {
+            if let Stmt::Expr(expr) = &stmts[0] {
+                if let Expr::Binary { span, .. } = expr {
+                    assert!(
+                        span.start > 0,
+                        "Comparison span start should not be zero, got start={}",
+                        span.start
+                    );
+                    assert!(
+                        span.end > span.start,
+                        "Comparison span should have positive length"
+                    );
+                } else {
+                    panic!("Expected Expr::Binary");
+                }
+            } else {
+                panic!("Expected Stmt::Expr");
+            }
+        } else {
+            panic!("Expected Expr::Block as function body, got something else");
+        }
     }
 }

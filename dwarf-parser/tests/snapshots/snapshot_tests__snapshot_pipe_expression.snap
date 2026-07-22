@@ -24,30 +24,51 @@ expression: decls
                   "lhs": {
                     "Pipe": {
                       "lhs": {
-                        "Variable": "x"
+                        "Variable": {
+                          "name": "x",
+                          "span": {
+                            "file_id": 0,
+                            "start": 18,
+                            "end": 19
+                          }
+                        }
                       },
                       "rhs": {
                         "Call": {
                           "func": {
-                            "Variable": "add"
+                            "Variable": {
+                              "name": "add",
+                              "span": {
+                                "file_id": 0,
+                                "start": 23,
+                                "end": 26
+                              }
+                            }
                           },
                           "args": [
                             {
                               "Literal": {
-                                "Int": 1
+                                "value": {
+                                  "Int": 1
+                                },
+                                "span": {
+                                  "file_id": 0,
+                                  "start": 27,
+                                  "end": 28
+                                }
                               }
                             }
                           ],
                           "span": {
                             "file_id": 0,
-                            "start": 28,
+                            "start": 23,
                             "end": 29
                           }
                         }
                       },
                       "span": {
                         "file_id": 0,
-                        "start": 20,
+                        "start": 18,
                         "end": 29
                       }
                     }
@@ -55,25 +76,39 @@ expression: decls
                   "rhs": {
                     "Call": {
                       "func": {
-                        "Variable": "mul"
+                        "Variable": {
+                          "name": "mul",
+                          "span": {
+                            "file_id": 0,
+                            "start": 33,
+                            "end": 36
+                          }
+                        }
                       },
                       "args": [
                         {
                           "Literal": {
-                            "Int": 2
+                            "value": {
+                              "Int": 2
+                            },
+                            "span": {
+                              "file_id": 0,
+                              "start": 37,
+                              "end": 38
+                            }
                           }
                         }
                       ],
                       "span": {
                         "file_id": 0,
-                        "start": 38,
+                        "start": 33,
                         "end": 39
                       }
                     }
                   },
                   "span": {
                     "file_id": 0,
-                    "start": 30,
+                    "start": 18,
                     "end": 39
                   }
                 }

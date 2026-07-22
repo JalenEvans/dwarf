@@ -1,4 +1,5 @@
 use dwarf_syntax::hir::*;
+use dwarf_syntax::span::Span;
 
 #[test]
 fn test_literal_value_variants() {
@@ -33,7 +34,10 @@ fn test_function_decl_construction() {
             },
         ],
         return_type: Some(Type::Named("i32".to_string())),
-        body: Expr::Literal(LiteralValue::Int(0)),
+        body: Expr::Literal {
+            value: LiteralValue::Int(0),
+            span: Span::default(),
+        },
         span: Default::default(),
     };
 
@@ -143,13 +147,19 @@ fn test_decorator_decl_construction() {
         name: "hello".to_string(),
         params: vec![],
         return_type: None,
-        body: Expr::Literal(LiteralValue::Null),
+        body: Expr::Literal {
+            value: LiteralValue::Null,
+            span: Span::default(),
+        },
         span: Default::default(),
     };
 
     let decl = Decl::Decorator {
         name: "route".to_string(),
-        args: vec![Expr::Literal(LiteralValue::Str("/api".to_string()))],
+        args: vec![Expr::Literal {
+            value: LiteralValue::Str("/api".to_string()),
+            span: Span::default(),
+        }],
         target: Box::new(inner),
         span: Default::default(),
     };
@@ -166,9 +176,18 @@ fn test_decorator_decl_construction() {
 #[test]
 fn test_if_expr_construction() {
     let expr = Expr::If {
-        cond: Box::new(Expr::Literal(LiteralValue::Bool(true))),
-        then: Box::new(Expr::Literal(LiteralValue::Int(1))),
-        else_: Some(Box::new(Expr::Literal(LiteralValue::Int(0)))),
+        cond: Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: Span::default(),
+        }),
+        then: Box::new(Expr::Literal {
+            value: LiteralValue::Int(1),
+            span: Span::default(),
+        }),
+        else_: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(0),
+            span: Span::default(),
+        })),
         span: Default::default(),
     };
     assert!(matches!(expr, Expr::If { .. }));
@@ -177,15 +196,21 @@ fn test_if_expr_construction() {
 #[test]
 fn test_if_expr_no_else() {
     let expr = Expr::If {
-        cond: Box::new(Expr::Literal(LiteralValue::Bool(true))),
-        then: Box::new(Expr::Literal(LiteralValue::Int(1))),
+        cond: Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: Span::default(),
+        }),
+        then: Box::new(Expr::Literal {
+            value: LiteralValue::Int(1),
+            span: Span::default(),
+        }),
         else_: None,
         span: Default::default(),
     };
 
     if let Expr::If { cond, then, else_, .. } = &expr {
-        assert!(matches!(cond.as_ref(), Expr::Literal(LiteralValue::Bool(true))));
-        assert!(matches!(then.as_ref(), Expr::Literal(LiteralValue::Int(1))));
+        assert!(matches!(cond.as_ref(), Expr::Literal { value: LiteralValue::Bool(true), .. }));
+        assert!(matches!(then.as_ref(), Expr::Literal { value: LiteralValue::Int(1), .. }));
         assert!(else_.is_none());
     } else {
         panic!("Expected If expr");
@@ -195,11 +220,17 @@ fn test_if_expr_no_else() {
 #[test]
 fn test_match_expr_construction() {
     let expr = Expr::Match {
-        expr: Box::new(Expr::Variable("x".to_string())),
+        expr: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: Span::default(),
+        }),
         arms: vec![MatchArm {
             pattern: Pat::Literal(LiteralValue::Int(1)),
             guard: None,
-            body: Expr::Literal(LiteralValue::Str("one".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Str("one".to_string()),
+                span: Span::default(),
+            },
         }],
         span: Default::default(),
     };
@@ -209,16 +240,28 @@ fn test_match_expr_construction() {
 #[test]
 fn test_match_expr_with_guard() {
     let expr = Expr::Match {
-        expr: Box::new(Expr::Variable("x".to_string())),
+        expr: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: Span::default(),
+        }),
         arms: vec![MatchArm {
             pattern: Pat::Variable("n".to_string()),
             guard: Some(Expr::Binary {
-                lhs: Box::new(Expr::Variable("n".to_string())),
+                lhs: Box::new(Expr::Variable {
+                    name: "n".to_string(),
+                    span: Span::default(),
+                }),
                 op: BinaryOp::Gt,
-                rhs: Box::new(Expr::Literal(LiteralValue::Int(0))),
+                rhs: Box::new(Expr::Literal {
+                    value: LiteralValue::Int(0),
+                    span: Span::default(),
+                }),
                 span: Default::default(),
             }),
-            body: Expr::Literal(LiteralValue::Str("positive".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Str("positive".to_string()),
+                span: Span::default(),
+            },
         }],
         span: Default::default(),
     };
@@ -238,9 +281,15 @@ fn test_block_expr_with_let_and_expr_stmts() {
         stmts: vec![
             Stmt::Let(
                 Pat::Variable("x".to_string()),
-                Expr::Literal(LiteralValue::Int(10)),
+                Expr::Literal {
+                    value: LiteralValue::Int(10),
+                    span: Span::default(),
+                },
             ),
-            Stmt::Expr(Expr::Variable("x".to_string())),
+            Stmt::Expr(Expr::Variable {
+                name: "x".to_string(),
+                span: Span::default(),
+            }),
         ],
         span: Default::default(),
     };
@@ -257,8 +306,14 @@ fn test_block_expr_with_let_and_expr_stmts() {
 #[test]
 fn test_pipe_expr() {
     let expr = Expr::Pipe {
-        lhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
-        rhs: Box::new(Expr::Literal(LiteralValue::Int(2))),
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(1),
+            span: Span::default(),
+        }),
+        rhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(2),
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
     assert!(matches!(expr, Expr::Pipe { .. }));
@@ -268,8 +323,14 @@ fn test_pipe_expr() {
 fn test_propagate_expr() {
     let expr = Expr::Propagate {
         expr: Box::new(Expr::Call {
-            func: Box::new(Expr::Variable("read_file".to_string())),
-            args: vec![Expr::Literal(LiteralValue::Str("foo.txt".to_string()))],
+            func: Box::new(Expr::Variable {
+                name: "read_file".to_string(),
+                span: Span::default(),
+            }),
+            args: vec![Expr::Literal {
+                value: LiteralValue::Str("foo.txt".to_string()),
+                span: Span::default(),
+            }],
             span: Default::default(),
         }),
         span: Default::default(),
@@ -281,8 +342,14 @@ fn test_propagate_expr() {
 fn test_for_expr_construction() {
     let expr = Expr::For {
         binding: Pat::Variable("item".to_string()),
-        iterable: Box::new(Expr::Variable("items".to_string())),
-        body: Box::new(Expr::Literal(LiteralValue::Null)),
+        iterable: Box::new(Expr::Variable {
+            name: "items".to_string(),
+            span: Span::default(),
+        }),
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Null,
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
 
@@ -296,14 +363,20 @@ fn test_for_expr_construction() {
 #[test]
 fn test_assign_expr() {
     let expr = Expr::Assign {
-        target: Box::new(Expr::Variable("x".to_string())),
-        value: Box::new(Expr::Literal(LiteralValue::Int(42))),
+        target: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: Span::default(),
+        }),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
 
     if let Expr::Assign { target, value, .. } = &expr {
-        assert!(matches!(target.as_ref(), Expr::Variable(name) if name == "x"));
-        assert!(matches!(value.as_ref(), Expr::Literal(LiteralValue::Int(42))));
+        assert!(matches!(target.as_ref(), Expr::Variable { name, .. } if name == "x"));
+        assert!(matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Int(42), .. }));
     } else {
         panic!("Expected Assign expr");
     }
@@ -317,9 +390,15 @@ fn test_lambda_expr() {
             type_: Some(Type::Named("i32".to_string())),
         }],
         body: Box::new(Expr::Binary {
-            lhs: Box::new(Expr::Variable("x".to_string())),
+            lhs: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: Span::default(),
+            }),
             op: BinaryOp::Add,
-            rhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+            rhs: Box::new(Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: Span::default(),
+            }),
             span: Default::default(),
         }),
         span: Default::default(),
@@ -338,8 +417,14 @@ fn test_lambda_expr() {
 fn test_record_literal_expr() {
     let expr = Expr::Record {
         fields: vec![
-            ("x".to_string(), Expr::Literal(LiteralValue::Int(10))),
-            ("y".to_string(), Expr::Literal(LiteralValue::Int(20))),
+            ("x".to_string(), Expr::Literal {
+                value: LiteralValue::Int(10),
+                span: Span::default(),
+            }),
+            ("y".to_string(), Expr::Literal {
+                value: LiteralValue::Int(20),
+                span: Span::default(),
+            }),
         ],
         span: Default::default(),
     };
@@ -347,7 +432,7 @@ fn test_record_literal_expr() {
     if let Expr::Record { fields, .. } = &expr {
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].0, "x");
-        assert!(matches!(fields[0].1, Expr::Literal(LiteralValue::Int(10))));
+        assert!(matches!(fields[0].1, Expr::Literal { value: LiteralValue::Int(10), .. }));
         assert_eq!(fields[1].0, "y");
     } else {
         panic!("Expected Record expr");
@@ -358,7 +443,10 @@ fn test_record_literal_expr() {
 fn test_variant_literal_expr() {
     let expr = Expr::Variant {
         name: "Some".to_string(),
-        arg: Some(Box::new(Expr::Literal(LiteralValue::Int(42)))),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: Span::default(),
+        })),
         span: Default::default(),
     };
 
@@ -388,14 +476,26 @@ fn test_variant_literal_no_arg() {
 
 #[test]
 fn test_array_literal_expr() {
-    let expr = Expr::Array(vec![
-        Expr::Literal(LiteralValue::Int(1)),
-        Expr::Literal(LiteralValue::Int(2)),
-        Expr::Literal(LiteralValue::Int(3)),
-    ]);
+    let expr = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: Span::default(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: Span::default(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(3),
+                span: Span::default(),
+            },
+        ],
+        span: Span::default(),
+    };
 
-    if let Expr::Array(elements) = &expr {
-        assert_eq!(elements.len(), 3);
+    if let Expr::Array { items, .. } = &expr {
+        assert_eq!(items.len(), 3);
     } else {
         panic!("Expected Array expr");
     }
@@ -403,23 +503,34 @@ fn test_array_literal_expr() {
 
 #[test]
 fn test_wildcard_expr() {
-    let expr = Expr::Wildcard;
-    assert!(matches!(expr, Expr::Wildcard));
+    let expr = Expr::Wildcard {
+        span: Span::default(),
+    };
+    assert!(matches!(expr, Expr::Wildcard { .. }));
 }
 
 #[test]
 fn test_call_expr() {
     let expr = Expr::Call {
-        func: Box::new(Expr::Variable("add".to_string())),
+        func: Box::new(Expr::Variable {
+            name: "add".to_string(),
+            span: Span::default(),
+        }),
         args: vec![
-            Expr::Literal(LiteralValue::Int(1)),
-            Expr::Literal(LiteralValue::Int(2)),
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: Span::default(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: Span::default(),
+            },
         ],
         span: Default::default(),
     };
 
     if let Expr::Call { func, args, .. } = &expr {
-        assert!(matches!(func.as_ref(), Expr::Variable(name) if name == "add"));
+        assert!(matches!(func.as_ref(), Expr::Variable { name, .. } if name == "add"));
         assert_eq!(args.len(), 2);
     } else {
         panic!("Expected Call expr");
@@ -429,13 +540,16 @@ fn test_call_expr() {
 #[test]
 fn test_member_expr() {
     let expr = Expr::Member {
-        obj: Box::new(Expr::Variable("point".to_string())),
+        obj: Box::new(Expr::Variable {
+            name: "point".to_string(),
+            span: Span::default(),
+        }),
         field: "x".to_string(),
         span: Default::default(),
     };
 
     if let Expr::Member { obj, field, .. } = &expr {
-        assert!(matches!(obj.as_ref(), Expr::Variable(name) if name == "point"));
+        assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "point"));
         assert_eq!(field, "x");
     } else {
         panic!("Expected Member expr");
@@ -444,8 +558,11 @@ fn test_member_expr() {
 
 #[test]
 fn test_variable_expr() {
-    let expr = Expr::Variable("foo".to_string());
-    assert!(matches!(&expr, Expr::Variable(name) if name == "foo"));
+    let expr = Expr::Variable {
+        name: "foo".to_string(),
+        span: Span::default(),
+    };
+    assert!(matches!(&expr, Expr::Variable { name, .. } if name == "foo"));
 }
 
 #[test]
@@ -557,9 +674,15 @@ fn test_binary_op_variants() {
 
     // Binary operations used in expressions
     let expr = Expr::Binary {
-        lhs: Box::new(Expr::Literal(LiteralValue::Int(1))),
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(1),
+            span: Span::default(),
+        }),
         op: BinaryOp::Add,
-        rhs: Box::new(Expr::Literal(LiteralValue::Int(2))),
+        rhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(2),
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
 
@@ -574,13 +697,16 @@ fn test_binary_op_variants() {
 fn test_unary_op_variants() {
     let expr = Expr::Unary {
         op: UnaryOp::Neg,
-        expr: Box::new(Expr::Literal(LiteralValue::Int(42))),
+        expr: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
 
     if let Expr::Unary { op, expr, .. } = &expr {
         assert!(matches!(op, UnaryOp::Neg));
-        assert!(matches!(expr.as_ref(), Expr::Literal(LiteralValue::Int(42))));
+        assert!(matches!(expr.as_ref(), Expr::Literal { value: LiteralValue::Int(42), .. }));
     } else {
         panic!("Expected Unary expr");
     }
@@ -589,9 +715,15 @@ fn test_unary_op_variants() {
 #[test]
 fn test_binary_expr_comparison() {
     let expr = Expr::Binary {
-        lhs: Box::new(Expr::Literal(LiteralValue::Int(5))),
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(5),
+            span: Span::default(),
+        }),
         op: BinaryOp::Gt,
-        rhs: Box::new(Expr::Literal(LiteralValue::Int(3))),
+        rhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(3),
+            span: Span::default(),
+        }),
         span: Default::default(),
     };
 
@@ -602,14 +734,29 @@ fn test_binary_expr_comparison() {
 fn test_deeply_nested_expr() {
     // Build: add(1, mul(2, 3))
     let expr = Expr::Call {
-        func: Box::new(Expr::Variable("add".to_string())),
+        func: Box::new(Expr::Variable {
+            name: "add".to_string(),
+            span: Span::default(),
+        }),
         args: vec![
-            Expr::Literal(LiteralValue::Int(1)),
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: Span::default(),
+            },
             Expr::Call {
-                func: Box::new(Expr::Variable("mul".to_string())),
+                func: Box::new(Expr::Variable {
+                    name: "mul".to_string(),
+                    span: Span::default(),
+                }),
                 args: vec![
-                    Expr::Literal(LiteralValue::Int(2)),
-                    Expr::Literal(LiteralValue::Int(3)),
+                    Expr::Literal {
+                        value: LiteralValue::Int(2),
+                        span: Span::default(),
+                    },
+                    Expr::Literal {
+                        value: LiteralValue::Int(3),
+                        span: Span::default(),
+                    },
                 ],
                 span: Default::default(),
             },
@@ -618,12 +765,12 @@ fn test_deeply_nested_expr() {
     };
 
     if let Expr::Call { func, args, .. } = &expr {
-        assert!(matches!(func.as_ref(), Expr::Variable(name) if name == "add"));
+        assert!(matches!(func.as_ref(), Expr::Variable { name, .. } if name == "add"));
         assert_eq!(args.len(), 2);
         // Second arg should be a nested Call
         assert!(matches!(&args[1], Expr::Call { .. }));
         if let Expr::Call { func: nested_func, args: nested_args, .. } = &args[1] {
-            assert!(matches!(nested_func.as_ref(), Expr::Variable(name) if name == "mul"));
+            assert!(matches!(nested_func.as_ref(), Expr::Variable { name, .. } if name == "mul"));
             assert_eq!(nested_args.len(), 2);
         } else {
             panic!("Expected nested Call");

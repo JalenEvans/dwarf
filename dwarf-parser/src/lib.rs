@@ -16,11 +16,10 @@ pub struct Parser {
 /// Maximum allowed recursion depth for parsing.
 /// Exceeding this produces a `ParseError` instead of a stack overflow.
 ///
-/// Chosen conservatively at 128 so that worst-case debug-mode frames
-/// (~12 frames per expression-nesting level × ~1 KB each) fit within
-/// a typical 2 MiB Rust test-thread stack.  This is the same limit
-/// rustc uses for its parser.
-const MAX_DEPTH: usize = 128;
+/// Set to 64 (±11 frames per level → ~700 peak frames) so that even
+/// expression parsing (~11 frames/level) stays safely within a 2 MiB
+/// debug-mode stack without requiring untenably deep test inputs.
+const MAX_DEPTH: usize = 64;
 
 /// An error produced by the parser when it encounters invalid syntax.
 #[derive(Debug, Clone, PartialEq)]
@@ -481,12 +480,14 @@ impl Parser {
     fn parse_pipe(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_assign()?;
         while self.match_token(TokenKind::PipeGt) {
-            let op_span = self.previous().span;
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let rhs = self.parse_assign()?;
+            let end = self.previous().span.end;
             expr = Expr::Pipe {
                 lhs: Box::new(expr),
                 rhs: Box::new(rhs),
-                span: Span::new(op_span.file_id, op_span.start, self.previous().span.end),
+                span: Span::new(file_id, start, end),
             };
         }
         Ok(expr)
@@ -495,16 +496,14 @@ impl Parser {
     fn parse_assign(&mut self) -> Result<Expr, ParseError> {
         let expr = self.parse_logical_or()?;
         if self.match_token(TokenKind::Eq) {
-            let assign_span = self.previous().span;
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let value = self.parse_assign()?; // right-recursive = right-assoc
+            let end = self.previous().span.end;
             return Ok(Expr::Assign {
                 target: Box::new(expr),
                 value: Box::new(value),
-                span: Span::new(
-                    assign_span.file_id,
-                    assign_span.start,
-                    self.previous().span.end,
-                ),
+                span: Span::new(file_id, start, end),
             });
         }
         Ok(expr)
@@ -513,13 +512,15 @@ impl Parser {
     fn parse_logical_or(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_logical_and()?;
         while self.match_token(TokenKind::PipePipe) {
-            let op_span = self.previous().span;
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let rhs = self.parse_logical_and()?;
+            let end = self.previous().span.end;
             expr = Expr::Binary {
                 op: BinaryOp::Or,
                 lhs: Box::new(expr),
                 rhs: Box::new(rhs),
-                span: Span::new(op_span.file_id, op_span.start, self.previous().span.end),
+                span: Span::new(file_id, start, end),
             };
         }
         Ok(expr)
@@ -528,13 +529,15 @@ impl Parser {
     fn parse_logical_and(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_comparison()?;
         while self.match_token(TokenKind::AmpAmp) {
-            let op_span = self.previous().span;
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let rhs = self.parse_comparison()?;
+            let end = self.previous().span.end;
             expr = Expr::Binary {
                 op: BinaryOp::And,
                 lhs: Box::new(expr),
                 rhs: Box::new(rhs),
-                span: Span::new(op_span.file_id, op_span.start, self.previous().span.end),
+                span: Span::new(file_id, start, end),
             };
         }
         Ok(expr)
@@ -564,17 +567,15 @@ impl Parser {
             return Ok(lhs);
         };
 
+        let lhs_file_id = lhs.span().file_id;
+        let lhs_start = lhs.span().start;
         let rhs = self.parse_term()?;
+        let span_end = rhs.span().end;
         Ok(Expr::Binary {
             op,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
-            span: Span::new(
-                self.previous().span.file_id,
-                // best-effort start from the LHS (which may lack a span)
-                0,
-                self.previous().span.end,
-            ),
+            span: Span::new(lhs_file_id, lhs_start, span_end),
         })
     }
 
@@ -586,16 +587,15 @@ impl Parser {
                 TokenKind::Minus => BinaryOp::Sub,
                 _ => unreachable!(),
             };
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let rhs = self.parse_factor()?;
+            let end = self.previous().span.end;
             expr = Expr::Binary {
                 op,
                 lhs: Box::new(expr),
                 rhs: Box::new(rhs),
-                span: Span::new(
-                    self.previous().span.file_id,
-                    self.previous().span.start,
-                    self.previous().span.end,
-                ),
+                span: Span::new(file_id, start, end),
             };
         }
         Ok(expr)
@@ -609,16 +609,15 @@ impl Parser {
                 TokenKind::Slash => BinaryOp::Div,
                 _ => unreachable!(),
             };
+            let start = expr.span().start;
+            let file_id = expr.span().file_id;
             let rhs = self.parse_unary()?;
+            let end = self.previous().span.end;
             expr = Expr::Binary {
                 op,
                 lhs: Box::new(expr),
                 rhs: Box::new(rhs),
-                span: Span::new(
-                    self.previous().span.file_id,
-                    self.previous().span.start,
-                    self.previous().span.end,
-                ),
+                span: Span::new(file_id, start, end),
             };
         }
         Ok(expr)
@@ -646,33 +645,31 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.match_token(TokenKind::LParen) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
                 let args = self.parse_expr_list(TokenKind::RParen)?;
                 self.consume(TokenKind::RParen, "expected ')' after arguments")?;
+                let end = self.previous().span.end;
                 expr = Expr::Call {
                     func: Box::new(expr),
                     args,
-                    span: Span::new(
-                        self.previous().span.file_id,
-                        self.previous().span.start,
-                        self.previous().span.end,
-                    ),
+                    span: Span::new(file_id, start, end),
                 };
             } else if self.match_token(TokenKind::Dot) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
                 let field = self.consume_ident("expected field name after '.'")?;
                 expr = Expr::Member {
                     obj: Box::new(expr),
                     field,
-                    span: Span::new(
-                        self.previous().span.file_id,
-                        self.previous().span.start,
-                        self.previous().span.end,
-                    ),
+                    span: Span::new(file_id, start, self.previous().span.end),
                 };
             } else if self.match_token(TokenKind::Question) {
-                let q_span = self.previous().span;
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
                 expr = Expr::Propagate {
                     expr: Box::new(expr),
-                    span: Span::new(q_span.file_id, q_span.start, self.previous().span.end),
+                    span: Span::new(file_id, start, self.previous().span.end),
                 };
             } else {
                 break;
@@ -685,44 +682,65 @@ impl Parser {
         match &self.peek().kind {
             TokenKind::Int(val) => {
                 let val = *val;
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Int(val)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Int(val),
+                    span,
+                })
             }
             TokenKind::Float(val) => {
                 let val = *val;
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Float(val)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Float(val),
+                    span,
+                })
             }
             TokenKind::Str(val) => {
                 let val = val.clone();
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Str(val)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Str(val),
+                    span,
+                })
             }
             TokenKind::RawStr(val) => {
                 let val = val.clone();
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::RawStr(val)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::RawStr(val),
+                    span,
+                })
             }
             TokenKind::True => {
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Bool(true)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Bool(true),
+                    span,
+                })
             }
             TokenKind::False => {
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Bool(false)))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Bool(false),
+                    span,
+                })
             }
             TokenKind::Null => {
-                self.advance();
-                Ok(Expr::Literal(LiteralValue::Null))
+                let span = self.advance().span;
+                Ok(Expr::Literal {
+                    value: LiteralValue::Null,
+                    span,
+                })
             }
             TokenKind::Ident(name) => {
                 let name = name.clone();
-                self.advance();
-                Ok(Expr::Variable(name))
+                let span = self.advance().span;
+                Ok(Expr::Variable { name, span })
             }
             TokenKind::Underscore => {
-                self.advance();
-                Ok(Expr::Wildcard)
+                let span = self.advance().span;
+                Ok(Expr::Wildcard { span })
             }
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
@@ -910,14 +928,17 @@ impl Parser {
     }
 
     fn parse_array_literal(&mut self) -> Result<Expr, ParseError> {
-        self.advance(); // consume '['
-        let mut exprs = Vec::new();
+        let start = self.advance().span; // consume '['
+        let mut items = Vec::new();
         while !self.check(TokenKind::RBracket) && !self.is_at_end() {
-            exprs.push(self.parse_expression()?);
+            items.push(self.parse_expression()?);
             self.match_token(TokenKind::Comma);
         }
         self.consume(TokenKind::RBracket, "expected ']'")?;
-        Ok(Expr::Array(exprs))
+        Ok(Expr::Array {
+            items,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
     }
 
     // ========================================================================

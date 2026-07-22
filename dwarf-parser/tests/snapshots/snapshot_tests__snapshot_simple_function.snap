@@ -14,7 +14,14 @@ expression: decls
             {
               "Expr": {
                 "Literal": {
-                  "Int": 42
+                  "value": {
+                    "Int": 42
+                  },
+                  "span": {
+                    "file_id": 0,
+                    "start": 12,
+                    "end": 14
+                  }
                 }
               }
             }

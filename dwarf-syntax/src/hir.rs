@@ -90,9 +90,15 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     /// Literal value (int, float, string, bool, null)
-    Literal(LiteralValue),
+    Literal {
+        value: LiteralValue,
+        span: Span,
+    },
     /// Variable reference
-    Variable(String),
+    Variable {
+        name: String,
+        span: Span,
+    },
     /// Function call
     Call {
         func: Box<Expr>,
@@ -165,9 +171,14 @@ pub enum Expr {
         span: Span,
     },
     /// Array literal
-    Array(Vec<Expr>),
+    Array {
+        items: Vec<Expr>,
+        span: Span,
+    },
     /// Wildcard expression
-    Wildcard,
+    Wildcard {
+        span: Span,
+    },
     /// Binary operation
     Binary {
         op: BinaryOp,
@@ -181,6 +192,32 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+}
+
+impl Expr {
+    /// Get the source span of this expression.
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Literal { span, .. } => *span,
+            Expr::Variable { span, .. } => *span,
+            Expr::Call { span, .. } => *span,
+            Expr::Member { span, .. } => *span,
+            Expr::If { span, .. } => *span,
+            Expr::Match { span, .. } => *span,
+            Expr::Block { span, .. } => *span,
+            Expr::Pipe { span, .. } => *span,
+            Expr::Propagate { span, .. } => *span,
+            Expr::For { span, .. } => *span,
+            Expr::Assign { span, .. } => *span,
+            Expr::Lambda { span, .. } => *span,
+            Expr::Record { span, .. } => *span,
+            Expr::Variant { span, .. } => *span,
+            Expr::Array { span, .. } => *span,
+            Expr::Wildcard { span } => *span,
+            Expr::Binary { span, .. } => *span,
+            Expr::Unary { span, .. } => *span,
+        }
+    }
 }
 
 // ---- Binary & Unary Operators ----

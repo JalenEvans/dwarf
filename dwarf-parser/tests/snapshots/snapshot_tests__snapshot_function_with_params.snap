@@ -31,14 +31,28 @@ expression: decls
                 "Binary": {
                   "op": "Add",
                   "lhs": {
-                    "Variable": "a"
+                    "Variable": {
+                      "name": "a",
+                      "span": {
+                        "file_id": 0,
+                        "start": 32,
+                        "end": 33
+                      }
+                    }
                   },
                   "rhs": {
-                    "Variable": "b"
+                    "Variable": {
+                      "name": "b",
+                      "span": {
+                        "file_id": 0,
+                        "start": 36,
+                        "end": 37
+                      }
+                    }
                   },
                   "span": {
                     "file_id": 0,
-                    "start": 36,
+                    "start": 32,
                     "end": 37
                   }
                 }

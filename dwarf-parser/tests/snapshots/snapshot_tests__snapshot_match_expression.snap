@@ -22,7 +22,14 @@ expression: decls
               "Expr": {
                 "Match": {
                   "expr": {
-                    "Variable": "x"
+                    "Variable": {
+                      "name": "x",
+                      "span": {
+                        "file_id": 0,
+                        "start": 24,
+                        "end": 25
+                      }
+                    }
                   },
                   "arms": [
                     {
@@ -34,7 +41,14 @@ expression: decls
                       "guard": null,
                       "body": {
                         "Literal": {
-                          "Str": "zero"
+                          "value": {
+                            "Str": "zero"
+                          },
+                          "span": {
+                            "file_id": 0,
+                            "start": 33,
+                            "end": 39
+                          }
                         }
                       }
                     },
@@ -43,7 +57,14 @@ expression: decls
                       "guard": null,
                       "body": {
                         "Literal": {
-                          "Str": "other"
+                          "value": {
+                            "Str": "other"
+                          },
+                          "span": {
+                            "file_id": 0,
+                            "start": 46,
+                            "end": 53
+                          }
                         }
                       }
                     }

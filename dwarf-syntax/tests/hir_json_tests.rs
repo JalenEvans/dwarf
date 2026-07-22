@@ -9,7 +9,10 @@ use dwarf_syntax::span::Span;
 
 #[test]
 fn test_json_roundtrip_literal() {
-    let expr = Expr::Literal(LiteralValue::Int(42));
+    let expr = Expr::Literal {
+        value: LiteralValue::Int(42),
+        span: Span::default(),
+    };
     let json = serde_json::to_string_pretty(&expr).unwrap();
     let deserialized: Expr = serde_json::from_str(&json).unwrap();
     assert_eq!(expr, deserialized);
@@ -24,7 +27,10 @@ fn test_json_roundtrip_function_decl() {
             type_: Some(Type::Named("i32".to_string())),
         }],
         return_type: Some(Type::Named("i32".to_string())),
-        body: Expr::Literal(LiteralValue::Int(0)),
+        body: Expr::Literal {
+            value: LiteralValue::Int(0),
+            span: Span::default(),
+        },
         span: Span::default(),
     };
     let json = serde_json::to_string_pretty(&decl).unwrap();
@@ -39,7 +45,10 @@ fn test_json_output_is_deterministic() {
         params: vec![],
         return_type: None,
         body: Expr::Block {
-            stmts: vec![Stmt::Expr(Expr::Literal(LiteralValue::Int(1)))],
+            stmts: vec![Stmt::Expr(Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: Span::default(),
+            })],
             span: Span::default(),
         },
         span: Span::default(),
