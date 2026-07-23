@@ -6,10 +6,12 @@
 //!
 //! `MirDecl::TypeDef` has no LIR equivalent and is silently skipped.
 
-use dwarf_mir::{MirArm, MirBinaryOp, MirDecl, MirExpr, MirLiteral, MirParam, MirPat, MirStmt, MirUnaryOp};
 use crate::{
-    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat,
-    LirStmt, LirUnaryOp, LirVariant, TargetHint,
+    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
+    LirUnaryOp, LirVariant, TargetHint,
+};
+use dwarf_mir::{
+    MirArm, MirBinaryOp, MirDecl, MirExpr, MirLiteral, MirParam, MirPat, MirStmt, MirUnaryOp,
 };
 
 /// Lower a slice of MIR declarations to LIR declarations.
@@ -134,7 +136,11 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
-        MirExpr::Assign { target, value, span } => LirExpr::Assign {
+        MirExpr::Assign {
+            target,
+            value,
+            span,
+        } => LirExpr::Assign {
             target: Box::new(lower_expr(target)),
             value: Box::new(lower_expr(value)),
             hint: TargetHint::None,
@@ -428,7 +434,9 @@ mod tests {
         };
         let result = lower_expr(&mir_expr);
         match &result {
-            LirExpr::Call { func, args, hint, .. } => {
+            LirExpr::Call {
+                func, args, hint, ..
+            } => {
                 assert!(
                     matches!(func.as_ref(), LirExpr::Variable { name, .. } if name == "f"),
                     "expected func to be Variable(\"f\")"
@@ -457,11 +465,7 @@ mod tests {
         let result = lower_expr(&mir_expr);
         match &result {
             LirExpr::Binary {
-                op,
-                lhs,
-                rhs,
-                hint,
-                ..
+                op, lhs, rhs, hint, ..
             } => {
                 assert_eq!(*op, LirBinaryOp::Add);
                 assert_eq!(
@@ -508,10 +512,7 @@ mod tests {
         let result = lower_expr(&mir_expr);
         match &result {
             LirExpr::Lambda {
-                params,
-                body,
-                hint,
-                ..
+                params, body, hint, ..
             } => {
                 assert_eq!(params.len(), 2);
                 assert_eq!(

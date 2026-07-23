@@ -61,22 +61,80 @@ pub enum MirUnaryOp {
 /// A MIR expression.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MirExpr {
-    Literal { value: MirLiteral, span: Span },
-    Variable { name: String, span: Span },
-    Call { func: Box<MirExpr>, args: Vec<MirExpr>, span: Span },
-    Member { obj: Box<MirExpr>, field: String, span: Span },
-    If { cond: Box<MirExpr>, then: Box<MirExpr>, else_: Option<Box<MirExpr>>, span: Span },
-    Match { expr: Box<MirExpr>, arms: Vec<MirArm>, span: Span },
-    Loop { body: Box<MirExpr>, span: Span },
-    Block { stmts: Vec<MirStmt>, span: Span },
-    Assign { target: Box<MirExpr>, value: Box<MirExpr>, span: Span },
-    Lambda { params: Vec<MirParam>, body: Box<MirExpr>, span: Span },
-    Record { fields: Vec<(String, MirExpr)>, span: Span },
-    Variant { name: String, arg: Option<Box<MirExpr>>, span: Span },
-    Array { items: Vec<MirExpr>, span: Span },
-    Binary { op: MirBinaryOp, lhs: Box<MirExpr>, rhs: Box<MirExpr>, span: Span },
-    Unary { op: MirUnaryOp, expr: Box<MirExpr>, span: Span },
-    Wildcard { span: Span },
+    Literal {
+        value: MirLiteral,
+        span: Span,
+    },
+    Variable {
+        name: String,
+        span: Span,
+    },
+    Call {
+        func: Box<MirExpr>,
+        args: Vec<MirExpr>,
+        span: Span,
+    },
+    Member {
+        obj: Box<MirExpr>,
+        field: String,
+        span: Span,
+    },
+    If {
+        cond: Box<MirExpr>,
+        then: Box<MirExpr>,
+        else_: Option<Box<MirExpr>>,
+        span: Span,
+    },
+    Match {
+        expr: Box<MirExpr>,
+        arms: Vec<MirArm>,
+        span: Span,
+    },
+    Loop {
+        body: Box<MirExpr>,
+        span: Span,
+    },
+    Block {
+        stmts: Vec<MirStmt>,
+        span: Span,
+    },
+    Assign {
+        target: Box<MirExpr>,
+        value: Box<MirExpr>,
+        span: Span,
+    },
+    Lambda {
+        params: Vec<MirParam>,
+        body: Box<MirExpr>,
+        span: Span,
+    },
+    Record {
+        fields: Vec<(String, MirExpr)>,
+        span: Span,
+    },
+    Variant {
+        name: String,
+        arg: Option<Box<MirExpr>>,
+        span: Span,
+    },
+    Array {
+        items: Vec<MirExpr>,
+        span: Span,
+    },
+    Binary {
+        op: MirBinaryOp,
+        lhs: Box<MirExpr>,
+        rhs: Box<MirExpr>,
+        span: Span,
+    },
+    Unary {
+        op: MirUnaryOp,
+        expr: Box<MirExpr>,
+        span: Span,
+    },
+    Wildcard {
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -124,8 +182,14 @@ pub enum MirPat {
     Wildcard,
     Literal(MirLiteral),
     Variable(String),
-    Variant { name: String, arg: Option<Box<MirPat>> },
-    Record { fields: Vec<(String, MirPat)>, rest: bool },
+    Variant {
+        name: String,
+        arg: Option<Box<MirPat>>,
+    },
+    Record {
+        fields: Vec<(String, MirPat)>,
+        rest: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -198,9 +262,9 @@ pub struct MirVariant {
 
 #[cfg(test)]
 mod tests {
+    use crate::*;
     use dwarf_syntax::hir::Type;
     use dwarf_syntax::span::Span;
-    use crate::*;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -270,13 +334,19 @@ mod tests {
 
     #[test]
     fn test_mir_expr_literal() {
-        let e = MirExpr::Literal { value: MirLiteral::Int(1), span: span1() };
+        let e = MirExpr::Literal {
+            value: MirLiteral::Int(1),
+            span: span1(),
+        };
         assert_eq!(e.span(), span1());
     }
 
     #[test]
     fn test_mir_expr_variable() {
-        let e = MirExpr::Variable { name: "x".into(), span: span1() };
+        let e = MirExpr::Variable {
+            name: "x".into(),
+            span: span1(),
+        };
         assert_eq!(e.span(), span1());
         if let MirExpr::Variable { name, .. } = &e {
             assert_eq!(name, "x");
@@ -288,8 +358,14 @@ mod tests {
     #[test]
     fn test_mir_expr_call() {
         let e = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "f".into(), span: span1() }),
-            args: vec![MirExpr::Literal { value: MirLiteral::Int(0), span: span1() }],
+            func: Box::new(MirExpr::Variable {
+                name: "f".into(),
+                span: span1(),
+            }),
+            args: vec![MirExpr::Literal {
+                value: MirLiteral::Int(0),
+                span: span1(),
+            }],
             span: span2(),
         };
         assert_eq!(e.span(), span2());
@@ -304,7 +380,10 @@ mod tests {
     #[test]
     fn test_mir_expr_member() {
         let e = MirExpr::Member {
-            obj: Box::new(MirExpr::Variable { name: "obj".into(), span: span1() }),
+            obj: Box::new(MirExpr::Variable {
+                name: "obj".into(),
+                span: span1(),
+            }),
             field: "attr".into(),
             span: span2(),
         };
@@ -319,9 +398,18 @@ mod tests {
     #[test]
     fn test_mir_expr_if_with_else() {
         let e = MirExpr::If {
-            cond: Box::new(MirExpr::Literal { value: MirLiteral::Bool(true), span: span1() }),
-            then: Box::new(MirExpr::Literal { value: MirLiteral::Int(1), span: span1() }),
-            else_: Some(Box::new(MirExpr::Literal { value: MirLiteral::Int(2), span: span1() })),
+            cond: Box::new(MirExpr::Literal {
+                value: MirLiteral::Bool(true),
+                span: span1(),
+            }),
+            then: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(1),
+                span: span1(),
+            }),
+            else_: Some(Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(2),
+                span: span1(),
+            })),
             span: span2(),
         };
         assert_eq!(e.span(), span2());
@@ -335,8 +423,14 @@ mod tests {
     #[test]
     fn test_mir_expr_if_no_else() {
         let e = MirExpr::If {
-            cond: Box::new(MirExpr::Literal { value: MirLiteral::Bool(false), span: span1() }),
-            then: Box::new(MirExpr::Literal { value: MirLiteral::Null, span: span1() }),
+            cond: Box::new(MirExpr::Literal {
+                value: MirLiteral::Bool(false),
+                span: span1(),
+            }),
+            then: Box::new(MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            }),
             else_: None,
             span: span1(),
         };
@@ -346,14 +440,18 @@ mod tests {
     #[test]
     fn test_mir_expr_match() {
         let e = MirExpr::Match {
-            expr: Box::new(MirExpr::Variable { name: "x".into(), span: span1() }),
-            arms: vec![
-                MirArm {
-                    pattern: MirPat::Wildcard,
-                    guard: None,
-                    body: MirExpr::Literal { value: MirLiteral::Int(0), span: span1() },
+            expr: Box::new(MirExpr::Variable {
+                name: "x".into(),
+                span: span1(),
+            }),
+            arms: vec![MirArm {
+                pattern: MirPat::Wildcard,
+                guard: None,
+                body: MirExpr::Literal {
+                    value: MirLiteral::Int(0),
+                    span: span1(),
                 },
-            ],
+            }],
             span: span1(),
         };
         assert_eq!(e.span(), span1());
@@ -368,10 +466,16 @@ mod tests {
     fn test_mir_expr_block() {
         let e = MirExpr::Block {
             stmts: vec![
-                MirStmt::Expr(MirExpr::Literal { value: MirLiteral::Int(1), span: span1() }),
+                MirStmt::Expr(MirExpr::Literal {
+                    value: MirLiteral::Int(1),
+                    span: span1(),
+                }),
                 MirStmt::Let {
                     pat: MirPat::Variable("y".into()),
-                    value: MirExpr::Literal { value: MirLiteral::Int(2), span: span1() },
+                    value: MirExpr::Literal {
+                        value: MirLiteral::Int(2),
+                        span: span1(),
+                    },
                 },
             ],
             span: span2(),
@@ -387,8 +491,14 @@ mod tests {
     #[test]
     fn test_mir_expr_assign() {
         let e = MirExpr::Assign {
-            target: Box::new(MirExpr::Variable { name: "x".into(), span: span1() }),
-            value: Box::new(MirExpr::Literal { value: MirLiteral::Int(42), span: span1() }),
+            target: Box::new(MirExpr::Variable {
+                name: "x".into(),
+                span: span1(),
+            }),
+            value: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            }),
             span: span2(),
         };
         assert_eq!(e.span(), span2());
@@ -398,10 +508,19 @@ mod tests {
     fn test_mir_expr_lambda() {
         let e = MirExpr::Lambda {
             params: vec![
-                MirParam { name: "a".into(), type_: None },
-                MirParam { name: "b".into(), type_: Some(Type::Named("Int".into())) },
+                MirParam {
+                    name: "a".into(),
+                    type_: None,
+                },
+                MirParam {
+                    name: "b".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
             ],
-            body: Box::new(MirExpr::Variable { name: "a".into(), span: span1() }),
+            body: Box::new(MirExpr::Variable {
+                name: "a".into(),
+                span: span1(),
+            }),
             span: span2(),
         };
         assert_eq!(e.span(), span2());
@@ -416,8 +535,20 @@ mod tests {
     fn test_mir_expr_record() {
         let e = MirExpr::Record {
             fields: vec![
-                ("x".into(), MirExpr::Literal { value: MirLiteral::Int(10), span: span1() }),
-                ("y".into(), MirExpr::Literal { value: MirLiteral::Int(20), span: span1() }),
+                (
+                    "x".into(),
+                    MirExpr::Literal {
+                        value: MirLiteral::Int(10),
+                        span: span1(),
+                    },
+                ),
+                (
+                    "y".into(),
+                    MirExpr::Literal {
+                        value: MirLiteral::Int(20),
+                        span: span1(),
+                    },
+                ),
             ],
             span: span2(),
         };
@@ -433,7 +564,10 @@ mod tests {
     fn test_mir_expr_variant_with_arg() {
         let e = MirExpr::Variant {
             name: "Some".into(),
-            arg: Some(Box::new(MirExpr::Literal { value: MirLiteral::Int(1), span: span1() })),
+            arg: Some(Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(1),
+                span: span1(),
+            })),
             span: span1(),
         };
         assert_eq!(e.span(), span1());
@@ -459,9 +593,18 @@ mod tests {
     fn test_mir_expr_array() {
         let e = MirExpr::Array {
             items: vec![
-                MirExpr::Literal { value: MirLiteral::Int(1), span: span1() },
-                MirExpr::Literal { value: MirLiteral::Int(2), span: span1() },
-                MirExpr::Literal { value: MirLiteral::Int(3), span: span1() },
+                MirExpr::Literal {
+                    value: MirLiteral::Int(1),
+                    span: span1(),
+                },
+                MirExpr::Literal {
+                    value: MirLiteral::Int(2),
+                    span: span1(),
+                },
+                MirExpr::Literal {
+                    value: MirLiteral::Int(3),
+                    span: span1(),
+                },
             ],
             span: span2(),
         };
@@ -477,8 +620,14 @@ mod tests {
     fn test_mir_expr_binary() {
         let e = MirExpr::Binary {
             op: MirBinaryOp::Add,
-            lhs: Box::new(MirExpr::Literal { value: MirLiteral::Int(1), span: span1() }),
-            rhs: Box::new(MirExpr::Literal { value: MirLiteral::Int(2), span: span1() }),
+            lhs: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(1),
+                span: span1(),
+            }),
+            rhs: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(2),
+                span: span1(),
+            }),
             span: span1(),
         };
         assert_eq!(e.span(), span1());
@@ -493,7 +642,10 @@ mod tests {
     fn test_mir_expr_unary() {
         let e = MirExpr::Unary {
             op: MirUnaryOp::Neg,
-            expr: Box::new(MirExpr::Literal { value: MirLiteral::Int(5), span: span1() }),
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(5),
+                span: span1(),
+            }),
             span: span1(),
         };
         assert_eq!(e.span(), span1());
@@ -512,23 +664,38 @@ mod tests {
 
     #[test]
     fn test_mir_expr_clone() {
-        let e = MirExpr::Literal { value: MirLiteral::Int(7), span: span1() };
+        let e = MirExpr::Literal {
+            value: MirLiteral::Int(7),
+            span: span1(),
+        };
         let cloned = e.clone();
         assert_eq!(e, cloned);
     }
 
     #[test]
     fn test_mir_expr_debug() {
-        let e = MirExpr::Variable { name: "debug".into(), span: span1() };
+        let e = MirExpr::Variable {
+            name: "debug".into(),
+            span: span1(),
+        };
         let s = format!("{e:?}");
         assert!(!s.is_empty(), "Debug output should not be empty");
     }
 
     #[test]
     fn test_mir_expr_partial_eq() {
-        let a = MirExpr::Literal { value: MirLiteral::Int(1), span: span1() };
-        let b = MirExpr::Literal { value: MirLiteral::Int(1), span: span1() };
-        let c = MirExpr::Literal { value: MirLiteral::Int(2), span: span1() };
+        let a = MirExpr::Literal {
+            value: MirLiteral::Int(1),
+            span: span1(),
+        };
+        let b = MirExpr::Literal {
+            value: MirLiteral::Int(1),
+            span: span1(),
+        };
+        let c = MirExpr::Literal {
+            value: MirLiteral::Int(2),
+            span: span1(),
+        };
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
@@ -537,13 +704,23 @@ mod tests {
     fn test_mir_expr_span_all_variants() {
         // Verify span() works correctly for expression trees where span differs
         // from sub-expression spans — important for error reporting.
-        let inner = MirExpr::Literal { value: MirLiteral::Int(1), span: span1() };
+        let inner = MirExpr::Literal {
+            value: MirLiteral::Int(1),
+            span: span1(),
+        };
         let outer = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "f".into(), span: span1() }),
+            func: Box::new(MirExpr::Variable {
+                name: "f".into(),
+                span: span1(),
+            }),
             args: vec![inner],
             span: span2(),
         };
-        assert_eq!(outer.span(), span2(), "outer Call should return its own span, not inner's span");
+        assert_eq!(
+            outer.span(),
+            span2(),
+            "outer Call should return its own span, not inner's span"
+        );
         assert_ne!(outer.span(), span1(), "outer and inner spans must differ");
     }
 
@@ -555,7 +732,10 @@ mod tests {
     fn test_mir_stmt_let() {
         let stmt = MirStmt::Let {
             pat: MirPat::Variable("x".into()),
-            value: MirExpr::Literal { value: MirLiteral::Int(42), span: span1() },
+            value: MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            },
         };
         if let MirStmt::Let { pat, .. } = &stmt {
             assert_eq!(*pat, MirPat::Variable("x".into()));
@@ -566,7 +746,10 @@ mod tests {
 
     #[test]
     fn test_mir_stmt_expr() {
-        let stmt = MirStmt::Expr(MirExpr::Literal { value: MirLiteral::Null, span: span1() });
+        let stmt = MirStmt::Expr(MirExpr::Literal {
+            value: MirLiteral::Null,
+            span: span1(),
+        });
         if let MirStmt::Expr(expr) = &stmt {
             assert_eq!(expr.span(), span1());
         } else {
@@ -576,13 +759,19 @@ mod tests {
 
     #[test]
     fn test_mir_stmt_clone() {
-        let stmt = MirStmt::Expr(MirExpr::Literal { value: MirLiteral::Int(0), span: span1() });
+        let stmt = MirStmt::Expr(MirExpr::Literal {
+            value: MirLiteral::Int(0),
+            span: span1(),
+        });
         assert_eq!(stmt, stmt.clone());
     }
 
     #[test]
     fn test_mir_stmt_debug() {
-        let stmt = MirStmt::Expr(MirExpr::Literal { value: MirLiteral::Null, span: span1() });
+        let stmt = MirStmt::Expr(MirExpr::Literal {
+            value: MirLiteral::Null,
+            span: span1(),
+        });
         let s = format!("{stmt:?}");
         assert!(!s.is_empty());
     }
@@ -631,7 +820,10 @@ mod tests {
         };
         assert_eq!(
             p,
-            MirPat::Variant { name: "None".into(), arg: None }
+            MirPat::Variant {
+                name: "None".into(),
+                arg: None
+            }
         );
     }
 
@@ -655,7 +847,13 @@ mod tests {
             fields: vec![],
             rest: true,
         };
-        assert_eq!(p, MirPat::Record { fields: vec![], rest: true });
+        assert_eq!(
+            p,
+            MirPat::Record {
+                fields: vec![],
+                rest: true
+            }
+        );
     }
 
     #[test]
@@ -681,13 +879,17 @@ mod tests {
         use MirBinaryOp::*;
         let arithmetic = [Add, Sub, Mul, Div];
         let comparison = [Eq, Ne, Lt, Gt, Le, Ge];
-        let logical    = [And, Or];
+        let logical = [And, Or];
 
         assert_eq!(arithmetic.len(), 4);
         assert_eq!(comparison.len(), 6);
         assert_eq!(logical.len(), 2);
 
-        for &op in arithmetic.iter().chain(comparison.iter()).chain(logical.iter()) {
+        for &op in arithmetic
+            .iter()
+            .chain(comparison.iter())
+            .chain(logical.iter())
+        {
             let _ = op; // just verify the name resolves
         }
     }
@@ -732,7 +934,10 @@ mod tests {
 
     #[test]
     fn test_mir_param_untyped() {
-        let p = MirParam { name: "x".into(), type_: None };
+        let p = MirParam {
+            name: "x".into(),
+            type_: None,
+        };
         assert_eq!(p.name, "x");
         assert!(p.type_.is_none());
     }
@@ -749,13 +954,19 @@ mod tests {
 
     #[test]
     fn test_mir_param_clone() {
-        let p = MirParam { name: "z".into(), type_: None };
+        let p = MirParam {
+            name: "z".into(),
+            type_: None,
+        };
         assert_eq!(p, p.clone());
     }
 
     #[test]
     fn test_mir_param_debug() {
-        let p = MirParam { name: "p".into(), type_: None };
+        let p = MirParam {
+            name: "p".into(),
+            type_: None,
+        };
         let s = format!("{p:?}");
         assert!(!s.is_empty());
     }
@@ -769,7 +980,10 @@ mod tests {
         let arm = MirArm {
             pattern: MirPat::Wildcard,
             guard: None,
-            body: MirExpr::Literal { value: MirLiteral::Null, span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            },
         };
         assert_eq!(arm.pattern, MirPat::Wildcard);
         assert!(arm.guard.is_none());
@@ -779,8 +993,14 @@ mod tests {
     fn test_mir_arm_with_guard() {
         let arm = MirArm {
             pattern: MirPat::Variable("x".into()),
-            guard: Some(MirExpr::Literal { value: MirLiteral::Bool(true), span: span1() }),
-            body: MirExpr::Literal { value: MirLiteral::Int(1), span: span1() },
+            guard: Some(MirExpr::Literal {
+                value: MirLiteral::Bool(true),
+                span: span1(),
+            }),
+            body: MirExpr::Literal {
+                value: MirLiteral::Int(1),
+                span: span1(),
+            },
         };
         assert!(arm.guard.is_some());
     }
@@ -790,7 +1010,10 @@ mod tests {
         let arm = MirArm {
             pattern: MirPat::Wildcard,
             guard: None,
-            body: MirExpr::Literal { value: MirLiteral::Null, span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            },
         };
         assert_eq!(arm, arm.clone());
     }
@@ -800,7 +1023,10 @@ mod tests {
         let arm = MirArm {
             pattern: MirPat::Wildcard,
             guard: None,
-            body: MirExpr::Literal { value: MirLiteral::Null, span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            },
         };
         let s = format!("{arm:?}");
         assert!(!s.is_empty());
@@ -816,7 +1042,10 @@ mod tests {
             name: "main".into(),
             params: vec![],
             return_type: None,
-            body: MirExpr::Literal { value: MirLiteral::Int(0), span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Int(0),
+                span: span1(),
+            },
             is_pub: true,
             span: span1(),
         };
@@ -849,8 +1078,14 @@ mod tests {
         let decl = MirDecl::RecordDef {
             name: "Point".into(),
             fields: vec![
-                MirField { name: "x".into(), type_: Type::Named("Int".into()) },
-                MirField { name: "y".into(), type_: Type::Named("Int".into()) },
+                MirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                },
+                MirField {
+                    name: "y".into(),
+                    type_: Type::Named("Int".into()),
+                },
             ],
             is_pub: true,
             span: span1(),
@@ -894,7 +1129,10 @@ mod tests {
             name: "f".into(),
             params: vec![],
             return_type: None,
-            body: MirExpr::Literal { value: MirLiteral::Null, span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            },
             is_pub: false,
             span: span1(),
         };
@@ -907,7 +1145,10 @@ mod tests {
             name: "f".into(),
             params: vec![],
             return_type: None,
-            body: MirExpr::Literal { value: MirLiteral::Null, span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Null,
+                span: span1(),
+            },
             is_pub: false,
             span: span1(),
         };
@@ -921,20 +1162,29 @@ mod tests {
 
     #[test]
     fn test_mir_field() {
-        let f = MirField { name: "x".into(), type_: Type::Named("Int".into()) };
+        let f = MirField {
+            name: "x".into(),
+            type_: Type::Named("Int".into()),
+        };
         assert_eq!(f.name, "x");
         assert_eq!(f.type_, Type::Named("Int".into()));
     }
 
     #[test]
     fn test_mir_field_clone() {
-        let f = MirField { name: "y".into(), type_: Type::Named("String".into()) };
+        let f = MirField {
+            name: "y".into(),
+            type_: Type::Named("String".into()),
+        };
         assert_eq!(f, f.clone());
     }
 
     #[test]
     fn test_mir_field_debug() {
-        let f = MirField { name: "z".into(), type_: Type::Named("Float".into()) };
+        let f = MirField {
+            name: "z".into(),
+            type_: Type::Named("Float".into()),
+        };
         let s = format!("{f:?}");
         assert!(!s.is_empty());
     }
@@ -955,7 +1205,10 @@ mod tests {
 
     #[test]
     fn test_mir_variant_without_arg() {
-        let v = MirVariant { name: "None".into(), arg: None };
+        let v = MirVariant {
+            name: "None".into(),
+            arg: None,
+        };
         assert_eq!(v.name, "None");
         assert!(v.arg.is_none());
     }
@@ -971,7 +1224,10 @@ mod tests {
 
     #[test]
     fn test_mir_variant_debug() {
-        let v = MirVariant { name: "Err".into(), arg: None };
+        let v = MirVariant {
+            name: "Err".into(),
+            arg: None,
+        };
         let s = format!("{v:?}");
         assert!(!s.is_empty());
     }
@@ -992,8 +1248,14 @@ mod tests {
     fn test_mir_expr_serde_roundtrip() {
         let original = MirExpr::Binary {
             op: MirBinaryOp::Eq,
-            lhs: Box::new(MirExpr::Variable { name: "a".into(), span: span1() }),
-            rhs: Box::new(MirExpr::Variable { name: "b".into(), span: span1() }),
+            lhs: Box::new(MirExpr::Variable {
+                name: "a".into(),
+                span: span1(),
+            }),
+            rhs: Box::new(MirExpr::Variable {
+                name: "b".into(),
+                span: span1(),
+            }),
             span: span2(),
         };
         let json = serde_json::to_string(&original).expect("serialize");
@@ -1017,14 +1279,26 @@ mod tests {
         let original = MirDecl::Function {
             name: "add".into(),
             params: vec![
-                MirParam { name: "a".into(), type_: Some(Type::Named("Int".into())) },
-                MirParam { name: "b".into(), type_: Some(Type::Named("Int".into())) },
+                MirParam {
+                    name: "a".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+                MirParam {
+                    name: "b".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
             ],
             return_type: Some(Type::Named("Int".into())),
             body: MirExpr::Binary {
                 op: MirBinaryOp::Add,
-                lhs: Box::new(MirExpr::Variable { name: "a".into(), span: span1() }),
-                rhs: Box::new(MirExpr::Variable { name: "b".into(), span: span1() }),
+                lhs: Box::new(MirExpr::Variable {
+                    name: "a".into(),
+                    span: span1(),
+                }),
+                rhs: Box::new(MirExpr::Variable {
+                    name: "b".into(),
+                    span: span1(),
+                }),
                 span: span1(),
             },
             is_pub: true,
@@ -1039,7 +1313,10 @@ mod tests {
     fn test_mir_stmt_serde_roundtrip() {
         let original = MirStmt::Let {
             pat: MirPat::Variable("x".into()),
-            value: MirExpr::Literal { value: MirLiteral::Int(99), span: span1() },
+            value: MirExpr::Literal {
+                value: MirLiteral::Int(99),
+                span: span1(),
+            },
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let deserialized: MirStmt = serde_json::from_str(&json).expect("deserialize");
@@ -1051,7 +1328,10 @@ mod tests {
         let original = MirArm {
             pattern: MirPat::Literal(MirLiteral::Int(42)),
             guard: None,
-            body: MirExpr::Literal { value: MirLiteral::Bool(true), span: span1() },
+            body: MirExpr::Literal {
+                value: MirLiteral::Bool(true),
+                span: span1(),
+            },
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let deserialized: MirArm = serde_json::from_str(&json).expect("deserialize");

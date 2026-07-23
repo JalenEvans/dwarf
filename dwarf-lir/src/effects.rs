@@ -86,9 +86,7 @@ impl CallGraph {
                 if in_progress.contains(callee) {
                     return true; // back edge found
                 }
-                if !visited.contains(callee)
-                    && self.dfs_cycle(callee, visited, in_progress)
-                {
+                if !visited.contains(callee) && self.dfs_cycle(callee, visited, in_progress) {
                     return true;
                 }
             }
@@ -126,8 +124,7 @@ pub fn build_call_graph(decls: &[MirDecl]) -> CallGraph {
 
     // Phase 2: Extract call targets from each function body and populate edges.
     // Build a set of known function names (owned strings) for existence checks.
-    let known: std::collections::HashSet<String> =
-        graph.nodes.keys().cloned().collect();
+    let known: std::collections::HashSet<String> = graph.nodes.keys().cloned().collect();
 
     for decl in decls {
         if let MirDecl::Function { name, body, .. } = decl {
@@ -173,7 +170,9 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
         }
         MirExpr::Literal { .. } | MirExpr::Variable { .. } | MirExpr::Wildcard { .. } => {}
         MirExpr::Member { obj, .. } => extract_calls_inner(obj, calls),
-        MirExpr::If { cond, then, else_, .. } => {
+        MirExpr::If {
+            cond, then, else_, ..
+        } => {
             extract_calls_inner(cond, calls);
             extract_calls_inner(then, calls);
             if let Some(else_) = else_ {
@@ -519,12 +518,10 @@ mod tests {
         };
         let recdef = MirDecl::RecordDef {
             name: "Point".into(),
-            fields: vec![
-                MirField {
-                    name: "x".into(),
-                    type_: dwarf_syntax::hir::Type::Named("Int".into()),
-                },
-            ],
+            fields: vec![MirField {
+                name: "x".into(),
+                type_: dwarf_syntax::hir::Type::Named("Int".into()),
+            }],
             is_pub: true,
             span: span1(),
         };
@@ -541,8 +538,14 @@ mod tests {
         // Only "f" should be in the graph
         assert!(graph.get("f").is_some(), "function 'f' should exist");
         assert!(graph.get("MyInt").is_none(), "type defs should be skipped");
-        assert!(graph.get("Point").is_none(), "record defs should be skipped");
-        assert!(graph.get("Option").is_none(), "union defs should be skipped");
+        assert!(
+            graph.get("Point").is_none(),
+            "record defs should be skipped"
+        );
+        assert!(
+            graph.get("Option").is_none(),
+            "union defs should be skipped"
+        );
         assert_eq!(graph.nodes.len(), 1, "only one node should be present");
     }
 

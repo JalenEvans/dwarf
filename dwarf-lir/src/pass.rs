@@ -4,10 +4,10 @@
 //! graph, resolves effects (pure/async/impure) through the graph, and
 //! attaches the resolved effects to LIR function declarations.
 
-use std::collections::HashMap;
-use dwarf_mir::MirDecl;
 use crate::effects::{build_call_graph, resolve_effects};
 use crate::lower::lower_to_lir;
+use dwarf_mir::MirDecl;
+use std::collections::HashMap;
 
 /// The LIR lowering and effect resolution pass.
 ///
@@ -63,9 +63,9 @@ impl Default for LirPass {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Effect, LirDecl, TargetHint};
     use dwarf_mir::{MirDecl, MirExpr, MirLiteral};
     use dwarf_syntax::span::Span;
-    use crate::{Effect, LirDecl, TargetHint};
 
     // ------------------------------------------------------------------
     // Helpers
@@ -124,10 +124,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         match &result[0] {
             LirDecl::Function {
-                name,
-                effect,
-                hint,
-                ..
+                name, effect, hint, ..
             } => {
                 assert_eq!(name, "main");
                 assert_eq!(*effect, Effect::Pure);

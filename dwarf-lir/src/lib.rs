@@ -391,7 +391,11 @@ mod tests {
         let variants = [None, Async, Optional, Result, ReactComponent];
         for i in 0..variants.len() {
             for j in (i + 1)..variants.len() {
-                assert_ne!(variants[i], variants[j], "{:?} and {:?} should be distinct", variants[i], variants[j]);
+                assert_ne!(
+                    variants[i], variants[j],
+                    "{:?} and {:?} should be distinct",
+                    variants[i], variants[j]
+                );
             }
         }
     }
@@ -460,13 +464,17 @@ mod tests {
         use crate::LirBinaryOp::*;
         let arithmetic = [Add, Sub, Mul, Div];
         let comparison = [Eq, Ne, Lt, Gt, Le, Ge];
-        let logical    = [And, Or];
+        let logical = [And, Or];
 
         assert_eq!(arithmetic.len(), 4);
         assert_eq!(comparison.len(), 6);
         assert_eq!(logical.len(), 2);
 
-        for &op in arithmetic.iter().chain(comparison.iter()).chain(logical.iter()) {
+        for &op in arithmetic
+            .iter()
+            .chain(comparison.iter())
+            .chain(logical.iter())
+        {
             let _ = op;
         }
     }
@@ -557,7 +565,10 @@ mod tests {
         };
         assert_eq!(e.span(), span2());
         assert_eq!(e.hint(), TargetHint::Async);
-        if let LirExpr::Call { func, args, hint, .. } = &e {
+        if let LirExpr::Call {
+            func, args, hint, ..
+        } = &e
+        {
             assert!(matches!(func.as_ref(), LirExpr::Variable { name, .. } if name == "f"));
             assert_eq!(args.len(), 1);
             assert_eq!(*hint, TargetHint::Async);
@@ -715,7 +726,10 @@ mod tests {
     fn test_lir_expr_lambda() {
         let e = LirExpr::Lambda {
             params: vec![
-                LirParam { name: "a".into(), type_: None },
+                LirParam {
+                    name: "a".into(),
+                    type_: None,
+                },
                 LirParam {
                     name: "b".into(),
                     type_: Some(Type::Named("Int".into())),
@@ -1084,10 +1098,13 @@ mod tests {
             name: "None".into(),
             arg: None,
         };
-        assert_eq!(p, LirPat::Variant {
-            name: "None".into(),
-            arg: None,
-        });
+        assert_eq!(
+            p,
+            LirPat::Variant {
+                name: "None".into(),
+                arg: None,
+            }
+        );
     }
 
     #[test]
@@ -1110,10 +1127,13 @@ mod tests {
             fields: vec![],
             rest: true,
         };
-        assert_eq!(p, LirPat::Record {
-            fields: vec![],
-            rest: true,
-        });
+        assert_eq!(
+            p,
+            LirPat::Record {
+                fields: vec![],
+                rest: true,
+            }
+        );
     }
 
     #[test]
@@ -1259,7 +1279,11 @@ mod tests {
             span: span1(),
         };
         if let LirDecl::Function {
-            name, is_pub, effect, hint, ..
+            name,
+            is_pub,
+            effect,
+            hint,
+            ..
         } = &decl
         {
             assert_eq!(name, "main");
