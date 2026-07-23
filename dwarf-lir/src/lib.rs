@@ -313,8 +313,8 @@ mod tests {
 
     #[test]
     fn test_lir_literal_float() {
-        let lit = LirLiteral::Float(3.14);
-        assert_eq!(lit, LirLiteral::Float(3.14));
+        let lit = LirLiteral::Float(3.5);
+        assert_eq!(lit, LirLiteral::Float(3.5));
     }
 
     #[test]

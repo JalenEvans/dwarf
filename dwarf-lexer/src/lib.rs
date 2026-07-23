@@ -494,7 +494,7 @@ impl<'a> Lexer<'a> {
     /// - Hex: `0xFF`
     /// - Binary: `0b1010`
     /// - Octal: `0o77`
-    /// - Floats: `3.14`, `1e10`, `0.5e-3`
+    /// - Floats: `3.5`, `1e10`, `0.5e-3`
     /// - Floats starting with `.`: `.5`
     fn lex_number(&mut self, start: usize) -> Result<Token, LexError> {
         let first_byte = self.input.as_bytes()[start];
