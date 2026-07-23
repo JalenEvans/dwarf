@@ -26,6 +26,7 @@ pub fn run_check(
     let mut pm = PassManager::new();
     pm.register(Box::new(TokenizePass));
     pm.register(Box::new(ParsePass));
+    pm.register(Box::new(ModulePass::new()));
     pm.register(Box::new(MirPass::new()));
     pm.register(Box::new(LirPass::new()));
 

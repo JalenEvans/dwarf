@@ -32,6 +32,7 @@ pub struct CompilationUnit {
     pub decls: Option<Vec<Decl>>,
     pub mir: Option<Vec<dwarf_mir::MirDecl>>,
     pub lir: Option<Vec<dwarf_lir::LirDecl>>,
+    pub module_graph: Option<ModuleGraph>,
 }
 
 impl CompilationUnit {
@@ -43,6 +44,7 @@ impl CompilationUnit {
             decls: None,
             mir: None,
             lir: None,
+            module_graph: None,
         }
     }
 }
@@ -187,6 +189,7 @@ use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
 use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_lir::pass::LirPass;
+use dwarf_mir::modules::ModuleGraph;
 use dwarf_mir::pass::MirPass;
 
 impl Pass for TokenizePass {
@@ -305,6 +308,52 @@ impl Pass for MirPass {
         if let Some(decls) = &unit.decls {
             let mir = MirPass::run(self, decls);
             unit.mir = Some(mir);
+        }
+        PassResult::Continue
+    }
+}
+
+/// Pass that builds the module dependency graph from HIR declarations.
+///
+/// Runs after parsing and before type-checking to detect circular imports
+/// and make the dependency graph available for downstream passes.
+pub struct ModulePass;
+
+impl ModulePass {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for ModulePass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Pass for ModulePass {
+    fn name(&self) -> &str {
+        "modules"
+    }
+
+    fn description(&self) -> &str {
+        "Resolve module imports and build dependency graph"
+    }
+
+    fn run(&self, ctx: &mut PassContext, unit: &mut CompilationUnit) -> PassResult {
+        if let Some(ref decls) = unit.decls {
+            let graph = ModuleGraph::build(decls);
+            if graph.has_cycle() {
+                ctx.push_diagnostic(Diagnostic {
+                    code: "DWARF-E-MOD-0001".to_string(),
+                    severity: Severity::Error,
+                    message: "Circular module dependency detected".to_string(),
+                    file: unit.path.clone(),
+                    line: None,
+                    col: None,
+                });
+            }
+            unit.module_graph = Some(graph);
         }
         PassResult::Continue
     }
