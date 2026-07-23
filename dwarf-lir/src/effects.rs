@@ -189,6 +189,7 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
                 }
             }
         }
+        MirExpr::Loop { body, .. } => extract_calls_inner(body, calls),
         MirExpr::Block { stmts, .. } => {
             for stmt in stmts {
                 match stmt {
@@ -241,17 +242,22 @@ pub fn initial_effects(decls: &[MirDecl]) -> HashMap<String, Effect> {
 
 /// Resolve effects for all functions by walking the call graph.
 ///
-/// Starts with [`initial_effects`] as a baseline, then propagates
-/// effect information through the call graph so that callers of
-/// async functions are also marked async.
+/// Starts with [`initial_effects`] as a baseline, applies `seeds` to
+/// override initial effect assignments (e.g., marking specific functions
+/// as async), then propagates effect information through the call graph
+/// so that callers of async functions are also marked async.
 pub fn resolve_effects(
     decls: &[MirDecl],
     callgraph: &CallGraph,
+    seeds: &HashMap<String, Effect>,
 ) -> HashMap<String, Effect> {
     let mut effects = initial_effects(decls);
-    
-    // Apply seed effects from the test helpers (for seeding async functions)
-    // to support transitive async propagation.
+
+    // Apply seeds (override initial effects for specific functions)
+    for (name, effect) in seeds {
+        effects.insert(name.clone(), effect.clone());
+    }
+
     let mut changed = true;
 
     while changed {
@@ -619,7 +625,7 @@ mod tests {
     fn test_resolve_no_calls() {
         let decls = vec![make_func("a", make_literal(1))];
         let graph = build_call_graph(&decls);
-        let effects = resolve_effects(&decls, &graph);
+        let effects = resolve_effects(&decls, &graph, &HashMap::new());
 
         assert_eq!(effects.len(), 1, "should have an entry for 'a'");
         assert_eq!(
@@ -639,29 +645,9 @@ mod tests {
             make_func("c", make_literal(1)),
         ];
         let graph = build_call_graph(&decls);
-        let mut seed = HashMap::new();
-        seed.insert("c".into(), Effect::Async);
-        // Override initial effects by replacing resolve_effects to use seeds
-        // For now use initial_effects and then apply seed on top
-        let mut effects = initial_effects(&decls);
-        for (k, v) in seed { effects.insert(k, v); }
-        // Now propagate
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for (name, node) in &graph.nodes {
-                if let Some(current) = effects.get(name).cloned() {
-                    for callee in &node.calls {
-                        if let Some(callee_eff) = effects.get(callee) {
-                            if effect_level(callee_eff) > effect_level(&current) {
-                                effects.insert(name.clone(), callee_eff.clone());
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let mut seeds = HashMap::new();
+        seeds.insert("c".into(), Effect::Async);
+        let effects = resolve_effects(&decls, &graph, &seeds);
 
         assert_eq!(effects.len(), 3, "all three functions should have effects");
         assert_eq!(

@@ -7,6 +7,7 @@ use std::process;
 use dwarf_cli::pass_manager::*;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
+use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_lir::pass::LirPass;
 use dwarf_mir::pass::MirPass;
 use dwarf_syntax::diagnostic::format_diagnostic;
@@ -26,6 +27,7 @@ pub fn run_check(
     let mut pm = PassManager::new();
     pm.register(Box::new(TokenizePass));
     pm.register(Box::new(ParsePass));
+    pm.register(Box::new(TypeCheckPass::new()));
     pm.register(Box::new(ModulePass::new()));
     pm.register(Box::new(MirPass::new()));
     pm.register(Box::new(LirPass::new()));

@@ -4,6 +4,7 @@
 //! graph, resolves effects (pure/async/impure) through the graph, and
 //! attaches the resolved effects to LIR function declarations.
 
+use std::collections::HashMap;
 use dwarf_mir::MirDecl;
 use crate::effects::{build_call_graph, resolve_effects};
 use crate::lower::lower_to_lir;
@@ -33,7 +34,7 @@ impl LirPass {
         let callgraph = build_call_graph(mir_decls);
 
         // Step 3: Resolve effects through the call graph
-        let resolved = resolve_effects(mir_decls, &callgraph);
+        let resolved = resolve_effects(mir_decls, &callgraph, &HashMap::new());
 
         // Step 4: Apply resolved effects to LIR function declarations
         for decl in &mut lir_decls {

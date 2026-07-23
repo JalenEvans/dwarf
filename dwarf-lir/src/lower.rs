@@ -117,6 +117,8 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::Loop { body, .. } => lower_expr(body),
+
         MirExpr::Match {
             expr: match_expr,
             arms,

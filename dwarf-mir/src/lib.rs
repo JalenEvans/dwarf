@@ -67,6 +67,7 @@ pub enum MirExpr {
     Member { obj: Box<MirExpr>, field: String, span: Span },
     If { cond: Box<MirExpr>, then: Box<MirExpr>, else_: Option<Box<MirExpr>>, span: Span },
     Match { expr: Box<MirExpr>, arms: Vec<MirArm>, span: Span },
+    Loop { body: Box<MirExpr>, span: Span },
     Block { stmts: Vec<MirStmt>, span: Span },
     Assign { target: Box<MirExpr>, value: Box<MirExpr>, span: Span },
     Lambda { params: Vec<MirParam>, body: Box<MirExpr>, span: Span },
@@ -88,6 +89,7 @@ impl MirExpr {
             | MirExpr::Member { span, .. }
             | MirExpr::If { span, .. }
             | MirExpr::Match { span, .. }
+            | MirExpr::Loop { span, .. }
             | MirExpr::Block { span, .. }
             | MirExpr::Assign { span, .. }
             | MirExpr::Lambda { span, .. }

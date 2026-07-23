@@ -260,26 +260,29 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
         // Propagate and For don't have direct MirExpr equivalents yet;
         // they will be desugared in separate passes. For now, recursively
         // desugar the inner expressions so the function is total over Expr.
-        Expr::Propagate { expr, span: _ } => desugar_pipe(expr),
+        Expr::Propagate { expr, span } => {
+            // Propagate is desugared in a separate pass; for pipe desugaring,
+            // recursively desugar the inner expression.
+            let _ = span;
+            desugar_pipe(expr)
+        }
 
         Expr::For {
-            binding,
+            binding: _,
             iterable,
             body,
-            span: _,
+            span,
         } => {
-            // Desugar the iterable and body recursively, then wrap in a
-            // temporary for-loop construct that a later pass will further
-            // lower. We use a simple Call with a sentinel name to preserve
-            // structure without inventing new MirExpr variants.
-            let _ = binding; // consumed in a future desugaring pass
+            // For-loops are desugared in a separate pass. For pipe desugaring,
+            // recursively desugar the iterable and body.
+            let _ = span;
             MirExpr::Call {
                 func: Box::new(MirExpr::Variable {
                     name: "__for_loop".into(),
-                    span: Span::default(),
+                    span: *span,
                 }),
                 args: vec![desugar_pipe(iterable), desugar_pipe(body)],
-                span: Span::default(),
+                span: *span,
             }
         }
     }
@@ -396,7 +399,7 @@ pub fn desugar_for_loop(expr: &Expr) -> MirExpr {
             //
             //   {
             //       let __iter = iterable;
-            //       {
+            //       loop {
             //           match __iter.next() {
             //               Some(binding) => body,
             //               None => __break,
@@ -411,10 +414,10 @@ pub fn desugar_for_loop(expr: &Expr) -> MirExpr {
                         pat: MirPat::Variable("__iter".into()),
                         value: mir_iterable,
                     },
-                    // { match __iter.next() { Some(binding) => body, None => __break } }
-                    MirStmt::Expr(MirExpr::Block {
+                    // loop { match __iter.next() { Some(binding) => body, None => __break } }
+                    MirStmt::Expr(MirExpr::Loop {
                         span,
-                        stmts: vec![MirStmt::Expr(MirExpr::Match {
+                        body: Box::new(MirExpr::Match {
                             span,
                             expr: Box::new(MirExpr::Call {
                                 span,
@@ -449,7 +452,7 @@ pub fn desugar_for_loop(expr: &Expr) -> MirExpr {
                                     },
                                 },
                             ],
-                        })],
+                        }),
                     }),
                 ],
             }
@@ -939,7 +942,7 @@ mod tests {
         let result = desugar_propagate(&input);
 
         // Verify it's a Match with exactly 2 arms
-        if let MirExpr::Match { expr, arms, span: _ } = &result {
+        if let MirExpr::Match { expr: _, arms, span: _ } = &result {
             assert_eq!(arms.len(), 2);
             // Check Ok arm pattern
             assert_eq!(
@@ -989,9 +992,9 @@ mod tests {
                     pat: MirPat::Variable("__iter".into()),
                     value: MirExpr::Variable { name: "iter".into(), span: s },
                 },
-                MirStmt::Expr(MirExpr::Block {
+                MirStmt::Expr(MirExpr::Loop {
                     span: s,
-                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                    body: Box::new(MirExpr::Match {
                         span: s,
                         expr: Box::new(MirExpr::Call {
                             span: s,
@@ -1020,7 +1023,7 @@ mod tests {
                                 body: MirExpr::Variable { name: "__break".into(), span: s },
                             },
                         ],
-                    })],
+                    }),
                 }),
             ],
         };
@@ -1053,9 +1056,9 @@ mod tests {
                     pat: MirPat::Variable("__iter".into()),
                     value: MirExpr::Variable { name: "iter".into(), span: s },
                 },
-                MirStmt::Expr(MirExpr::Block {
+                MirStmt::Expr(MirExpr::Loop {
                     span: s,
-                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                    body: Box::new(MirExpr::Match {
                         span: s,
                         expr: Box::new(MirExpr::Call {
                             span: s,
@@ -1090,7 +1093,7 @@ mod tests {
                                 body: MirExpr::Variable { name: "__break".into(), span: s },
                             },
                         ],
-                    })],
+                    }),
                 }),
             ],
         };
@@ -1120,9 +1123,9 @@ mod tests {
                     pat: MirPat::Variable("__iter".into()),
                     value: MirExpr::Variable { name: "iter".into(), span: s },
                 },
-                MirStmt::Expr(MirExpr::Block {
+                MirStmt::Expr(MirExpr::Loop {
                     span: s,
-                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                    body: Box::new(MirExpr::Match {
                         span: s,
                         expr: Box::new(MirExpr::Call {
                             span: s,
@@ -1154,7 +1157,7 @@ mod tests {
                                 body: MirExpr::Variable { name: "__break".into(), span: s },
                             },
                         ],
-                    })],
+                    }),
                 }),
             ],
         };
