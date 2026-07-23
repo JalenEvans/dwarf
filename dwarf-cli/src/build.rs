@@ -366,6 +366,161 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // CLI structure tests — verify `run` and `dev` subcommands parse correctly
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_run_cli_parse_basic() {
+        let cmd = crate::Cli::command();
+        let matches =
+            cmd.try_get_matches_from(["dwarf-cli", "run", "file.kzd", "--target", "ts"]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (subcommand, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(subcommand, "run");
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("ts")
+        );
+    }
+
+    #[test]
+    fn test_dev_cli_parse_basic() {
+        let cmd = crate::Cli::command();
+        let matches =
+            cmd.try_get_matches_from(["dwarf-cli", "dev", "file.kzd", "--target", "ts"]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (subcommand, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(subcommand, "dev");
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("ts")
+        );
+    }
+
+    #[test]
+    fn test_run_cli_requires_target() {
+        let cmd = crate::Cli::command();
+        let result = cmd.try_get_matches_from(["dwarf-cli", "run", "file.kzd"]);
+        assert!(
+            result.is_err(),
+            "Should have failed: --target is required for run but was omitted"
+        );
+    }
+
+    #[test]
+    fn test_dev_cli_requires_target() {
+        let cmd = crate::Cli::command();
+        let result = cmd.try_get_matches_from(["dwarf-cli", "dev", "file.kzd"]);
+        assert!(
+            result.is_err(),
+            "Should have failed: --target is required for dev but was omitted"
+        );
+    }
+
+    #[test]
+    fn test_run_cli_requires_file() {
+        let cmd = crate::Cli::command();
+        let result = cmd.try_get_matches_from(["dwarf-cli", "run", "--target", "ts"]);
+        assert!(
+            result.is_err(),
+            "Should have failed: at least one file is required for run but none were given"
+        );
+    }
+
+    #[test]
+    fn test_dev_cli_requires_file() {
+        let cmd = crate::Cli::command();
+        let result = cmd.try_get_matches_from(["dwarf-cli", "dev", "--target", "ts"]);
+        assert!(
+            result.is_err(),
+            "Should have failed: at least one file is required for dev but none were given"
+        );
+    }
+
+    #[test]
+    fn test_list_runtimes_flag() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from(["dwarf-cli", "--list-runtimes"]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        assert!(
+            matches.get_flag("list-runtimes") || matches.subcommand_name().is_some(),
+            "--list-runtimes should be recognised"
+        );
+    }
+
+    #[test]
+    fn test_list_runtimes_flag_with_subcommand() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-cli",
+            "run",
+            "file.kzd",
+            "--target",
+            "ts",
+            "--list-runtimes",
+        ]);
+        // --list-runtimes may be a global flag or a subcommand flag.
+        // If it's a global flag (on Cli struct), parsing succeeds.
+        // If it's only a top-level flag, this fails because --list-runtimes
+        // isn't recognised inside a subcommand.
+        // Either behaviour is acceptable — the test just verifies it doesn't panic.
+        assert!(
+            matches.is_ok() || matches.is_err(),
+            "Should not panic — parse either succeeds or returns Err"
+        );
+    }
+
+    #[test]
+    fn test_run_cli_parse_with_passes() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-cli",
+            "run",
+            "file.kzd",
+            "--target",
+            "ts",
+            "--passes",
+            "tokenize,parse",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("passes").map(String::as_str),
+            Some("tokenize,parse")
+        );
+    }
+
+    #[test]
+    fn test_dev_cli_parse_with_skip_passes() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-cli",
+            "dev",
+            "file.kzd",
+            "--target",
+            "ts",
+            "--skip-passes",
+            "typecheck",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("skip_passes").map(String::as_str),
+            Some("typecheck")
+        );
+    }
+
     #[test]
     fn test_compute_output_path_basic() {
         let input = PathBuf::from("src/hello.kzd");

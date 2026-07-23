@@ -5,13 +5,19 @@ use std::path::PathBuf;
 
 mod build;
 mod check;
+mod dev;
 mod emit;
+mod run;
 
 #[derive(Parser)]
-#[command(name = "dwarf-cli", version, about = "Dwarf compiler toolchain")]
+#[command(name = "dwarf-cli", version, about = "Dwarf compiler toolchain", subcommand_required = false)]
 struct Cli {
+    /// List available runtime targets and exit
+    #[arg(long, global = true, id = "list-runtimes")]
+    list_runtimes: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -61,6 +67,44 @@ enum Commands {
         skip_passes: Option<String>,
     },
 
+    /// Transpile and run a Dwarf source file
+    Run {
+        /// Source files to run (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Target language (e.g., "ts")
+        #[arg(long, short)]
+        target: String,
+
+        /// Comma-separated list of passes to run
+        #[arg(long)]
+        passes: Option<String>,
+
+        /// Comma-separated list of passes to skip
+        #[arg(long)]
+        skip_passes: Option<String>,
+    },
+
+    /// Watch source files and re-run on changes
+    Dev {
+        /// Source files to watch (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Target language (e.g., "ts")
+        #[arg(long, short)]
+        target: String,
+
+        /// Comma-separated list of passes to run
+        #[arg(long)]
+        passes: Option<String>,
+
+        /// Comma-separated list of passes to skip
+        #[arg(long)]
+        skip_passes: Option<String>,
+    },
+
     /// Build Dwarf source files into target language
     Build {
         /// Source files to compile (.kzd)
@@ -91,34 +135,56 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
+    if cli.list_runtimes {
+        for rt in dwarf_cli::runner::list_runtimes() {
+            println!("{}", rt);
+        }
+        return;
+    }
+
     match cli.command {
-        Commands::Check {
+        Some(Commands::Run {
+            files,
+            target,
+            passes,
+            skip_passes,
+        }) => {
+            run::run_run(files, target, passes, skip_passes);
+        }
+        Some(Commands::Check {
             files,
             json,
             passes,
             skip_passes,
             list_passes,
-        } => {
+        }) => {
             check::run_check(files, json, passes, skip_passes, list_passes);
         }
-        Commands::Emit {
+        Some(Commands::Emit {
             files,
             target,
             json,
             passes,
             skip_passes,
-        } => {
+        }) => {
             emit::run_emit(files, target, json, passes, skip_passes);
         }
-        Commands::Build {
+        Some(Commands::Dev { files, target, passes, skip_passes }) => {
+            dev::run_dev(files, target, passes, skip_passes);
+        }
+        Some(Commands::Build {
             files,
             target,
             out_dir,
             pretty,
             passes,
             skip_passes,
-        } => {
+        }) => {
             build::run_build(files, target, out_dir, pretty, passes, skip_passes);
+        }
+        None => {
+            eprintln!("Error: No subcommand provided. Use --help for usage.");
+            std::process::exit(1);
         }
     }
 }

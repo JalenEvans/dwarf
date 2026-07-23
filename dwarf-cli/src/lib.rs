@@ -2,3 +2,4 @@
 //! Exposes the pass manager and other shared infrastructure.
 
 pub mod pass_manager;
+pub mod runner;
