@@ -143,6 +143,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-mir"
+version = "0.1.0"
+dependencies = [
+ "dwarf-syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dwarf-parser"
 version = "0.1.0"
 dependencies = [
