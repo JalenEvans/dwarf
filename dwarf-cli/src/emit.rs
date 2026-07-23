@@ -122,7 +122,7 @@ struct FileResult {
 fn select_backend(target: &str) -> Result<Box<dyn EmitterBackend<Output = String>>, String> {
     match target {
         "debug" => Ok(Box::new(DebugBackend::new())),
-        "ts" => Ok(Box::new(TypeScriptBackend::new())),
+        "ts" => Ok(Box::new(TypeScriptBackend::new("0.1.0"))),
         other => Err(format!(
             "Unsupported target: '{}'. Supported targets: debug, ts",
             other

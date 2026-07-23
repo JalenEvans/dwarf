@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod build;
 mod check;
 mod emit;
 
@@ -59,6 +60,32 @@ enum Commands {
         #[arg(long)]
         skip_passes: Option<String>,
     },
+
+    /// Build Dwarf source files into target language
+    Build {
+        /// Source files to compile (.kzd)
+        files: Vec<PathBuf>,
+
+        /// Target language (e.g., "ts", "py", "java")
+        #[arg(long, short)]
+        target: String,
+
+        /// Output directory (default: dist/{target})
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+
+        /// Apply pretty formatting to output
+        #[arg(long)]
+        pretty: bool,
+
+        /// Comma-separated list of passes to run
+        #[arg(long)]
+        passes: Option<String>,
+
+        /// Comma-separated list of passes to skip
+        #[arg(long)]
+        skip_passes: Option<String>,
+    },
 }
 
 fn main() {
@@ -82,6 +109,16 @@ fn main() {
             skip_passes,
         } => {
             emit::run_emit(files, target, json, passes, skip_passes);
+        }
+        Commands::Build {
+            files,
+            target,
+            out_dir,
+            pretty,
+            passes,
+            skip_passes,
+        } => {
+            build::run_build(files, target, out_dir, pretty, passes, skip_passes);
         }
     }
 }
