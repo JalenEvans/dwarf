@@ -613,7 +613,7 @@ fn test_int_zero() {
 #[allow(clippy::approx_constant)]
 fn test_float_simple() {
     let mut lexer = Lexer::new("3.14");
-    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Float(3.5));
+    assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Float(3.14));
 }
 
 #[test]
