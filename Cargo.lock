@@ -137,6 +137,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-emitter"
+version = "0.1.0"
+dependencies = [
+ "dwarf-lir",
+ "dwarf-syntax",
+]
+
+[[package]]
 name = "dwarf-lexer"
 version = "0.1.0"
 dependencies = [
