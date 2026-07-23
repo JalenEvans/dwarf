@@ -352,12 +352,121 @@ pub fn desugar_propagate(expr: &Expr) -> MirExpr {
     }
 }
 
+// ---------------------------------------------------------------------------
+// For-loop desugaring
+// ---------------------------------------------------------------------------
+
+/// Desugar a for-loop expression into a let + loop + match.
+///
+/// `for x in iterable { body }` becomes:
+///
+/// ```ignore
+/// {
+///     let __iter = iterable;
+///     loop {
+///         match __iter.next() {
+///             Some(x) => { body },
+///             None => break,
+///         }
+///     }
+/// }
+/// ```
+///
+/// The `__break` variable is used as a marker for the break expression
+/// (analogous to `__propagate` in the propagation desugaring pass).
+pub fn desugar_for_loop(expr: &Expr) -> MirExpr {
+    match expr {
+        Expr::For {
+            binding,
+            iterable,
+            body,
+            span,
+        } => {
+            let span = *span;
+
+            // Desugar the iterable and body through the full pipeline
+            // (pipe → propagate).
+            let mir_iterable = desugar_propagate(iterable);
+            let mir_body = desugar_propagate(body);
+
+            // Convert the for-loop binding pattern
+            let mir_binding = convert_pat(binding.clone());
+
+            // Build the desugared form:
+            //
+            //   {
+            //       let __iter = iterable;
+            //       {
+            //           match __iter.next() {
+            //               Some(binding) => body,
+            //               None => __break,
+            //           }
+            //       }
+            //   }
+            MirExpr::Block {
+                span,
+                stmts: vec![
+                    // let __iter = iterable
+                    MirStmt::Let {
+                        pat: MirPat::Variable("__iter".into()),
+                        value: mir_iterable,
+                    },
+                    // { match __iter.next() { Some(binding) => body, None => __break } }
+                    MirStmt::Expr(MirExpr::Block {
+                        span,
+                        stmts: vec![MirStmt::Expr(MirExpr::Match {
+                            span,
+                            expr: Box::new(MirExpr::Call {
+                                span,
+                                func: Box::new(MirExpr::Member {
+                                    span,
+                                    obj: Box::new(MirExpr::Variable {
+                                        name: "__iter".into(),
+                                        span,
+                                    }),
+                                    field: "next".into(),
+                                }),
+                                args: vec![],
+                            }),
+                            arms: vec![
+                                MirArm {
+                                    pattern: MirPat::Variant {
+                                        name: "Some".into(),
+                                        arg: Some(Box::new(mir_binding)),
+                                    },
+                                    guard: None,
+                                    body: mir_body,
+                                },
+                                MirArm {
+                                    pattern: MirPat::Variant {
+                                        name: "None".into(),
+                                        arg: None,
+                                    },
+                                    guard: None,
+                                    body: MirExpr::Variable {
+                                        name: "__break".into(),
+                                        span,
+                                    },
+                                },
+                            ],
+                        })],
+                    }),
+                ],
+            }
+        }
+
+        // Non-for-loop expressions pass through unchanged via the full
+        // desugaring pipeline (pipe → propagate).
+        other => desugar_propagate(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use dwarf_syntax::hir::{Expr, LiteralValue};
+    use dwarf_syntax::hir::{Expr, LiteralValue, Pat};
     use dwarf_syntax::span::Span;
     use crate::*;
-    use crate::desugar::{desugar_pipe, desugar_propagate};
+    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop};
 
     /// Shared zero-length synthetic span for test expressions.
     fn span() -> Span {
@@ -680,5 +789,218 @@ mod tests {
         } else {
             panic!("desugar_propagate should produce a Match expression");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // For-loop desugaring tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_for_loop_simple() {
+        let s = span();
+        let input = Expr::For {
+            binding: Pat::Variable("x".into()),
+            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
+            body: Box::new(Expr::Variable { name: "body".into(), span: s }),
+            span: s,
+        };
+
+        let result = desugar_for_loop(&input);
+
+        // Expected: { let __iter = iter; loop { match __iter.next() { Some(x) => body, None => __break } } }
+        let expected = MirExpr::Block {
+            span: s,
+            stmts: vec![
+                MirStmt::Let {
+                    pat: MirPat::Variable("__iter".into()),
+                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                },
+                MirStmt::Expr(MirExpr::Block {
+                    span: s,
+                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                        span: s,
+                        expr: Box::new(MirExpr::Call {
+                            span: s,
+                            func: Box::new(MirExpr::Member {
+                                span: s,
+                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                field: "next".into(),
+                            }),
+                            args: vec![],
+                        }),
+                        arms: vec![
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "Some".into(),
+                                    arg: Some(Box::new(MirPat::Variable("x".into()))),
+                                },
+                                guard: None,
+                                body: MirExpr::Variable { name: "body".into(), span: s },
+                            },
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "None".into(),
+                                    arg: None,
+                                },
+                                guard: None,
+                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                            },
+                        ],
+                    })],
+                }),
+            ],
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_for_loop_with_record_pattern() {
+        let s = span();
+        let input = Expr::For {
+            binding: Pat::Record {
+                fields: vec![
+                    ("a".into(), Pat::Variable("x".into())),
+                    ("b".into(), Pat::Variable("y".into())),
+                ],
+                rest: false,
+            },
+            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
+            body: Box::new(Expr::Variable { name: "body".into(), span: s }),
+            span: s,
+        };
+
+        let result = desugar_for_loop(&input);
+
+        // The record binding pattern should be preserved inside Some(...)
+        let expected = MirExpr::Block {
+            span: s,
+            stmts: vec![
+                MirStmt::Let {
+                    pat: MirPat::Variable("__iter".into()),
+                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                },
+                MirStmt::Expr(MirExpr::Block {
+                    span: s,
+                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                        span: s,
+                        expr: Box::new(MirExpr::Call {
+                            span: s,
+                            func: Box::new(MirExpr::Member {
+                                span: s,
+                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                field: "next".into(),
+                            }),
+                            args: vec![],
+                        }),
+                        arms: vec![
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "Some".into(),
+                                    arg: Some(Box::new(MirPat::Record {
+                                        fields: vec![
+                                            ("a".into(), MirPat::Variable("x".into())),
+                                            ("b".into(), MirPat::Variable("y".into())),
+                                        ],
+                                        rest: false,
+                                    })),
+                                },
+                                guard: None,
+                                body: MirExpr::Variable { name: "body".into(), span: s },
+                            },
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "None".into(),
+                                    arg: None,
+                                },
+                                guard: None,
+                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                            },
+                        ],
+                    })],
+                }),
+            ],
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_for_loop_empty_body() {
+        let s = span();
+        let input = Expr::For {
+            binding: Pat::Variable("x".into()),
+            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
+            body: Box::new(Expr::Block {
+                stmts: vec![],
+                span: s,
+            }),
+            span: s,
+        };
+
+        let result = desugar_for_loop(&input);
+
+        // The body should still be an empty Block inside Some(...)
+        let expected = MirExpr::Block {
+            span: s,
+            stmts: vec![
+                MirStmt::Let {
+                    pat: MirPat::Variable("__iter".into()),
+                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                },
+                MirStmt::Expr(MirExpr::Block {
+                    span: s,
+                    stmts: vec![MirStmt::Expr(MirExpr::Match {
+                        span: s,
+                        expr: Box::new(MirExpr::Call {
+                            span: s,
+                            func: Box::new(MirExpr::Member {
+                                span: s,
+                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                field: "next".into(),
+                            }),
+                            args: vec![],
+                        }),
+                        arms: vec![
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "Some".into(),
+                                    arg: Some(Box::new(MirPat::Variable("x".into()))),
+                                },
+                                guard: None,
+                                body: MirExpr::Block {
+                                    span: s,
+                                    stmts: vec![],
+                                },
+                            },
+                            MirArm {
+                                pattern: MirPat::Variant {
+                                    name: "None".into(),
+                                    arg: None,
+                                },
+                                guard: None,
+                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                            },
+                        ],
+                    })],
+                }),
+            ],
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_for_loop_non_for_passthrough() {
+        let s = span();
+        let input = Expr::Variable {
+            name: "x".into(),
+            span: s,
+        };
+
+        let result = desugar_for_loop(&input);
+
+        let expected = MirExpr::Variable {
+            name: "x".into(),
+            span: s,
+        };
+        assert_eq!(result, expected);
     }
 }
