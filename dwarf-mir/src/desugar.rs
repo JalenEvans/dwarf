@@ -285,12 +285,79 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Propagation desugaring
+// ---------------------------------------------------------------------------
+
+/// Desugar the propagation operator (`?`) in an expression.
+///
+/// The `?` operator unwraps Result/Option types, propagating the error
+/// case upward. It desugars to a match expression:
+///
+/// - `expr?` → `match expr { Ok(val) => val, Err(err) => return Err(err) }`
+///
+/// Non-propagate expressions are converted to their MIR equivalent unchanged
+/// (passthrough to `desugar_pipe`).
+pub fn desugar_propagate(expr: &Expr) -> MirExpr {
+    match expr {
+        Expr::Propagate { expr: inner, span } => {
+            // Desugar the inner expression to MIR first.
+            let mir_inner = desugar_pipe(inner);
+
+            // Build the match expression that unwraps Result:
+            //
+            //   result?  →  match result {
+            //       Ok(val) => val,
+            //       Err(err) => __propagate(err),
+            //   }
+            MirExpr::Match {
+                expr: Box::new(mir_inner),
+                arms: vec![
+                    MirArm {
+                        pattern: MirPat::Variant {
+                            name: "Ok".into(),
+                            arg: Some(Box::new(MirPat::Variable("val".into()))),
+                        },
+                        guard: None,
+                        body: MirExpr::Variable {
+                            name: "val".into(),
+                            span: *span,
+                        },
+                    },
+                    MirArm {
+                        pattern: MirPat::Variant {
+                            name: "Err".into(),
+                            arg: Some(Box::new(MirPat::Variable("err".into()))),
+                        },
+                        guard: None,
+                        body: MirExpr::Call {
+                            func: Box::new(MirExpr::Variable {
+                                name: "__propagate".into(),
+                                span: *span,
+                            }),
+                            args: vec![MirExpr::Variable {
+                                name: "err".into(),
+                                span: *span,
+                            }],
+                            span: *span,
+                        },
+                    },
+                ],
+                span: *span,
+            }
+        }
+
+        // Non-propagate expressions pass through unchanged.
+        other => desugar_pipe(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use dwarf_syntax::hir::{Expr, LiteralValue};
     use dwarf_syntax::span::Span;
     use crate::*;
-    use crate::desugar::desugar_pipe;
+    use crate::desugar::{desugar_pipe, desugar_propagate};
 
     /// Shared zero-length synthetic span for test expressions.
     fn span() -> Span {
@@ -462,5 +529,156 @@ mod tests {
             span: s,
         };
         assert_eq!(result, expected);
+    }
+
+    // ------------------------------------------------------------------
+    // Propagation desugaring tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_propagate_simple() {
+        let s = span();
+        let input = Expr::Propagate {
+            expr: Box::new(Expr::Variable { name: "result".into(), span: s }),
+            span: s,
+        };
+
+        let result = desugar_propagate(&input);
+
+        let expected = MirExpr::Match {
+            expr: Box::new(MirExpr::Variable { name: "result".into(), span: s }),
+            arms: vec![
+                MirArm {
+                    pattern: MirPat::Variant {
+                        name: "Ok".into(),
+                        arg: Some(Box::new(MirPat::Variable("val".into()))),
+                    },
+                    guard: None,
+                    body: MirExpr::Variable { name: "val".into(), span: s },
+                },
+                MirArm {
+                    pattern: MirPat::Variant {
+                        name: "Err".into(),
+                        arg: Some(Box::new(MirPat::Variable("err".into()))),
+                    },
+                    guard: None,
+                    body: MirExpr::Call {
+                        func: Box::new(MirExpr::Variable {
+                            name: "__propagate".into(),
+                            span: s,
+                        }),
+                        args: vec![MirExpr::Variable { name: "err".into(), span: s }],
+                        span: s,
+                    },
+                },
+            ],
+            span: s,
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_propagate_nested() {
+        let s = span();
+        // (obj.method)? — inner expression is a member access
+        let input = Expr::Propagate {
+            expr: Box::new(Expr::Member {
+                obj: Box::new(Expr::Variable { name: "obj".into(), span: s }),
+                field: "method".into(),
+                span: s,
+            }),
+            span: s,
+        };
+
+        let result = desugar_propagate(&input);
+
+        let expected = MirExpr::Match {
+            expr: Box::new(MirExpr::Member {
+                obj: Box::new(MirExpr::Variable { name: "obj".into(), span: s }),
+                field: "method".into(),
+                span: s,
+            }),
+            arms: vec![
+                MirArm {
+                    pattern: MirPat::Variant {
+                        name: "Ok".into(),
+                        arg: Some(Box::new(MirPat::Variable("val".into()))),
+                    },
+                    guard: None,
+                    body: MirExpr::Variable { name: "val".into(), span: s },
+                },
+                MirArm {
+                    pattern: MirPat::Variant {
+                        name: "Err".into(),
+                        arg: Some(Box::new(MirPat::Variable("err".into()))),
+                    },
+                    guard: None,
+                    body: MirExpr::Call {
+                        func: Box::new(MirExpr::Variable {
+                            name: "__propagate".into(),
+                            span: s,
+                        }),
+                        args: vec![MirExpr::Variable { name: "err".into(), span: s }],
+                        span: s,
+                    },
+                },
+            ],
+            span: s,
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_propagate_non_propagate_passthrough() {
+        let s = span();
+        let input = Expr::Variable {
+            name: "x".into(),
+            span: s,
+        };
+
+        let result = desugar_propagate(&input);
+
+        let expected = MirExpr::Variable {
+            name: "x".into(),
+            span: s,
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_propagate_adds_propagate_marker() {
+        let s = span();
+        let input = Expr::Propagate {
+            expr: Box::new(Expr::Variable { name: "x".into(), span: s }),
+            span: s,
+        };
+
+        let result = desugar_propagate(&input);
+
+        // Verify it's a Match with exactly 2 arms
+        if let MirExpr::Match { expr, arms, span: _ } = &result {
+            assert_eq!(arms.len(), 2);
+            // Check Ok arm pattern
+            assert_eq!(
+                arms[0].pattern,
+                MirPat::Variant {
+                    name: "Ok".into(),
+                    arg: Some(Box::new(MirPat::Variable("val".into()))),
+                }
+            );
+            // Check Err arm uses the __propagate marker
+            if let MirExpr::Call { func, args, .. } = &arms[1].body {
+                if let MirExpr::Variable { name, .. } = func.as_ref() {
+                    assert_eq!(name, "__propagate");
+                } else {
+                    panic!("Err arm body func should be a Variable");
+                }
+                assert_eq!(args.len(), 1);
+            } else {
+                panic!("Err arm body should be a Call");
+            }
+        } else {
+            panic!("desugar_propagate should produce a Match expression");
+        }
     }
 }
