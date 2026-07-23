@@ -373,8 +373,7 @@ mod tests {
     #[test]
     fn test_run_cli_parse_basic() {
         let cmd = crate::Cli::command();
-        let matches =
-            cmd.try_get_matches_from(["dwarf-cli", "run", "file.kzd", "--target", "ts"]);
+        let matches = cmd.try_get_matches_from(["dwarf-cli", "run", "file.kzd", "--target", "ts"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();
@@ -389,8 +388,7 @@ mod tests {
     #[test]
     fn test_dev_cli_parse_basic() {
         let cmd = crate::Cli::command();
-        let matches =
-            cmd.try_get_matches_from(["dwarf-cli", "dev", "file.kzd", "--target", "ts"]);
+        let matches = cmd.try_get_matches_from(["dwarf-cli", "dev", "file.kzd", "--target", "ts"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();

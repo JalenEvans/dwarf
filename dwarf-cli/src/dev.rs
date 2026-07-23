@@ -21,7 +21,10 @@ pub fn run_dev(
 ) {
     // Validate target
     if target != "ts" {
-        eprintln!("Error: Unsupported target '{}'. Supported targets: ts", target);
+        eprintln!(
+            "Error: Unsupported target '{}'. Supported targets: ts",
+            target
+        );
         process::exit(1);
     }
 
@@ -58,17 +61,12 @@ pub fn run_dev(
         match res {
             Ok(event) => {
                 // Check if any watched file was modified
-                let relevant = event.paths.iter().any(|p| {
-                    files.iter().any(|f| f == p)
-                });
+                let relevant = event.paths.iter().any(|p| files.iter().any(|f| f == p));
                 if !relevant {
                     continue;
                 }
 
-                let is_modify = matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                );
+                let is_modify = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
 
                 if !is_modify {
                     continue;

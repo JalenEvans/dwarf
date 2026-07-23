@@ -10,7 +10,12 @@ mod emit;
 mod run;
 
 #[derive(Parser)]
-#[command(name = "dwarf-cli", version, about = "Dwarf compiler toolchain", subcommand_required = false)]
+#[command(
+    name = "dwarf-cli",
+    version,
+    about = "Dwarf compiler toolchain",
+    subcommand_required = false
+)]
 struct Cli {
     /// List available runtime targets and exit
     #[arg(long, global = true, id = "list-runtimes")]
@@ -169,7 +174,12 @@ fn main() {
         }) => {
             emit::run_emit(files, target, json, passes, skip_passes);
         }
-        Some(Commands::Dev { files, target, passes, skip_passes }) => {
+        Some(Commands::Dev {
+            files,
+            target,
+            passes,
+            skip_passes,
+        }) => {
             dev::run_dev(files, target, passes, skip_passes);
         }
         Some(Commands::Build {
