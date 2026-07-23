@@ -186,11 +186,11 @@ impl Default for PassManager {
 // ---- Adapt existing passes to the `Pass` trait ----
 
 use dwarf_lexer::pass::TokenizePass;
-use dwarf_parser::pass::ParsePass;
-use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_lir::pass::LirPass;
 use dwarf_mir::modules::ModuleGraph;
 use dwarf_mir::pass::MirPass;
+use dwarf_parser::pass::ParsePass;
+use dwarf_typecheck::pass::TypeCheckPass;
 
 impl Pass for TokenizePass {
     fn name(&self) -> &str {

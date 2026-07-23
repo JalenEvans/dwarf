@@ -6,11 +6,11 @@ use std::process;
 
 use dwarf_cli::pass_manager::*;
 use dwarf_lexer::pass::TokenizePass;
-use dwarf_parser::pass::ParsePass;
-use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_lir::pass::LirPass;
 use dwarf_mir::pass::MirPass;
+use dwarf_parser::pass::ParsePass;
 use dwarf_syntax::diagnostic::format_diagnostic;
+use dwarf_typecheck::pass::TypeCheckPass;
 
 use serde::Serialize;
 use serde_json::json;

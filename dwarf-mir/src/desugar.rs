@@ -4,8 +4,8 @@
 //! into simpler MIR forms. Currently supports:
 //! - Pipe operator (`|>`) desugaring
 
-use dwarf_syntax::hir::{Decl, Expr, LiteralValue, BinaryOp, UnaryOp, Stmt, Pat, MatchArm};
 use crate::*;
+use dwarf_syntax::hir::{BinaryOp, Decl, Expr, LiteralValue, MatchArm, Pat, Stmt, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // Helper: literal value conversion
@@ -70,7 +70,10 @@ fn convert_pat(pat: Pat) -> MirPat {
             arg: arg.map(|a| Box::new(convert_pat(*a))),
         },
         Pat::Record { fields, rest } => MirPat::Record {
-            fields: fields.into_iter().map(|(n, p)| (n, convert_pat(p))).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(n, p)| (n, convert_pat(p)))
+                .collect(),
             rest,
         },
     }
@@ -133,23 +136,41 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             // Determine how to compose the call based on the desugared RHS form.
             match desugared_rhs {
                 // a |> f               →  f(a)
-                MirExpr::Variable { name, span: rhs_span } => MirExpr::Call {
-                    func: Box::new(MirExpr::Variable { name, span: rhs_span }),
+                MirExpr::Variable {
+                    name,
+                    span: rhs_span,
+                } => MirExpr::Call {
+                    func: Box::new(MirExpr::Variable {
+                        name,
+                        span: rhs_span,
+                    }),
                     args: vec![desugared_lhs],
                     span: *span,
                 },
 
                 // a |> f(b)            →  f(a, b)
                 // a |> (f |> g)(b)     →  g(f(a), b)   (chained pipe as callee)
-                MirExpr::Call { func, args, span: _rhs_span } => MirExpr::Call {
+                MirExpr::Call {
+                    func,
+                    args,
+                    span: _rhs_span,
+                } => MirExpr::Call {
                     func,
                     args: std::iter::once(desugared_lhs).chain(args).collect(),
                     span: *span,
                 },
 
                 // x |> obj.method      →  obj.method(x)
-                MirExpr::Member { obj, field, span: rhs_span } => MirExpr::Call {
-                    func: Box::new(MirExpr::Member { obj, field, span: rhs_span }),
+                MirExpr::Member {
+                    obj,
+                    field,
+                    span: rhs_span,
+                } => MirExpr::Call {
+                    func: Box::new(MirExpr::Member {
+                        obj,
+                        field,
+                        span: rhs_span,
+                    }),
                     args: vec![desugared_lhs],
                     span: *span,
                 },
@@ -167,7 +188,6 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
         // ------------------------------------------------------------------
         // Passthrough — convert HIR expressions to their MIR equivalents
         // ------------------------------------------------------------------
-
         Expr::Literal { value, span } => MirExpr::Literal {
             value: convert_literal(value),
             span: *span,
@@ -190,7 +210,12 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             span: *span,
         },
 
-        Expr::If { cond, then, else_, span } => MirExpr::If {
+        Expr::If {
+            cond,
+            then,
+            else_,
+            span,
+        } => MirExpr::If {
             cond: Box::new(desugar_pipe(cond)),
             then: Box::new(desugar_pipe(then)),
             else_: else_.as_ref().map(|e| Box::new(desugar_pipe(e))),
@@ -229,7 +254,10 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
         },
 
         Expr::Record { fields, span } => MirExpr::Record {
-            fields: fields.iter().map(|(n, e)| (n.clone(), desugar_pipe(e))).collect(),
+            fields: fields
+                .iter()
+                .map(|(n, e)| (n.clone(), desugar_pipe(e)))
+                .collect(),
             span: *span,
         },
 
@@ -239,7 +267,11 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             span: *span,
         },
 
-        Expr::Assign { target, value, span } => MirExpr::Assign {
+        Expr::Assign {
+            target,
+            value,
+            span,
+        } => MirExpr::Assign {
             target: Box::new(desugar_pipe(target)),
             value: Box::new(desugar_pipe(value)),
             span: *span,
@@ -585,8 +617,7 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                 } = target.as_ref().clone()
                 {
                     // Convert the original function's parameters to MIR params.
-                    let mir_params: Vec<MirParam> =
-                        params.iter().map(convert_param).collect();
+                    let mir_params: Vec<MirParam> = params.iter().map(convert_param).collect();
 
                     // Build a lambda that wraps the original function body.
                     let lambda = MirExpr::Lambda {
@@ -596,8 +627,7 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                     };
 
                     // Convert decorator arguments (e.g., @route("/api") → "/api").
-                    let mir_args: Vec<MirExpr> =
-                        args.iter().map(desugar_for_loop).collect();
+                    let mir_args: Vec<MirExpr> = args.iter().map(desugar_for_loop).collect();
 
                     // Pass the original function params as additional args
                     // so the decorator receives both the wrapped function and
@@ -615,7 +645,10 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                         params: mir_params,
                         return_type,
                         body: MirExpr::Call {
-                            func: Box::new(MirExpr::Variable { name: name.clone(), span: *span }),
+                            func: Box::new(MirExpr::Variable {
+                                name: name.clone(),
+                                span: *span,
+                            }),
                             args: std::iter::once(lambda)
                                 .chain(mir_args)
                                 .chain(param_vars)
@@ -640,10 +673,12 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
 
 #[cfg(test)]
 mod tests {
-    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Pat, Param, Type, Variant};
-    use dwarf_syntax::span::Span;
+    use crate::desugar::{
+        desugar_decorators, desugar_for_loop, desugar_pipe, desugar_propagate, expand_type_aliases,
+    };
     use crate::*;
-    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop, expand_type_aliases, desugar_decorators};
+    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Param, Pat, Type, Variant};
+    use dwarf_syntax::span::Span;
 
     /// Shared zero-length synthetic span for test expressions.
     fn span() -> Span {
@@ -658,16 +693,28 @@ mod tests {
     fn test_pipe_variable_rhs() {
         let s = span();
         let input = Expr::Pipe {
-            lhs: Box::new(Expr::Variable { name: "a".into(), span: s }),
-            rhs: Box::new(Expr::Variable { name: "f".into(), span: s }),
+            lhs: Box::new(Expr::Variable {
+                name: "a".into(),
+                span: s,
+            }),
+            rhs: Box::new(Expr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
             span: s,
         };
 
         let result = desugar_pipe(&input);
 
         let expected = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "f".into(), span: s }),
-            args: vec![MirExpr::Variable { name: "a".into(), span: s }],
+            func: Box::new(MirExpr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
+            args: vec![MirExpr::Variable {
+                name: "a".into(),
+                span: s,
+            }],
             span: s,
         };
         assert_eq!(result, expected);
@@ -681,10 +728,19 @@ mod tests {
     fn test_pipe_call_rhs() {
         let s = span();
         let input = Expr::Pipe {
-            lhs: Box::new(Expr::Variable { name: "a".into(), span: s }),
+            lhs: Box::new(Expr::Variable {
+                name: "a".into(),
+                span: s,
+            }),
             rhs: Box::new(Expr::Call {
-                func: Box::new(Expr::Variable { name: "f".into(), span: s }),
-                args: vec![Expr::Variable { name: "b".into(), span: s }],
+                func: Box::new(Expr::Variable {
+                    name: "f".into(),
+                    span: s,
+                }),
+                args: vec![Expr::Variable {
+                    name: "b".into(),
+                    span: s,
+                }],
                 span: s,
             }),
             span: s,
@@ -693,10 +749,19 @@ mod tests {
         let result = desugar_pipe(&input);
 
         let expected = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "f".into(), span: s }),
+            func: Box::new(MirExpr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
             args: vec![
-                MirExpr::Variable { name: "a".into(), span: s },
-                MirExpr::Variable { name: "b".into(), span: s },
+                MirExpr::Variable {
+                    name: "a".into(),
+                    span: s,
+                },
+                MirExpr::Variable {
+                    name: "b".into(),
+                    span: s,
+                },
             ],
             span: s,
         };
@@ -711,13 +776,22 @@ mod tests {
     fn test_pipe_chain() {
         let s = span();
         let inner_pipe = Expr::Pipe {
-            lhs: Box::new(Expr::Variable { name: "a".into(), span: s }),
-            rhs: Box::new(Expr::Variable { name: "f".into(), span: s }),
+            lhs: Box::new(Expr::Variable {
+                name: "a".into(),
+                span: s,
+            }),
+            rhs: Box::new(Expr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
             span: s,
         };
         let input = Expr::Pipe {
             lhs: Box::new(inner_pipe),
-            rhs: Box::new(Expr::Variable { name: "g".into(), span: s }),
+            rhs: Box::new(Expr::Variable {
+                name: "g".into(),
+                span: s,
+            }),
             span: s,
         };
 
@@ -725,10 +799,19 @@ mod tests {
 
         // g(f(a))
         let expected = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "g".into(), span: s }),
+            func: Box::new(MirExpr::Variable {
+                name: "g".into(),
+                span: s,
+            }),
             args: vec![MirExpr::Call {
-                func: Box::new(MirExpr::Variable { name: "f".into(), span: s }),
-                args: vec![MirExpr::Variable { name: "a".into(), span: s }],
+                func: Box::new(MirExpr::Variable {
+                    name: "f".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Variable {
+                    name: "a".into(),
+                    span: s,
+                }],
                 span: s,
             }],
             span: s,
@@ -748,14 +831,20 @@ mod tests {
                 value: LiteralValue::Int(42),
                 span: s,
             }),
-            rhs: Box::new(Expr::Variable { name: "f".into(), span: s }),
+            rhs: Box::new(Expr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
             span: s,
         };
 
         let result = desugar_pipe(&input);
 
         let expected = MirExpr::Call {
-            func: Box::new(MirExpr::Variable { name: "f".into(), span: s }),
+            func: Box::new(MirExpr::Variable {
+                name: "f".into(),
+                span: s,
+            }),
             args: vec![MirExpr::Literal {
                 value: MirLiteral::Int(42),
                 span: s,
@@ -773,9 +862,15 @@ mod tests {
     fn test_pipe_with_member_rhs() {
         let s = span();
         let input = Expr::Pipe {
-            lhs: Box::new(Expr::Variable { name: "x".into(), span: s }),
+            lhs: Box::new(Expr::Variable {
+                name: "x".into(),
+                span: s,
+            }),
             rhs: Box::new(Expr::Member {
-                obj: Box::new(Expr::Variable { name: "obj".into(), span: s }),
+                obj: Box::new(Expr::Variable {
+                    name: "obj".into(),
+                    span: s,
+                }),
                 field: "method".into(),
                 span: s,
             }),
@@ -786,11 +881,17 @@ mod tests {
 
         let expected = MirExpr::Call {
             func: Box::new(MirExpr::Member {
-                obj: Box::new(MirExpr::Variable { name: "obj".into(), span: s }),
+                obj: Box::new(MirExpr::Variable {
+                    name: "obj".into(),
+                    span: s,
+                }),
                 field: "method".into(),
                 span: s,
             }),
-            args: vec![MirExpr::Variable { name: "x".into(), span: s }],
+            args: vec![MirExpr::Variable {
+                name: "x".into(),
+                span: s,
+            }],
             span: s,
         };
         assert_eq!(result, expected);
@@ -825,14 +926,20 @@ mod tests {
     fn test_propagate_simple() {
         let s = span();
         let input = Expr::Propagate {
-            expr: Box::new(Expr::Variable { name: "result".into(), span: s }),
+            expr: Box::new(Expr::Variable {
+                name: "result".into(),
+                span: s,
+            }),
             span: s,
         };
 
         let result = desugar_propagate(&input);
 
         let expected = MirExpr::Match {
-            expr: Box::new(MirExpr::Variable { name: "result".into(), span: s }),
+            expr: Box::new(MirExpr::Variable {
+                name: "result".into(),
+                span: s,
+            }),
             arms: vec![
                 MirArm {
                     pattern: MirPat::Variant {
@@ -840,7 +947,10 @@ mod tests {
                         arg: Some(Box::new(MirPat::Variable("val".into()))),
                     },
                     guard: None,
-                    body: MirExpr::Variable { name: "val".into(), span: s },
+                    body: MirExpr::Variable {
+                        name: "val".into(),
+                        span: s,
+                    },
                 },
                 MirArm {
                     pattern: MirPat::Variant {
@@ -853,7 +963,10 @@ mod tests {
                             name: "__propagate".into(),
                             span: s,
                         }),
-                        args: vec![MirExpr::Variable { name: "err".into(), span: s }],
+                        args: vec![MirExpr::Variable {
+                            name: "err".into(),
+                            span: s,
+                        }],
                         span: s,
                     },
                 },
@@ -869,7 +982,10 @@ mod tests {
         // (obj.method)? — inner expression is a member access
         let input = Expr::Propagate {
             expr: Box::new(Expr::Member {
-                obj: Box::new(Expr::Variable { name: "obj".into(), span: s }),
+                obj: Box::new(Expr::Variable {
+                    name: "obj".into(),
+                    span: s,
+                }),
                 field: "method".into(),
                 span: s,
             }),
@@ -880,7 +996,10 @@ mod tests {
 
         let expected = MirExpr::Match {
             expr: Box::new(MirExpr::Member {
-                obj: Box::new(MirExpr::Variable { name: "obj".into(), span: s }),
+                obj: Box::new(MirExpr::Variable {
+                    name: "obj".into(),
+                    span: s,
+                }),
                 field: "method".into(),
                 span: s,
             }),
@@ -891,7 +1010,10 @@ mod tests {
                         arg: Some(Box::new(MirPat::Variable("val".into()))),
                     },
                     guard: None,
-                    body: MirExpr::Variable { name: "val".into(), span: s },
+                    body: MirExpr::Variable {
+                        name: "val".into(),
+                        span: s,
+                    },
                 },
                 MirArm {
                     pattern: MirPat::Variant {
@@ -904,7 +1026,10 @@ mod tests {
                             name: "__propagate".into(),
                             span: s,
                         }),
-                        args: vec![MirExpr::Variable { name: "err".into(), span: s }],
+                        args: vec![MirExpr::Variable {
+                            name: "err".into(),
+                            span: s,
+                        }],
                         span: s,
                     },
                 },
@@ -935,14 +1060,22 @@ mod tests {
     fn test_propagate_adds_propagate_marker() {
         let s = span();
         let input = Expr::Propagate {
-            expr: Box::new(Expr::Variable { name: "x".into(), span: s }),
+            expr: Box::new(Expr::Variable {
+                name: "x".into(),
+                span: s,
+            }),
             span: s,
         };
 
         let result = desugar_propagate(&input);
 
         // Verify it's a Match with exactly 2 arms
-        if let MirExpr::Match { expr: _, arms, span: _ } = &result {
+        if let MirExpr::Match {
+            expr: _,
+            arms,
+            span: _,
+        } = &result
+        {
             assert_eq!(arms.len(), 2);
             // Check Ok arm pattern
             assert_eq!(
@@ -977,8 +1110,14 @@ mod tests {
         let s = span();
         let input = Expr::For {
             binding: Pat::Variable("x".into()),
-            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
-            body: Box::new(Expr::Variable { name: "body".into(), span: s }),
+            iterable: Box::new(Expr::Variable {
+                name: "iter".into(),
+                span: s,
+            }),
+            body: Box::new(Expr::Variable {
+                name: "body".into(),
+                span: s,
+            }),
             span: s,
         };
 
@@ -990,7 +1129,10 @@ mod tests {
             stmts: vec![
                 MirStmt::Let {
                     pat: MirPat::Variable("__iter".into()),
-                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                    value: MirExpr::Variable {
+                        name: "iter".into(),
+                        span: s,
+                    },
                 },
                 MirStmt::Expr(MirExpr::Loop {
                     span: s,
@@ -1000,7 +1142,10 @@ mod tests {
                             span: s,
                             func: Box::new(MirExpr::Member {
                                 span: s,
-                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                obj: Box::new(MirExpr::Variable {
+                                    name: "__iter".into(),
+                                    span: s,
+                                }),
                                 field: "next".into(),
                             }),
                             args: vec![],
@@ -1012,7 +1157,10 @@ mod tests {
                                     arg: Some(Box::new(MirPat::Variable("x".into()))),
                                 },
                                 guard: None,
-                                body: MirExpr::Variable { name: "body".into(), span: s },
+                                body: MirExpr::Variable {
+                                    name: "body".into(),
+                                    span: s,
+                                },
                             },
                             MirArm {
                                 pattern: MirPat::Variant {
@@ -1020,7 +1168,10 @@ mod tests {
                                     arg: None,
                                 },
                                 guard: None,
-                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                                body: MirExpr::Variable {
+                                    name: "__break".into(),
+                                    span: s,
+                                },
                             },
                         ],
                     }),
@@ -1041,8 +1192,14 @@ mod tests {
                 ],
                 rest: false,
             },
-            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
-            body: Box::new(Expr::Variable { name: "body".into(), span: s }),
+            iterable: Box::new(Expr::Variable {
+                name: "iter".into(),
+                span: s,
+            }),
+            body: Box::new(Expr::Variable {
+                name: "body".into(),
+                span: s,
+            }),
             span: s,
         };
 
@@ -1054,7 +1211,10 @@ mod tests {
             stmts: vec![
                 MirStmt::Let {
                     pat: MirPat::Variable("__iter".into()),
-                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                    value: MirExpr::Variable {
+                        name: "iter".into(),
+                        span: s,
+                    },
                 },
                 MirStmt::Expr(MirExpr::Loop {
                     span: s,
@@ -1064,7 +1224,10 @@ mod tests {
                             span: s,
                             func: Box::new(MirExpr::Member {
                                 span: s,
-                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                obj: Box::new(MirExpr::Variable {
+                                    name: "__iter".into(),
+                                    span: s,
+                                }),
                                 field: "next".into(),
                             }),
                             args: vec![],
@@ -1082,7 +1245,10 @@ mod tests {
                                     })),
                                 },
                                 guard: None,
-                                body: MirExpr::Variable { name: "body".into(), span: s },
+                                body: MirExpr::Variable {
+                                    name: "body".into(),
+                                    span: s,
+                                },
                             },
                             MirArm {
                                 pattern: MirPat::Variant {
@@ -1090,7 +1256,10 @@ mod tests {
                                     arg: None,
                                 },
                                 guard: None,
-                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                                body: MirExpr::Variable {
+                                    name: "__break".into(),
+                                    span: s,
+                                },
                             },
                         ],
                     }),
@@ -1105,7 +1274,10 @@ mod tests {
         let s = span();
         let input = Expr::For {
             binding: Pat::Variable("x".into()),
-            iterable: Box::new(Expr::Variable { name: "iter".into(), span: s }),
+            iterable: Box::new(Expr::Variable {
+                name: "iter".into(),
+                span: s,
+            }),
             body: Box::new(Expr::Block {
                 stmts: vec![],
                 span: s,
@@ -1121,7 +1293,10 @@ mod tests {
             stmts: vec![
                 MirStmt::Let {
                     pat: MirPat::Variable("__iter".into()),
-                    value: MirExpr::Variable { name: "iter".into(), span: s },
+                    value: MirExpr::Variable {
+                        name: "iter".into(),
+                        span: s,
+                    },
                 },
                 MirStmt::Expr(MirExpr::Loop {
                     span: s,
@@ -1131,7 +1306,10 @@ mod tests {
                             span: s,
                             func: Box::new(MirExpr::Member {
                                 span: s,
-                                obj: Box::new(MirExpr::Variable { name: "__iter".into(), span: s }),
+                                obj: Box::new(MirExpr::Variable {
+                                    name: "__iter".into(),
+                                    span: s,
+                                }),
                                 field: "next".into(),
                             }),
                             args: vec![],
@@ -1154,7 +1332,10 @@ mod tests {
                                     arg: None,
                                 },
                                 guard: None,
-                                body: MirExpr::Variable { name: "__break".into(), span: s },
+                                body: MirExpr::Variable {
+                                    name: "__break".into(),
+                                    span: s,
+                                },
                             },
                         ],
                     }),
@@ -1282,10 +1463,7 @@ mod tests {
     fn test_expand_type_alias_empty_input() {
         let decls: Vec<Decl> = vec![];
         let result = expand_type_aliases(&decls);
-        assert!(
-            result.is_empty(),
-            "Empty input should return empty output"
-        );
+        assert!(result.is_empty(), "Empty input should return empty output");
     }
 
     #[test]
@@ -1472,9 +1650,6 @@ mod tests {
     fn test_decorator_empty_decls() {
         let input: Vec<Decl> = vec![];
         let result = desugar_decorators(&input);
-        assert!(
-            result.is_empty(),
-            "Empty input should return empty output"
-        );
+        assert!(result.is_empty(), "Empty input should return empty output");
     }
 }

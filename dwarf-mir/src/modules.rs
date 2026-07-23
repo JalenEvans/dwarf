@@ -4,8 +4,8 @@
 //! to build a directed graph of module dependencies and detect cycles in the
 //! import graph.
 
-use std::collections::{HashMap, HashSet};
 use dwarf_syntax::hir::Decl;
+use std::collections::{HashMap, HashSet};
 
 /// A node representing a module in the dependency graph.
 #[derive(Debug, Clone)]
@@ -54,11 +54,14 @@ impl ModuleGraph {
 
                 // Ensure the importing file has a node
                 // (we use a synthetic "current" file for single-file compilation)
-                graph.modules.entry("current".to_string()).or_insert_with(|| ModuleNode {
-                    name: "current".to_string(),
-                    imports: Vec::new(),
-                    imported_by: Vec::new(),
-                });
+                graph
+                    .modules
+                    .entry("current".to_string())
+                    .or_insert_with(|| ModuleNode {
+                        name: "current".to_string(),
+                        imports: Vec::new(),
+                        imported_by: Vec::new(),
+                    });
 
                 // Ensure the imported module has a node
                 graph
@@ -193,7 +196,10 @@ mod tests {
     fn test_empty_declarations_returns_empty_graph() {
         let decls: Vec<Decl> = vec![];
         let graph = ModuleGraph::build(&decls);
-        assert!(graph.modules.is_empty(), "empty decls should yield empty graph");
+        assert!(
+            graph.modules.is_empty(),
+            "empty decls should yield empty graph"
+        );
     }
 
     #[test]
@@ -201,14 +207,21 @@ mod tests {
         let decls = vec![import_decl("std", &["println"], false)];
         let graph = ModuleGraph::build(&decls);
 
-        assert!(graph.modules.contains_key("current"), "should have 'current' node");
+        assert!(
+            graph.modules.contains_key("current"),
+            "should have 'current' node"
+        );
         assert!(graph.modules.contains_key("std"), "should have 'std' node");
 
         let deps = graph.dependencies_of("current");
         assert_eq!(deps, vec!["std"], "current should depend on std");
 
         let dependents = graph.dependents_of("std");
-        assert_eq!(dependents, vec!["current"], "std should be imported by current");
+        assert_eq!(
+            dependents,
+            vec!["current"],
+            "std should be imported by current"
+        );
     }
 
     #[test]
@@ -230,21 +243,22 @@ mod tests {
     #[test]
     fn test_no_imports_returns_empty_graph() {
         // Declarations that are NOT imports should be ignored.
-        let decls = vec![
-            Decl::Function {
-                name: "main".to_string(),
-                params: vec![],
-                return_type: None,
-                body: dwarf_syntax::hir::Expr::Literal {
-                    value: dwarf_syntax::hir::LiteralValue::Int(0),
-                    span: dummy_span(),
-                },
-                is_pub: true,
+        let decls = vec![Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: dwarf_syntax::hir::Expr::Literal {
+                value: dwarf_syntax::hir::LiteralValue::Int(0),
                 span: dummy_span(),
             },
-        ];
+            is_pub: true,
+            span: dummy_span(),
+        }];
         let graph = ModuleGraph::build(&decls);
-        assert!(graph.modules.is_empty(), "only non-import decls should yield empty graph");
+        assert!(
+            graph.modules.is_empty(),
+            "only non-import decls should yield empty graph"
+        );
     }
 
     #[test]
@@ -256,7 +270,11 @@ mod tests {
         let graph = ModuleGraph::build(&decls);
 
         let deps = graph.dependencies_of("current");
-        assert_eq!(deps.len(), 1, "duplicate imports to same module should be deduplicated");
+        assert_eq!(
+            deps.len(),
+            1,
+            "duplicate imports to same module should be deduplicated"
+        );
         assert_eq!(deps[0], "std");
     }
 
@@ -265,11 +283,21 @@ mod tests {
         let decls = vec![import_decl("std.io", &["read"], false)];
         let graph = ModuleGraph::build(&decls);
 
-        assert!(graph.modules.contains_key("std"), "dotted path 'std.io' should resolve to root 'std'");
-        assert!(!graph.modules.contains_key("std.io"), "dotted path should NOT create submodule node");
+        assert!(
+            graph.modules.contains_key("std"),
+            "dotted path 'std.io' should resolve to root 'std'"
+        );
+        assert!(
+            !graph.modules.contains_key("std.io"),
+            "dotted path should NOT create submodule node"
+        );
 
         let deps = graph.dependencies_of("current");
-        assert_eq!(deps, vec!["std"], "current should depend on root 'std', not 'std.io'");
+        assert_eq!(
+            deps,
+            vec!["std"],
+            "current should depend on root 'std', not 'std.io'"
+        );
     }
 
     #[test]
@@ -277,7 +305,10 @@ mod tests {
         // Public vs private imports don't affect the graph structure.
         let decls = vec![import_decl("net", &["connect"], true)];
         let graph = ModuleGraph::build(&decls);
-        assert!(graph.modules.contains_key("net"), "pub import should still add the module node");
+        assert!(
+            graph.modules.contains_key("net"),
+            "pub import should still add the module node"
+        );
         assert_eq!(graph.dependencies_of("current").len(), 1);
     }
 
@@ -343,7 +374,10 @@ mod tests {
                 imported_by: vec!["a".to_string()],
             },
         );
-        assert!(graph.has_cycle(), "mutual import a <-> b should be detected as a cycle");
+        assert!(
+            graph.has_cycle(),
+            "mutual import a <-> b should be detected as a cycle"
+        );
     }
 
     #[test]
@@ -374,7 +408,10 @@ mod tests {
                 imported_by: vec!["b".to_string()],
             },
         );
-        assert!(graph.has_cycle(), "triangular cycle a -> b -> c -> a should be detected");
+        assert!(
+            graph.has_cycle(),
+            "triangular cycle a -> b -> c -> a should be detected"
+        );
     }
 
     #[test]
@@ -389,7 +426,10 @@ mod tests {
                 imported_by: vec!["a".to_string()],
             },
         );
-        assert!(graph.has_cycle(), "self-import a -> a should be detected as a cycle");
+        assert!(
+            graph.has_cycle(),
+            "self-import a -> a should be detected as a cycle"
+        );
     }
 
     // ------------------------------------------------------------------

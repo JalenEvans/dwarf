@@ -3,8 +3,8 @@
 //! This pass transforms typed HIR into desugared MIR by running
 //! the full desugaring pipeline: decorators → type alias expansion.
 
-use dwarf_syntax::hir::Decl;
 use crate::desugar::desugar_decorators;
+use dwarf_syntax::hir::Decl;
 
 /// The MIR desugaring pass.
 ///
