@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 mod build;
 mod check;
+mod dev;
 mod emit;
 mod run;
 
@@ -85,6 +86,25 @@ enum Commands {
         skip_passes: Option<String>,
     },
 
+    /// Watch source files and re-run on changes
+    Dev {
+        /// Source files to watch (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Target language (e.g., "ts")
+        #[arg(long, short)]
+        target: String,
+
+        /// Comma-separated list of passes to run
+        #[arg(long)]
+        passes: Option<String>,
+
+        /// Comma-separated list of passes to skip
+        #[arg(long)]
+        skip_passes: Option<String>,
+    },
+
     /// Build Dwarf source files into target language
     Build {
         /// Source files to compile (.kzd)
@@ -148,6 +168,9 @@ fn main() {
             skip_passes,
         }) => {
             emit::run_emit(files, target, json, passes, skip_passes);
+        }
+        Some(Commands::Dev { files, target, passes, skip_passes }) => {
+            dev::run_dev(files, target, passes, skip_passes);
         }
         Some(Commands::Build {
             files,
