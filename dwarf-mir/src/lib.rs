@@ -291,8 +291,8 @@ mod tests {
 
     #[test]
     fn test_mir_literal_float() {
-        let lit = MirLiteral::Float(3.14);
-        assert_eq!(lit, MirLiteral::Float(3.14));
+        let lit = MirLiteral::Float(3.5);
+        assert_eq!(lit, MirLiteral::Float(3.5));
     }
 
     #[test]

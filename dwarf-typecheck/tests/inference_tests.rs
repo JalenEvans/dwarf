@@ -51,7 +51,7 @@ fn test_literal_float() {
     let mut registry = TypeRegistry::new();
     let env = TypeEnv::new();
     let expr = Expr::Literal {
-        value: LiteralValue::Float(3.14),
+        value: LiteralValue::Float(3.5),
         span: dummy_span(),
     };
     let result = infer_expr(&expr, &env, &mut registry);
@@ -181,7 +181,7 @@ fn test_binary_int_add_float() {
             span: dummy_span(),
         }),
         rhs: Box::new(Expr::Literal {
-            value: LiteralValue::Float(3.14),
+            value: LiteralValue::Float(3.5),
             span: dummy_span(),
         }),
         span: dummy_span(),
