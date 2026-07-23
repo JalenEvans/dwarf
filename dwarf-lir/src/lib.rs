@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod effects;
 pub mod lower;
+pub mod pass;
 
 /// A literal value in the LIR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -31,6 +31,7 @@ pub struct CompilationUnit {
     pub tokens: Option<Vec<Token>>,
     pub decls: Option<Vec<Decl>>,
     pub mir: Option<Vec<dwarf_mir::MirDecl>>,
+    pub lir: Option<Vec<dwarf_lir::LirDecl>>,
 }
 
 impl CompilationUnit {
@@ -41,6 +42,7 @@ impl CompilationUnit {
             tokens: None,
             decls: None,
             mir: None,
+            lir: None,
         }
     }
 }
@@ -145,6 +147,8 @@ impl PassManager {
                 unit.decls.as_ref().map_or(0, |d| d.len())
             } else if pass.name() == "mir" {
                 unit.mir.as_ref().map_or(0, |m| m.len())
+            } else if pass.name() == "lir" {
+                unit.lir.as_ref().map_or(0, |l| l.len())
             } else {
                 0
             };
@@ -182,6 +186,7 @@ impl Default for PassManager {
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
 use dwarf_typecheck::pass::TypeCheckPass;
+use dwarf_lir::pass::LirPass;
 use dwarf_mir::pass::MirPass;
 
 impl Pass for TokenizePass {
@@ -300,6 +305,24 @@ impl Pass for MirPass {
         if let Some(decls) = &unit.decls {
             let mir = MirPass::run(self, decls);
             unit.mir = Some(mir);
+        }
+        PassResult::Continue
+    }
+}
+
+impl Pass for LirPass {
+    fn name(&self) -> &str {
+        "lir"
+    }
+
+    fn description(&self) -> &str {
+        "Lower MIR to LIR with target hints and resolve effects"
+    }
+
+    fn run(&self, _ctx: &mut PassContext, unit: &mut CompilationUnit) -> PassResult {
+        if let Some(ref mir) = unit.mir {
+            let lir = self.run(mir);
+            unit.lir = Some(lir);
         }
         PassResult::Continue
     }
