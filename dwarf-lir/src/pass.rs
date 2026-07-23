@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_lir_pass_new_and_default() {
         let _a = LirPass::new();
-        let _b = LirPass::default();
+        let _b = LirPass;
         // Both constructors produce the same unit struct; we just verify
         // they don't panic and are usable.
     }

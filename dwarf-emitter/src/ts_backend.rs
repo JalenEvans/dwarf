@@ -40,7 +40,6 @@ pub struct TypeScriptBackend {
     buffer: CodeBuffer,
     type_mapper: TypeScriptMapper,
     imports: ImportManager,
-    indent_level: usize,
     version: String,
 }
 
@@ -53,7 +52,6 @@ impl TypeScriptBackend {
             buffer: CodeBuffer::new(),
             type_mapper: TypeScriptMapper,
             imports: ImportManager::new(),
-            indent_level: 0,
             version: version.to_string(),
         }
     }
@@ -651,10 +649,6 @@ mod tests {
             backend.buffer.is_empty(),
             "new backend should have empty buffer"
         );
-        assert_eq!(
-            backend.indent_level, 0,
-            "new backend should have indent_level 0"
-        );
     }
 
     #[test]
@@ -663,10 +657,6 @@ mod tests {
         assert!(
             backend.buffer.is_empty(),
             "default backend should have empty buffer"
-        );
-        assert_eq!(
-            backend.indent_level, 0,
-            "default backend should have indent_level 0"
         );
     }
 
