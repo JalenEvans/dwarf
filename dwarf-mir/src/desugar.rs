@@ -4,7 +4,7 @@
 //! into simpler MIR forms. Currently supports:
 //! - Pipe operator (`|>`) desugaring
 
-use dwarf_syntax::hir::{Expr, LiteralValue, BinaryOp, UnaryOp, Stmt, Pat, MatchArm};
+use dwarf_syntax::hir::{Decl, Expr, LiteralValue, BinaryOp, UnaryOp, Stmt, Pat, MatchArm};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -461,12 +461,97 @@ pub fn desugar_for_loop(expr: &Expr) -> MirExpr {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Type alias expansion
+// ---------------------------------------------------------------------------
+
+/// Convert an HIR parameter to its MIR equivalent.
+fn convert_param(p: &dwarf_syntax::hir::Param) -> MirParam {
+    MirParam {
+        name: p.name.clone(),
+        type_: p.type_.clone(),
+    }
+}
+
+/// Filter type aliases from declarations — MIR doesn't carry type aliases
+/// (they're resolved in the TypeRegistry). Returns only function, record, and union declarations.
+pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
+    decls
+        .iter()
+        .filter_map(|decl| match decl {
+            // Type aliases are resolved in the TypeRegistry — exclude from MIR.
+            Decl::TypeDef { .. } => None,
+
+            // Imports are resolved during name resolution — exclude from MIR.
+            Decl::Import { .. } => None,
+
+            // Decorators are handled by a separate decorator pass.
+            Decl::Decorator { .. } => None,
+
+            // Function declarations pass through with desugared bodies.
+            Decl::Function {
+                name,
+                params,
+                return_type,
+                body,
+                is_pub,
+                span,
+            } => Some(MirDecl::Function {
+                name: name.clone(),
+                params: params.iter().map(convert_param).collect(),
+                return_type: return_type.clone(),
+                body: desugar_for_loop(body),
+                is_pub: *is_pub,
+                span: *span,
+            }),
+
+            // Record type definitions pass through with converted fields.
+            Decl::RecordDef {
+                name,
+                fields,
+                is_pub,
+                span,
+            } => Some(MirDecl::RecordDef {
+                name: name.clone(),
+                fields: fields
+                    .iter()
+                    .map(|f| MirField {
+                        name: f.name.clone(),
+                        type_: f.type_.clone(),
+                    })
+                    .collect(),
+                is_pub: *is_pub,
+                span: *span,
+            }),
+
+            // Union type definitions pass through with converted variants.
+            Decl::UnionDef {
+                name,
+                variants,
+                is_pub,
+                span,
+            } => Some(MirDecl::UnionDef {
+                name: name.clone(),
+                variants: variants
+                    .iter()
+                    .map(|v| MirVariant {
+                        name: v.name.clone(),
+                        arg: v.arg.clone(),
+                    })
+                    .collect(),
+                is_pub: *is_pub,
+                span: *span,
+            }),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use dwarf_syntax::hir::{Expr, LiteralValue, Pat};
+    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Pat, Param, Type, Variant};
     use dwarf_syntax::span::Span;
     use crate::*;
-    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop};
+    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop, expand_type_aliases};
 
     /// Shared zero-length synthetic span for test expressions.
     fn span() -> Span {
@@ -1002,5 +1087,156 @@ mod tests {
             span: s,
         };
         assert_eq!(result, expected);
+    }
+
+    // ------------------------------------------------------------------
+    // Type alias expansion tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_type_alias_removes_typedef() {
+        let s = span();
+        let decls = vec![Decl::TypeDef {
+            name: "MyInt".into(),
+            type_: Type::Named("Int".into()),
+            is_pub: false,
+            span: s,
+        }];
+        let result = expand_type_aliases(&decls);
+        assert!(
+            result.is_empty(),
+            "TypeDef should be filtered out from MIR output"
+        );
+    }
+
+    #[test]
+    fn test_expand_type_alias_keeps_function() {
+        let s = span();
+        let decls = vec![Decl::Function {
+            name: "foo".into(),
+            params: vec![Param {
+                name: "x".into(),
+                type_: Some(Type::Named("Int".into())),
+            }],
+            return_type: Some(Type::Named("Int".into())),
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        let result = expand_type_aliases(&decls);
+        assert_eq!(result.len(), 1);
+        assert!(
+            matches!(&result[0], MirDecl::Function { name, .. } if name == "foo"),
+            "Function declarations should pass through as MirDecl::Function"
+        );
+    }
+
+    #[test]
+    fn test_expand_type_alias_keeps_record() {
+        let s = span();
+        let decls = vec![Decl::RecordDef {
+            name: "Point".into(),
+            fields: vec![
+                Field {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                },
+                Field {
+                    name: "y".into(),
+                    type_: Type::Named("Int".into()),
+                },
+            ],
+            is_pub: true,
+            span: s,
+        }];
+        let result = expand_type_aliases(&decls);
+        assert_eq!(result.len(), 1);
+        assert!(
+            matches!(&result[0], MirDecl::RecordDef { name, .. } if name == "Point"),
+            "RecordDef declarations should pass through as MirDecl::RecordDef"
+        );
+    }
+
+    #[test]
+    fn test_expand_type_alias_keeps_union() {
+        let s = span();
+        let decls = vec![Decl::UnionDef {
+            name: "Option".into(),
+            variants: vec![
+                Variant {
+                    name: "Some".into(),
+                    arg: Some(Type::Named("Int".into())),
+                },
+                Variant {
+                    name: "None".into(),
+                    arg: None,
+                },
+            ],
+            is_pub: true,
+            span: s,
+        }];
+        let result = expand_type_aliases(&decls);
+        assert_eq!(result.len(), 1);
+        assert!(
+            matches!(&result[0], MirDecl::UnionDef { name, .. } if name == "Option"),
+            "UnionDef declarations should pass through as MirDecl::UnionDef"
+        );
+    }
+
+    #[test]
+    fn test_expand_type_alias_empty_input() {
+        let decls: Vec<Decl> = vec![];
+        let result = expand_type_aliases(&decls);
+        assert!(
+            result.is_empty(),
+            "Empty input should return empty output"
+        );
+    }
+
+    #[test]
+    fn test_expand_type_alias_multiple() {
+        let s = span();
+        let decls = vec![
+            Decl::TypeDef {
+                name: "MyInt".into(),
+                type_: Type::Named("Int".into()),
+                is_pub: false,
+                span: s,
+            },
+            Decl::Function {
+                name: "foo".into(),
+                params: vec![],
+                return_type: None,
+                body: Expr::Literal {
+                    value: LiteralValue::Int(42),
+                    span: s,
+                },
+                is_pub: true,
+                span: s,
+            },
+            Decl::RecordDef {
+                name: "Point".into(),
+                fields: vec![],
+                is_pub: true,
+                span: s,
+            },
+        ];
+        let result = expand_type_aliases(&decls);
+        assert_eq!(
+            result.len(),
+            2,
+            "TypeDef should be filtered, Function and RecordDef should remain"
+        );
+        assert!(
+            matches!(&result[0], MirDecl::Function { name, .. } if name == "foo"),
+            "First output should be the Function"
+        );
+        assert!(
+            matches!(&result[1], MirDecl::RecordDef { name, .. } if name == "Point"),
+            "Second output should be the RecordDef"
+        );
     }
 }
