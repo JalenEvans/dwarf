@@ -114,14 +114,50 @@ struct FileResult {
     diagnostics: Vec<Diagnostic>,
 }
 
+/// Select a backend implementation for the given target name.
+///
+/// Returns an `Err` with a diagnostic message when the target is not
+/// recognised so the caller can produce a user-facing error.
+fn select_backend(target: &str) -> Result<DebugBackend, String> {
+    match target {
+        // `ts` is a placeholder; both use DebugBackend for now until
+        // the real TypeScript backend lands in Phase 2.
+        "debug" | "ts" => Ok(DebugBackend::new()),
+        other => Err(format!(
+            "Unsupported target: '{}'. Supported targets: debug, ts",
+            other
+        )),
+    }
+}
+
 /// Process a single source file through the pipeline and emit to the target.
 fn process_file(
     file_path: &PathBuf,
     pm: &PassManager,
     options: &CompileOptions,
-    _target: &str,
+    target: &str,
 ) -> FileResult {
     let path_str = file_path.to_string_lossy().to_string();
+
+    // Validate target upfront
+    let mut backend = match select_backend(target) {
+        Ok(b) => b,
+        Err(msg) => {
+            return FileResult {
+                file: path_str,
+                success: false,
+                output: None,
+                diagnostics: vec![Diagnostic {
+                    code: "DWARF-E-EMIT-0002".to_string(),
+                    severity: Severity::Error,
+                    message: msg,
+                    file: Some(file_path.clone()),
+                    line: None,
+                    col: None,
+                }],
+            };
+        }
+    };
 
     // Read file
     let source = match read_source_file(file_path) {
@@ -155,7 +191,6 @@ fn process_file(
 
     // Emit if LIR was produced successfully
     let output = unit.lir.as_ref().map(|lir| {
-        let mut backend = DebugBackend::new();
         match backend.emit_module(lir) {
             Ok(out) => out,
             Err(e) => {

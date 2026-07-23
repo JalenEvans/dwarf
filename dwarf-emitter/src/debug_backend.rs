@@ -71,20 +71,20 @@ impl EmitterBackend for DebugBackend {
                 let vis = if *is_pub { "pub " } else { "" };
                 let eff = self.emit_effect(effect)?;
                 let h = self.emit_target_hint(hint)?;
-                let params_str: Vec<String> = params
-                    .iter()
-                    .map(|p| {
-                        let ty = match &p.type_ {
-                            Some(t) => format!(": {}", self.emit_type(t).unwrap()),
-                            None => String::new(),
-                        };
-                        format!("{}{}", p.name, ty)
-                    })
-                    .collect();
-                let ret = match return_type {
-                    Some(t) => format!(" -> {}", self.emit_type(t).unwrap()),
-                    None => String::new(),
-                };
+                    let params_str: Vec<String> = params
+                        .iter()
+                        .map(|p| {
+                            let ty = match &p.type_ {
+                                Some(t) => format!(": {}", self.emit_type(t)?),
+                                None => String::new(),
+                            };
+                            Ok(format!("{}{}", p.name, ty))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let ret = match return_type {
+                        Some(t) => format!(" -> {}", self.emit_type(t)?),
+                        None => String::new(),
+                    };
                 let body_str = self.emit_expr(body)?;
                 Ok(format!(
                     "{}fn {}({}){ret} [{}] [{}] = {body_str}",
@@ -102,13 +102,13 @@ impl EmitterBackend for DebugBackend {
                 ..
             } => {
                 let vis = if *is_pub { "pub " } else { "" };
-                let fields_str: Vec<String> = fields
-                    .iter()
-                    .map(|f| {
-                        let ty = self.emit_type(&f.type_).unwrap();
-                        format!("{}: {}", f.name, ty)
-                    })
-                    .collect();
+                    let fields_str: Vec<String> = fields
+                        .iter()
+                        .map(|f| {
+                            let ty = self.emit_type(&f.type_)?;
+                            Ok(format!("{}: {}", f.name, ty))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!(
                     "{}record {} {{ {} }}",
                     vis,
@@ -123,15 +123,16 @@ impl EmitterBackend for DebugBackend {
                 ..
             } => {
                 let vis = if *is_pub { "pub " } else { "" };
-                let variants_str: Vec<String> = variants
-                    .iter()
-                    .map(|v| match &v.arg {
-                        Some(t) => {
-                            format!("{}({})", v.name, self.emit_type(t).unwrap())
-                        }
-                        None => v.name.clone(),
-                    })
-                    .collect();
+                    let variants_str: Vec<String> = variants
+                        .iter()
+                        .map(|v| match &v.arg {
+                            Some(t) => {
+                                let ty = self.emit_type(t)?;
+                                Ok(format!("{}({})", v.name, ty))
+                            }
+                            None => Ok(v.name.clone()),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!(
                     "{}union {} = {}",
                     vis,
@@ -150,8 +151,8 @@ impl EmitterBackend for DebugBackend {
                 let func_str = self.emit_expr(func)?;
                 let args_str: Vec<String> = args
                     .iter()
-                    .map(|a| self.emit_expr(a).unwrap())
-                    .collect();
+                    .map(|a| self.emit_expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("call({}, [{}])", func_str, args_str.join(", ")))
             }
             LirExpr::Member { obj, field, .. } => {
@@ -163,40 +164,40 @@ impl EmitterBackend for DebugBackend {
             } => {
                 let cond_str = self.emit_expr(cond)?;
                 let then_str = self.emit_expr(then)?;
-                let else_str = match else_ {
-                    Some(e) => format!(", {}", self.emit_expr(e).unwrap()),
-                    None => String::new(),
-                };
+                    let else_str = match else_ {
+                        Some(e) => format!(", {}", self.emit_expr(e)?),
+                        None => String::new(),
+                    };
                 Ok(format!("if({cond_str}, {then_str}{else_str})"))
             }
             LirExpr::Match { expr, arms, .. } => {
                 let expr_str = self.emit_expr(expr)?;
-                let arms_str: Vec<String> = arms
-                    .iter()
-                    .map(|arm| {
-                        let pat = self.emit_pat(&arm.pattern).unwrap();
-                        let guard = match &arm.guard {
-                            Some(g) => format!(" if {}", self.emit_expr(g).unwrap()),
-                            None => String::new(),
-                        };
-                        let body = self.emit_expr(&arm.body).unwrap();
-                        format!("{pat}{guard} => {body}")
-                    })
-                    .collect();
+                    let arms_str: Vec<String> = arms
+                        .iter()
+                        .map(|arm| {
+                            let pat = self.emit_pat(&arm.pattern)?;
+                            let guard = match &arm.guard {
+                                Some(g) => format!(" if {}", self.emit_expr(g)?),
+                                None => String::new(),
+                            };
+                            let body = self.emit_expr(&arm.body)?;
+                            Ok(format!("{pat}{guard} => {body}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("match({expr_str}, [{}])", arms_str.join("; ")))
             }
             LirExpr::Block { stmts, .. } => {
-                let stmts_str: Vec<String> = stmts
-                    .iter()
-                    .map(|s| match s {
-                        LirStmt::Let { pat, value } => {
-                            let pat_str = self.emit_pat(pat).unwrap();
-                            let val_str = self.emit_expr(value).unwrap();
-                            format!("let {} = {val_str}", pat_str)
-                        }
-                        LirStmt::Expr(e) => self.emit_expr(e).unwrap(),
-                    })
-                    .collect();
+                    let stmts_str: Vec<String> = stmts
+                        .iter()
+                        .map(|s| match s {
+                            LirStmt::Let { pat, value } => {
+                                let pat_str = self.emit_pat(pat)?;
+                                let val_str = self.emit_expr(value)?;
+                                Ok(format!("let {} = {val_str}", pat_str))
+                            }
+                            LirStmt::Expr(e) => self.emit_expr(e),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("block([{}])", stmts_str.join("; ")))
             }
             LirExpr::Assign { target, value, .. } => {
@@ -205,27 +206,27 @@ impl EmitterBackend for DebugBackend {
                 Ok(format!("assign({t}, {v})"))
             }
             LirExpr::Lambda { params, body, .. } => {
-                let params_str: Vec<String> = params
-                    .iter()
-                    .map(|p| {
-                        let ty = match &p.type_ {
-                            Some(t) => format!(": {}", self.emit_type(t).unwrap()),
-                            None => String::new(),
-                        };
-                        format!("{}{}", p.name, ty)
-                    })
-                    .collect();
+                    let params_str: Vec<String> = params
+                        .iter()
+                        .map(|p| {
+                            let ty = match &p.type_ {
+                                Some(t) => format!(": {}", self.emit_type(t)?),
+                                None => String::new(),
+                            };
+                            Ok(format!("{}{}", p.name, ty))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 let body_str = self.emit_expr(body)?;
                 Ok(format!("lambda(({}), {body_str})", params_str.join(", ")))
             }
             LirExpr::Record { fields, .. } => {
-                let fields_str: Vec<String> = fields
-                    .iter()
-                    .map(|(name, val)| {
-                        let v = self.emit_expr(val).unwrap();
-                        format!("{name}: {v}")
-                    })
-                    .collect();
+                    let fields_str: Vec<String> = fields
+                        .iter()
+                        .map(|(name, val)| {
+                            let v = self.emit_expr(val)?;
+                            Ok(format!("{name}: {v}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!(
                     "record({{{fields_str}}})",
                     fields_str = fields_str.join(", ")
@@ -239,10 +240,10 @@ impl EmitterBackend for DebugBackend {
                 None => Ok(format!("variant({name})")),
             },
             LirExpr::Array { items, .. } => {
-                let items_str: Vec<String> = items
-                    .iter()
-                    .map(|i| self.emit_expr(i).unwrap())
-                    .collect();
+                    let items_str: Vec<String> = items
+                        .iter()
+                        .map(|i| self.emit_expr(i))
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("array([{}])", items_str.join(", ")))
             }
             LirExpr::Binary { op, lhs, rhs, .. } => {
@@ -273,13 +274,13 @@ impl EmitterBackend for DebugBackend {
                 None => Ok(name.clone()),
             },
             LirPat::Record { fields, rest } => {
-                let fields_str: Vec<String> = fields
-                    .iter()
-                    .map(|(name, pat)| {
-                        let p = self.emit_pat(pat).unwrap();
-                        format!("{name}: {p}")
-                    })
-                    .collect();
+                    let fields_str: Vec<String> = fields
+                        .iter()
+                        .map(|(name, pat)| {
+                            let p = self.emit_pat(pat)?;
+                            Ok(format!("{name}: {p}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 let rest_str = if *rest { ", .." } else { "" };
                 Ok(format!("{{ {}{} }}", fields_str.join(", "), rest_str))
             }
@@ -290,35 +291,35 @@ impl EmitterBackend for DebugBackend {
         match ty {
             Type::Named(name) => Ok(name.clone()),
             Type::Record(fields) => {
-                let fields_str: Vec<String> = fields
-                    .iter()
-                    .map(|(name, ty)| {
-                        let t = self.emit_type(ty).unwrap();
-                        format!("{name}: {t}")
-                    })
-                    .collect();
+                    let fields_str: Vec<String> = fields
+                        .iter()
+                        .map(|(name, ty)| {
+                            let t = self.emit_type(ty)?;
+                            Ok(format!("{name}: {t}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("record({})", fields_str.join(", ")))
             }
             Type::Union(variants) => {
-                let vars_str: Vec<String> = variants
-                    .iter()
-                    .map(|v| self.emit_type(v).unwrap())
-                    .collect();
+                    let vars_str: Vec<String> = variants
+                        .iter()
+                        .map(|v| self.emit_type(v))
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("union({})", vars_str.join(" | ")))
             }
             Type::Func { params, return_ } => {
-                let params_str: Vec<String> = params
-                    .iter()
-                    .map(|p| self.emit_type(p).unwrap())
-                    .collect();
+                    let params_str: Vec<String> = params
+                        .iter()
+                        .map(|p| self.emit_type(p))
+                        .collect::<Result<Vec<_>, _>>()?;
                 let ret = self.emit_type(return_)?;
                 Ok(format!("({}) -> {ret}", params_str.join(", ")))
             }
             Type::Generic { base, args } => {
-                let args_str: Vec<String> = args
-                    .iter()
-                    .map(|a| self.emit_type(a).unwrap())
-                    .collect();
+                    let args_str: Vec<String> = args
+                        .iter()
+                        .map(|a| self.emit_type(a))
+                        .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("{base}<{}>", args_str.join(", ")))
             }
         }

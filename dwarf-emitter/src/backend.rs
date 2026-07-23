@@ -60,345 +60,64 @@ mod tests {
     use dwarf_syntax::span::Span;
 
     // ------------------------------------------------------------------
-    // Mock backend — formats LIR constructs to debug-like strings
+    // Mock backend — delegates to DebugBackend
     // ------------------------------------------------------------------
+    //
+    // The unit-test MockBackend wraps the production DebugBackend so that
+    // all formatting logic lives in one place.  Test code creates a
+    // MockBackend via `MockBackend::new()` and uses it exactly as before.
 
-    struct MockBackend;
+    use crate::debug_backend::DebugBackend;
 
-    impl MockBackend {}
+    struct MockBackend(DebugBackend);
+
+    impl MockBackend {
+        fn new() -> Self {
+            Self(DebugBackend::new())
+        }
+    }
 
     impl EmitterBackend for MockBackend {
         type Output = String;
 
         fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
-            if decls.is_empty() {
-                return Ok(String::new());
-            }
-            let mut out = String::new();
-            for decl in decls {
-                out.push_str(&self.emit_decl(decl)?);
-                out.push('\n');
-            }
-            // Trim trailing newline
-            let trimmed = out.trim_end().to_string();
-            Ok(trimmed)
+            self.0.emit_module(decls)
         }
 
         fn emit_decl(&mut self, decl: &LirDecl) -> Result<String, EmitterError> {
-            match decl {
-                LirDecl::Function {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    effect,
-                    hint,
-                    is_pub,
-                    ..
-                } => {
-                    let vis = if *is_pub { "pub " } else { "" };
-                    let eff = self.emit_effect(effect)?;
-                    let h = self.emit_target_hint(hint)?;
-                    let params_str: Vec<String> = params
-                        .iter()
-                        .map(|p| {
-                            let ty = match &p.type_ {
-                                Some(t) => format!(": {}", self.emit_type(t).unwrap()),
-                                None => String::new(),
-                            };
-                            format!("{}{}", p.name, ty)
-                        })
-                        .collect();
-                    let ret = match return_type {
-                        Some(t) => format!(" -> {}", self.emit_type(t).unwrap()),
-                        None => String::new(),
-                    };
-                    let body_str = self.emit_expr(body)?;
-                    Ok(format!(
-                        "{}fn {}({}){ret} [{}] [{}] = {body_str}",
-                        vis,
-                        name,
-                        params_str.join(", "),
-                        eff,
-                        h,
-                    ))
-                }
-                LirDecl::RecordDef {
-                    name,
-                    fields,
-                    is_pub,
-                    ..
-                } => {
-                    let vis = if *is_pub { "pub " } else { "" };
-                    let fields_str: Vec<String> = fields
-                        .iter()
-                        .map(|f| {
-                            let ty = self.emit_type(&f.type_).unwrap();
-                            format!("{}: {}", f.name, ty)
-                        })
-                        .collect();
-                    Ok(format!(
-                        "{}record {} {{ {} }}",
-                        vis,
-                        name,
-                        fields_str.join(", ")
-                    ))
-                }
-                LirDecl::UnionDef {
-                    name,
-                    variants,
-                    is_pub,
-                    ..
-                } => {
-                    let vis = if *is_pub { "pub " } else { "" };
-                    let variants_str: Vec<String> = variants
-                        .iter()
-                        .map(|v| match &v.arg {
-                            Some(t) => {
-                                format!("{}({})", v.name, self.emit_type(t).unwrap())
-                            }
-                            None => v.name.clone(),
-                        })
-                        .collect();
-                    Ok(format!(
-                        "{}union {} = {}",
-                        vis,
-                        name,
-                        variants_str.join(" | ")
-                    ))
-                }
-            }
+            self.0.emit_decl(decl)
         }
 
         fn emit_expr(&mut self, expr: &LirExpr) -> Result<String, EmitterError> {
-            match expr {
-                LirExpr::Literal { value, .. } => self.emit_literal(value),
-                LirExpr::Variable { name, .. } => Ok(format!("var({name})")),
-                LirExpr::Call { func, args, .. } => {
-                    let func_str = self.emit_expr(func)?;
-                    let args_str: Vec<String> = args
-                        .iter()
-                        .map(|a| self.emit_expr(a).unwrap())
-                        .collect();
-                    Ok(format!("call({}, [{}])", func_str, args_str.join(", ")))
-                }
-                LirExpr::Member { obj, field, .. } => {
-                    let obj_str = self.emit_expr(obj)?;
-                    Ok(format!("member({obj_str}, {field})"))
-                }
-                LirExpr::If {
-                    cond, then, else_, ..
-                } => {
-                    let cond_str = self.emit_expr(cond)?;
-                    let then_str = self.emit_expr(then)?;
-                    let else_str = match else_ {
-                        Some(e) => format!(", {}", self.emit_expr(e).unwrap()),
-                        None => String::new(),
-                    };
-                    Ok(format!("if({cond_str}, {then_str}{else_str})"))
-                }
-                LirExpr::Match { expr, arms, .. } => {
-                    let expr_str = self.emit_expr(expr)?;
-                    let arms_str: Vec<String> = arms
-                        .iter()
-                        .map(|arm| {
-                            let pat = self.emit_pat(&arm.pattern).unwrap();
-                            let guard = match &arm.guard {
-                                Some(g) => format!(" if {}", self.emit_expr(g).unwrap()),
-                                None => String::new(),
-                            };
-                            let body = self.emit_expr(&arm.body).unwrap();
-                            format!("{pat}{guard} => {body}")
-                        })
-                        .collect();
-                    Ok(format!("match({expr_str}, [{}])", arms_str.join("; ")))
-                }
-                LirExpr::Block { stmts, .. } => {
-                    let stmts_str: Vec<String> = stmts
-                        .iter()
-                        .map(|s| match s {
-                            LirStmt::Let { pat, value } => {
-                                let pat_str = self.emit_pat(pat).unwrap();
-                                let val_str = self.emit_expr(value).unwrap();
-                                format!("let {} = {val_str}", pat_str)
-                            }
-                            LirStmt::Expr(e) => self.emit_expr(e).unwrap(),
-                        })
-                        .collect();
-                    Ok(format!("block([{}])", stmts_str.join("; ")))
-                }
-                LirExpr::Assign { target, value, .. } => {
-                    let t = self.emit_expr(target)?;
-                    let v = self.emit_expr(value)?;
-                    Ok(format!("assign({t}, {v})"))
-                }
-                LirExpr::Lambda { params, body, .. } => {
-                    let params_str: Vec<String> = params
-                        .iter()
-                        .map(|p| {
-                            let ty = match &p.type_ {
-                                Some(t) => format!(": {}", self.emit_type(t).unwrap()),
-                                None => String::new(),
-                            };
-                            format!("{}{}", p.name, ty)
-                        })
-                        .collect();
-                    let body_str = self.emit_expr(body)?;
-                    Ok(format!("lambda(({}), {body_str})", params_str.join(", ")))
-                }
-                LirExpr::Record { fields, .. } => {
-                    let fields_str: Vec<String> = fields
-                        .iter()
-                        .map(|(name, val)| {
-                            let v = self.emit_expr(val).unwrap();
-                            format!("{name}: {v}")
-                        })
-                        .collect();
-                    Ok(format!("record({{{fields_str}}})", fields_str = fields_str.join(", ")))
-                }
-                LirExpr::Variant { name, arg, .. } => match arg {
-                    Some(a) => {
-                        let a_str = self.emit_expr(a)?;
-                        Ok(format!("variant({name}, {a_str})"))
-                    }
-                    None => Ok(format!("variant({name})")),
-                },
-                LirExpr::Array { items, .. } => {
-                    let items_str: Vec<String> = items
-                        .iter()
-                        .map(|i| self.emit_expr(i).unwrap())
-                        .collect();
-                    Ok(format!("array([{}])", items_str.join(", ")))
-                }
-                LirExpr::Binary { op, lhs, rhs, .. } => {
-                    let op_str = self.emit_binary_op(op)?;
-                    let lhs_str = self.emit_expr(lhs)?;
-                    let rhs_str = self.emit_expr(rhs)?;
-                    Ok(format!("binary({lhs_str}, {op_str}, {rhs_str})"))
-                }
-                LirExpr::Unary { op, expr, .. } => {
-                    let op_str = self.emit_unary_op(op)?;
-                    let e_str = self.emit_expr(expr)?;
-                    Ok(format!("unary({op_str}, {e_str})"))
-                }
-                LirExpr::Wildcard { .. } => Ok("wildcard".into()),
-            }
+            self.0.emit_expr(expr)
         }
 
         fn emit_pat(&mut self, pat: &LirPat) -> Result<String, EmitterError> {
-            match pat {
-                LirPat::Wildcard => Ok("_".into()),
-                LirPat::Literal(lit) => self.emit_literal(lit),
-                LirPat::Variable(name) => Ok(name.clone()),
-                LirPat::Variant { name, arg } => match arg {
-                    Some(a) => {
-                        let a_str = self.emit_pat(a)?;
-                        Ok(format!("{name}({a_str})"))
-                    }
-                    None => Ok(name.clone()),
-                },
-                LirPat::Record { fields, rest } => {
-                    let fields_str: Vec<String> = fields
-                        .iter()
-                        .map(|(name, pat)| {
-                            let p = self.emit_pat(pat).unwrap();
-                            format!("{name}: {p}")
-                        })
-                        .collect();
-                    let rest_str = if *rest { ", .." } else { "" };
-                    Ok(format!("{{ {}{} }}", fields_str.join(", "), rest_str))
-                }
-            }
+            self.0.emit_pat(pat)
         }
 
         fn emit_type(&mut self, ty: &Type) -> Result<String, EmitterError> {
-            match ty {
-                Type::Named(name) => Ok(name.clone()),
-                Type::Record(fields) => {
-                    let fields_str: Vec<String> = fields
-                        .iter()
-                        .map(|(name, ty)| {
-                            let t = self.emit_type(ty).unwrap();
-                            format!("{name}: {t}")
-                        })
-                        .collect();
-                    Ok(format!("record({})", fields_str.join(", ")))
-                }
-                Type::Union(variants) => {
-                    let vars_str: Vec<String> = variants
-                        .iter()
-                        .map(|v| self.emit_type(v).unwrap())
-                        .collect();
-                    Ok(format!("union({})", vars_str.join(" | ")))
-                }
-                Type::Func { params, return_ } => {
-                    let params_str: Vec<String> = params
-                        .iter()
-                        .map(|p| self.emit_type(p).unwrap())
-                        .collect();
-                    let ret = self.emit_type(return_)?;
-                    Ok(format!("({}) -> {ret}", params_str.join(", ")))
-                }
-                Type::Generic { base, args } => {
-                    let args_str: Vec<String> = args
-                        .iter()
-                        .map(|a| self.emit_type(a).unwrap())
-                        .collect();
-                    Ok(format!("{base}<{}>", args_str.join(", ")))
-                }
-            }
+            self.0.emit_type(ty)
         }
 
         fn emit_literal(&mut self, lit: &LirLiteral) -> Result<String, EmitterError> {
-            match lit {
-                LirLiteral::Int(v) => Ok(format!("{v}")),
-                LirLiteral::Float(v) => Ok(format!("{v}")),
-                LirLiteral::Str(v) => Ok(format!("\"{v}\"")),
-                LirLiteral::Bool(v) => Ok(format!("{v}")),
-                LirLiteral::Null => Ok("null".into()),
-            }
+            self.0.emit_literal(lit)
         }
 
         fn emit_binary_op(&mut self, op: &LirBinaryOp) -> Result<String, EmitterError> {
-            match op {
-                LirBinaryOp::Add => Ok("+".into()),
-                LirBinaryOp::Sub => Ok("-".into()),
-                LirBinaryOp::Mul => Ok("*".into()),
-                LirBinaryOp::Div => Ok("/".into()),
-                LirBinaryOp::Eq => Ok("==".into()),
-                LirBinaryOp::Ne => Ok("!=".into()),
-                LirBinaryOp::Lt => Ok("<".into()),
-                LirBinaryOp::Gt => Ok(">".into()),
-                LirBinaryOp::Le => Ok("<=".into()),
-                LirBinaryOp::Ge => Ok(">=".into()),
-                LirBinaryOp::And => Ok("&&".into()),
-                LirBinaryOp::Or => Ok("||".into()),
-            }
+            self.0.emit_binary_op(op)
         }
 
         fn emit_unary_op(&mut self, op: &LirUnaryOp) -> Result<String, EmitterError> {
-            match op {
-                LirUnaryOp::Neg => Ok("-".into()),
-                LirUnaryOp::Not => Ok("!".into()),
-            }
+            self.0.emit_unary_op(op)
         }
 
         fn emit_target_hint(&mut self, hint: &TargetHint) -> Result<String, EmitterError> {
-            match hint {
-                TargetHint::None => Ok("none".into()),
-                TargetHint::Async => Ok("async".into()),
-                TargetHint::Optional => Ok("optional".into()),
-                TargetHint::Result => Ok("result".into()),
-                TargetHint::ReactComponent => Ok("react_component".into()),
-            }
+            self.0.emit_target_hint(hint)
         }
 
         fn emit_effect(&mut self, effect: &Effect) -> Result<String, EmitterError> {
-            match effect {
-                Effect::Pure => Ok("pure".into()),
-                Effect::Async => Ok("async".into()),
-                Effect::Impure => Ok("impure".into()),
-            }
+            self.0.emit_effect(effect)
         }
     }
 
@@ -420,14 +139,14 @@ mod tests {
 
     #[test]
     fn test_emit_module_empty() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let result = backend.emit_module(&[]).unwrap();
         assert_eq!(result, "", "empty module should produce empty string");
     }
 
     #[test]
     fn test_emit_module_single_function() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let decl = LirDecl::Function {
             name: "main".into(),
             params: vec![],
@@ -454,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_emit_decl_function_private() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let decl = LirDecl::Function {
             name: "helper".into(),
             params: vec![],
@@ -477,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_emit_decl_record() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let decl = LirDecl::RecordDef {
             name: "Point".into(),
             fields: vec![
@@ -501,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_emit_decl_union() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let decl = LirDecl::UnionDef {
             name: "Option".into(),
             variants: vec![
@@ -529,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_literal() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Literal {
             value: LirLiteral::Int(42),
             hint: hint_none(),
@@ -540,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_variable() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Variable {
             name: "x".into(),
             hint: hint_none(),
@@ -551,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_call() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Call {
             func: Box::new(LirExpr::Variable {
                 name: "f".into(),
@@ -571,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_member() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Member {
             obj: Box::new(LirExpr::Variable {
                 name: "obj".into(),
@@ -587,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_if_with_else() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::If {
             cond: Box::new(LirExpr::Literal {
                 value: LirLiteral::Bool(true),
@@ -615,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_if_no_else() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::If {
             cond: Box::new(LirExpr::Literal {
                 value: LirLiteral::Bool(false),
@@ -636,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_match() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Match {
             expr: Box::new(LirExpr::Variable {
                 name: "x".into(),
@@ -663,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_match_with_guard() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Match {
             expr: Box::new(LirExpr::Variable {
                 name: "x".into(),
@@ -694,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_block() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Block {
             stmts: vec![
                 LirStmt::Let {
@@ -722,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_assign() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Assign {
             target: Box::new(LirExpr::Variable {
                 name: "x".into(),
@@ -742,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_lambda() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Lambda {
             params: vec![
                 LirParam {
@@ -770,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_record() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Record {
             fields: vec![
                 (
@@ -801,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_variant_with_arg() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Variant {
             name: "Some".into(),
             arg: Some(Box::new(LirExpr::Literal {
@@ -817,7 +536,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_variant_no_arg() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Variant {
             name: "None".into(),
             arg: None,
@@ -829,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_array() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Array {
             items: vec![
                 LirExpr::Literal {
@@ -851,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_binary() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Binary {
             op: LirBinaryOp::Add,
             lhs: Box::new(LirExpr::Literal {
@@ -872,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_unary() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Unary {
             op: LirUnaryOp::Neg,
             expr: Box::new(LirExpr::Literal {
@@ -888,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_emit_expr_wildcard() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let expr = LirExpr::Wildcard {
             hint: hint_none(),
             span: s(),
@@ -902,25 +621,25 @@ mod tests {
 
     #[test]
     fn test_emit_pat_wildcard() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_pat(&LirPat::Wildcard).unwrap(), "_");
     }
 
     #[test]
     fn test_emit_pat_literal() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_pat(&LirPat::Literal(LirLiteral::Int(7))).unwrap(), "7");
     }
 
     #[test]
     fn test_emit_pat_variable() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_pat(&LirPat::Variable("binding".into())).unwrap(), "binding");
     }
 
     #[test]
     fn test_emit_pat_variant_with_arg() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let pat = LirPat::Variant {
             name: "Some".into(),
             arg: Some(Box::new(LirPat::Variable("inner".into()))),
@@ -930,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_emit_pat_variant_no_arg() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let pat = LirPat::Variant {
             name: "None".into(),
             arg: None,
@@ -940,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_emit_pat_record_no_rest() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let pat = LirPat::Record {
             fields: vec![("x".into(), LirPat::Wildcard)],
             rest: false,
@@ -950,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_emit_pat_record_with_rest() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let pat = LirPat::Record {
             fields: vec![("x".into(), LirPat::Wildcard)],
             rest: true,
@@ -964,13 +683,13 @@ mod tests {
 
     #[test]
     fn test_emit_type_named() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_type(&Type::Named("Int".into())).unwrap(), "Int");
     }
 
     #[test]
     fn test_emit_type_record() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let ty = Type::Record(vec![
             ("x".into(), Box::new(Type::Named("Int".into()))),
             ("y".into(), Box::new(Type::Named("Int".into()))),
@@ -980,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_emit_type_union() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let ty = Type::Union(vec![
             Type::Named("Ok".into()),
             Type::Named("Err".into()),
@@ -990,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_emit_type_func() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let ty = Type::Func {
             params: vec![Type::Named("Int".into()), Type::Named("String".into())],
             return_: Box::new(Type::Named("Bool".into())),
@@ -1000,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_emit_type_generic() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let ty = Type::Generic {
             base: "Array".into(),
             args: vec![Type::Named("Int".into())],
@@ -1014,32 +733,32 @@ mod tests {
 
     #[test]
     fn test_emit_literal_int() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_literal(&LirLiteral::Int(42)).unwrap(), "42");
     }
 
     #[test]
     fn test_emit_literal_float() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(), "3.5");
     }
 
     #[test]
     fn test_emit_literal_str() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_literal(&LirLiteral::Str("hello".into())).unwrap(), "\"hello\"");
     }
 
     #[test]
     fn test_emit_literal_bool() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_literal(&LirLiteral::Bool(true)).unwrap(), "true");
         assert_eq!(backend.emit_literal(&LirLiteral::Bool(false)).unwrap(), "false");
     }
 
     #[test]
     fn test_emit_literal_null() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_literal(&LirLiteral::Null).unwrap(), "null");
     }
 
@@ -1049,7 +768,7 @@ mod tests {
 
     #[test]
     fn test_emit_binary_op_arithmetic() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Add).unwrap(), "+");
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Sub).unwrap(), "-");
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Mul).unwrap(), "*");
@@ -1058,7 +777,7 @@ mod tests {
 
     #[test]
     fn test_emit_binary_op_comparison() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Eq).unwrap(), "==");
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Ne).unwrap(), "!=");
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Lt).unwrap(), "<");
@@ -1069,7 +788,7 @@ mod tests {
 
     #[test]
     fn test_emit_binary_op_logical() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::And).unwrap(), "&&");
         assert_eq!(backend.emit_binary_op(&LirBinaryOp::Or).unwrap(), "||");
     }
@@ -1080,13 +799,13 @@ mod tests {
 
     #[test]
     fn test_emit_unary_op_neg() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_unary_op(&LirUnaryOp::Neg).unwrap(), "-");
     }
 
     #[test]
     fn test_emit_unary_op_not() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_unary_op(&LirUnaryOp::Not).unwrap(), "!");
     }
 
@@ -1096,31 +815,31 @@ mod tests {
 
     #[test]
     fn test_emit_target_hint_none() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_target_hint(&TargetHint::None).unwrap(), "none");
     }
 
     #[test]
     fn test_emit_target_hint_async() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_target_hint(&TargetHint::Async).unwrap(), "async");
     }
 
     #[test]
     fn test_emit_target_hint_optional() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_target_hint(&TargetHint::Optional).unwrap(), "optional");
     }
 
     #[test]
     fn test_emit_target_hint_result() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_target_hint(&TargetHint::Result).unwrap(), "result");
     }
 
     #[test]
     fn test_emit_target_hint_react_component() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_target_hint(&TargetHint::ReactComponent).unwrap(), "react_component");
     }
 
@@ -1130,19 +849,19 @@ mod tests {
 
     #[test]
     fn test_emit_effect_pure() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_effect(&Effect::Pure).unwrap(), "pure");
     }
 
     #[test]
     fn test_emit_effect_async() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_effect(&Effect::Async).unwrap(), "async");
     }
 
     #[test]
     fn test_emit_effect_impure() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         assert_eq!(backend.emit_effect(&Effect::Impure).unwrap(), "impure");
     }
 
@@ -1156,7 +875,7 @@ mod tests {
         // It should compile because none of the methods take Self by value
         // or have generic parameters.
         fn use_dyn(_backend: &mut dyn EmitterBackend<Output = String>) {}
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         use_dyn(&mut backend);
     }
 
@@ -1166,7 +885,7 @@ mod tests {
 
     #[test]
     fn test_emit_module_multiple_decls() {
-        let mut backend = MockBackend;
+        let mut backend = MockBackend::new();
         let decls = vec![
             LirDecl::RecordDef {
                 name: "Point".into(),
