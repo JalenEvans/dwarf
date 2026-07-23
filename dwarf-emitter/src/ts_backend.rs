@@ -20,7 +20,8 @@
 //! All [`EmitterBackend`] methods now have real implementations.
 
 use dwarf_lir::{
-    Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, LirUnaryOp, TargetHint,
+    Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirParam, LirPat, LirStmt, LirUnaryOp,
+    TargetHint,
 };
 use dwarf_syntax::hir::Type;
 
@@ -127,6 +128,10 @@ impl EmitterBackend for TypeScriptBackend {
                 is_pub,
                 ..
             } => {
+                // JSX (React component) functions use a different emission format
+                if *hint == TargetHint::ReactComponent {
+                    return self.emit_jsx_function(name, params, body, *is_pub);
+                }
                 let export_prefix = if *is_pub { "export " } else { "" };
                 let async_prefix = if *hint == TargetHint::Async || *effect == Effect::Async {
                     "async "
@@ -513,6 +518,80 @@ impl TypeScriptBackend {
                 }
                 result.push('}');
                 result
+            }
+        }
+    }
+
+    /// Emit a function as a React component using JSX syntax.
+    ///
+    /// Produces output of the form:
+    ///
+    /// ```typescript
+    /// export const Component: React.FC<ComponentProps> = (props) => {
+    ///   return (<div>...</div>);
+    /// };
+    /// ```
+    ///
+    /// The props type name is derived from the function name by appending `Props`
+    /// (e.g. `Button` → `ButtonProps`).
+    fn emit_jsx_function(
+        &mut self,
+        name: &str,
+        params: &[LirParam],
+        body: &LirExpr,
+        is_pub: bool,
+    ) -> Result<String, EmitterError> {
+        let export = if is_pub { "export " } else { "" };
+        let props_type = format!("{}Props", crate::naming::to_pascal_case(name));
+
+        let params_str: Vec<String> = params
+            .iter()
+            .map(|p| {
+                let ty = match &p.type_ {
+                    Some(t) => format!(": {}", self.type_mapper.map_type(t)),
+                    None => String::new(),
+                };
+                format!("{}{}", p.name, ty)
+            })
+            .collect();
+        let params_jsx = params_str.join(", ");
+
+        match body {
+            LirExpr::Block { stmts, .. } => {
+                let mut buf = CodeBuffer::new();
+                buf.push_line(format!(
+                    "{}const {}: React.FC<{}> = ({}) => {{",
+                    export, name, props_type, params_jsx
+                ));
+                buf.indent();
+                for (i, stmt) in stmts.iter().enumerate() {
+                    let is_last = i == stmts.len() - 1;
+                    match stmt {
+                        LirStmt::Let { pat, value } => {
+                            let val_str = self.emit_expr(value)?;
+                            let pat_str = self.emit_pat_inline(pat);
+                            buf.push_line(format!("let {} = {};", pat_str, val_str));
+                        }
+                        LirStmt::Expr(expr) => {
+                            let expr_str = self.emit_expr(expr)?;
+                            if is_last {
+                                buf.push_line(format!("return ({});", expr_str));
+                            } else {
+                                buf.push_line(format!("{};", expr_str));
+                            }
+                        }
+                    }
+                }
+                buf.dedent();
+                buf.push_line("};");
+                Ok(buf.into_string().trim_end().to_string())
+            }
+            other => {
+                let body_str = self.emit_expr(other)?;
+                Ok(format!(
+                    "{}const {}: React.FC<{}> = ({}) => {{\n  return ({});\n}};",
+                    export, name, props_type, params_jsx, body_str
+                ))
             }
         }
     }
@@ -1816,5 +1895,140 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ==================================================================
+    // JSX / React Component emission
+    // ==================================================================
+
+    #[test]
+    fn test_emit_component_simple() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "Button".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Str("Click me".into()),
+                hint: TargetHint::None,
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::ReactComponent,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(result.contains("React.FC"));
+        assert!(result.contains("Button"));
+        assert!(result.contains("const Button"));
+    }
+
+    #[test]
+    fn test_emit_component_with_props() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "Greeting".into(),
+            params: vec![LirParam {
+                name: "name".into(),
+                type_: Some(Type::Named("String".into())),
+            }],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Str("Hello".into()),
+                hint: TargetHint::None,
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::ReactComponent,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(result.contains("React.FC<GreetingProps>"));
+        assert!(result.contains("name: string"));
+    }
+
+    #[test]
+    fn test_emit_regular_function_not_affected() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "helper".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Int(42),
+                hint: TargetHint::None,
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(result.starts_with("export function"));
+        assert!(!result.contains("React.FC"));
+    }
+
+    #[test]
+    fn test_emit_component_private() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "Internal".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: TargetHint::None,
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::ReactComponent,
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(!result.starts_with("export"));
+        assert!(result.starts_with("const Internal"));
+    }
+
+    #[test]
+    fn test_emit_component_with_jsx_body() {
+        let mut backend = TypeScriptBackend::new();
+        let body = LirExpr::Record {
+            fields: vec![
+                (
+                    "__tag".into(),
+                    LirExpr::Literal {
+                        value: LirLiteral::Str("div".into()),
+                        hint: TargetHint::None,
+                        span: s(),
+                    },
+                ),
+                (
+                    "className".into(),
+                    LirExpr::Literal {
+                        value: LirLiteral::Str("container".into()),
+                        hint: TargetHint::None,
+                        span: s(),
+                    },
+                ),
+            ],
+            hint: TargetHint::ReactComponent,
+            span: s(),
+        };
+        let decl = LirDecl::Function {
+            name: "Container".into(),
+            params: vec![],
+            return_type: None,
+            body,
+            effect: Effect::Pure,
+            hint: TargetHint::ReactComponent,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(result.contains("React.FC"));
     }
 }
