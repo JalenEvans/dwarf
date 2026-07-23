@@ -1,3 +1,7 @@
 /target
 **/target
 **/*.rs.bk
+
+# Build output
+/dist
+**/dist
