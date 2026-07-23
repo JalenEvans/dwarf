@@ -144,6 +144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-lir"
+version = "0.1.0"
+dependencies = [
+ "dwarf-mir",
+ "dwarf-syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dwarf-mir"
 version = "0.1.0"
 dependencies = [
