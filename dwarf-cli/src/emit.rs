@@ -10,6 +10,7 @@ use std::process;
 use dwarf_cli::pass_manager::*;
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::debug_backend::DebugBackend;
+use dwarf_emitter::ts_backend::TypeScriptBackend;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_lir::pass::LirPass;
 use dwarf_mir::pass::MirPass;
@@ -118,11 +119,10 @@ struct FileResult {
 ///
 /// Returns an `Err` with a diagnostic message when the target is not
 /// recognised so the caller can produce a user-facing error.
-fn select_backend(target: &str) -> Result<DebugBackend, String> {
+fn select_backend(target: &str) -> Result<Box<dyn EmitterBackend<Output = String>>, String> {
     match target {
-        // `ts` is a placeholder; both use DebugBackend for now until
-        // the real TypeScript backend lands in Phase 2.
-        "debug" | "ts" => Ok(DebugBackend::new()),
+        "debug" => Ok(Box::new(DebugBackend::new())),
+        "ts" => Ok(Box::new(TypeScriptBackend::new())),
         other => Err(format!(
             "Unsupported target: '{}'. Supported targets: debug, ts",
             other
