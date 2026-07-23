@@ -68,6 +68,14 @@ impl TypeScriptBackend {
     pub fn into_output(self) -> String {
         self.buffer.into_string()
     }
+
+    /// Register an import from a module (without alias).
+    ///
+    /// This adds `import { name } from 'module'` to the output when
+    /// [`emit_module`](EmitterBackend::emit_module) is called.
+    pub fn add_import(&mut self, module: &str, name: &str) {
+        self.imports.add_import(module, name, None);
+    }
 }
 
 impl Default for TypeScriptBackend {
@@ -80,10 +88,20 @@ impl EmitterBackend for TypeScriptBackend {
     type Output = String;
 
     fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
-        if decls.is_empty() {
+        if decls.is_empty() && self.imports.is_empty() {
             return Ok(String::new());
         }
         let mut buf = CodeBuffer::new();
+
+        // Emit imports at the top of the module, if any
+        if !self.imports.is_empty() {
+            for import_line in self.imports.emit_imports() {
+                buf.push_line(&import_line);
+            }
+            buf.push_empty();
+        }
+
+        // Emit declarations
         for (i, decl) in decls.iter().enumerate() {
             if i > 0 {
                 buf.push_empty();
@@ -106,8 +124,10 @@ impl EmitterBackend for TypeScriptBackend {
                 body,
                 effect,
                 hint,
+                is_pub,
                 ..
             } => {
+                let export_prefix = if *is_pub { "export " } else { "" };
                 let async_prefix = if *hint == TargetHint::Async || *effect == Effect::Async {
                     "async "
                 } else {
@@ -125,7 +145,8 @@ impl EmitterBackend for TypeScriptBackend {
                     None => String::new(),
                 };
                 let header = format!(
-                    "{}function {}({}){}",
+                    "{}{}function {}({}){}",
+                    export_prefix,
                     async_prefix,
                     name,
                     params_str.join(", "),
@@ -166,14 +187,31 @@ impl EmitterBackend for TypeScriptBackend {
                     }
                 }
             }
-            LirDecl::RecordDef { name, fields, .. } => {
+            LirDecl::RecordDef {
+                name,
+                fields,
+                is_pub,
+                ..
+            } => {
+                let export_prefix = if *is_pub { "export " } else { "" };
                 let fields_str: Vec<String> = fields
                     .iter()
                     .map(|f| format!("{}: {};", f.name, self.type_mapper.map_type(&f.type_)))
                     .collect();
-                Ok(format!("interface {} {{ {} }}", name, fields_str.join(" ")))
+                Ok(format!(
+                    "{}interface {} {{ {} }}",
+                    export_prefix,
+                    name,
+                    fields_str.join(" ")
+                ))
             }
-            LirDecl::UnionDef { name, variants, .. } => {
+            LirDecl::UnionDef {
+                name,
+                variants,
+                is_pub,
+                ..
+            } => {
+                let export_prefix = if *is_pub { "export " } else { "" };
                 let variants_str: Vec<String> = variants
                     .iter()
                     .map(|v| match &v.arg {
@@ -181,7 +219,12 @@ impl EmitterBackend for TypeScriptBackend {
                         None => v.name.clone(),
                     })
                     .collect();
-                Ok(format!("type {} = {};", name, variants_str.join(" | ")))
+                Ok(format!(
+                    "{}type {} = {};",
+                    export_prefix,
+                    name,
+                    variants_str.join(" | ")
+                ))
             }
         }
     }
@@ -1296,7 +1339,7 @@ mod tests {
         };
         assert_eq!(
             backend.emit_decl(&decl).unwrap(),
-            "function main(): void { return 0; }"
+            "export function main(): void { return 0; }"
         );
     }
 
@@ -1324,7 +1367,7 @@ mod tests {
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
-        assert!(result.starts_with("async function fetchData"));
+        assert!(result.starts_with("export async function fetchData"));
         assert!(result.contains("url: string"));
         assert!(result.contains("Promise<string>"));
     }
@@ -1349,7 +1392,7 @@ mod tests {
         };
         assert_eq!(
             backend.emit_decl(&decl).unwrap(),
-            "interface Point { x: number; y: number; }"
+            "export interface Point { x: number; y: number; }"
         );
     }
 
@@ -1373,7 +1416,7 @@ mod tests {
         };
         assert_eq!(
             backend.emit_decl(&decl).unwrap(),
-            "type Option = Some | None;"
+            "export type Option = Some | None;"
         );
     }
 
@@ -1415,7 +1458,7 @@ mod tests {
         };
         assert_eq!(
             backend.emit_decl(&decl).unwrap(),
-            "function add(a: number, b: number): number { return a + b; }"
+            "export function add(a: number, b: number): number { return a + b; }"
         );
     }
 
@@ -1485,5 +1528,293 @@ mod tests {
         let result = backend.emit_module(&[record_decl, func_decl]).unwrap();
         assert!(result.contains("interface Point"));
         assert!(result.contains("function getOrigin"));
+    }
+
+    // ==================================================================
+    // Import integration — ImportManager wired into emit_module
+    // ==================================================================
+
+    #[test]
+    fn test_emit_module_with_imports() {
+        let mut backend = TypeScriptBackend::new();
+        backend.add_import("react", "useState");
+        backend.add_import("react", "useEffect");
+        let decl = LirDecl::Function {
+            name: "myHook".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(
+            result.starts_with("import { useEffect } from 'react'\nimport { useState } from 'react'"),
+            "module should start with import statements, got: {result:?}"
+        );
+        assert!(
+            result.contains("export function myHook"),
+            "module should contain the function declaration"
+        );
+    }
+
+    #[test]
+    fn test_emit_import_string_format() {
+        let mut backend = TypeScriptBackend::new();
+        backend.add_import("fs", "readFile");
+        let imports = backend.imports.emit_imports();
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0], "import { readFile } from 'fs'");
+    }
+
+    #[test]
+    fn test_add_import_then_emit() {
+        let mut backend = TypeScriptBackend::new();
+        backend.add_import("lodash", "map");
+        let result = backend.emit_module(&[]).unwrap();
+        assert!(
+            result.contains("import { map } from 'lodash'"),
+            "module should contain the import line, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_imports_at_top() {
+        let mut backend = TypeScriptBackend::new();
+        backend.add_import("http", "createServer");
+        let decl = LirDecl::Function {
+            name: "start".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(
+            lines.len() >= 2,
+            "should have at least import line + blank + decl, got {lines:?}"
+        );
+        assert_eq!(lines[0], "import { createServer } from 'http'");
+        // A blank line separates imports from declarations
+        assert!(lines[1].is_empty(), "second line should be blank separator");
+        assert!(
+            lines[2].contains("function start"),
+            "third line should contain the declaration"
+        );
+    }
+
+    #[test]
+    fn test_no_imports_no_import_lines() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "noop".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(!result.contains("import "), "should not emit import lines");
+        assert!(result.contains("function noop"));
+    }
+
+    // ==================================================================
+    // Export support — is_pub handling in emit_decl
+    // ==================================================================
+
+    #[test]
+    fn test_emit_private_function_not_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "helper".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Int(0),
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(
+            !result.starts_with("export "),
+            "private function should not have export prefix, got: {result:?}"
+        );
+        assert!(
+            result.starts_with("function helper"),
+            "private function should start with 'function', got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_public_record_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::RecordDef {
+            name: "Point".into(),
+            fields: vec![
+                LirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                },
+                LirField {
+                    name: "y".into(),
+                    type_: Type::Named("Int".into()),
+                },
+            ],
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(
+            result.starts_with("export interface"),
+            "public record should have 'export interface', got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_private_record_not_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::RecordDef {
+            name: "Internal".into(),
+            fields: vec![LirField {
+                name: "secret".into(),
+                type_: Type::Named("String".into()),
+            }],
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(
+            !result.starts_with("export "),
+            "private record should not have export prefix, got: {result:?}"
+        );
+        assert!(
+            result.starts_with("interface Internal"),
+            "private record should start with 'interface', got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_public_union_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::UnionDef {
+            name: "Option".into(),
+            variants: vec![
+                LirVariant {
+                    name: "Some".into(),
+                    arg: Some(Type::Named("Int".into())),
+                },
+                LirVariant {
+                    name: "None".into(),
+                    arg: None,
+                },
+            ],
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(
+            result.starts_with("export type Option"),
+            "public union should have 'export type', got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_private_union_not_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::UnionDef {
+            name: "InternalOpt".into(),
+            variants: vec![LirVariant {
+                name: "Val".into(),
+                arg: None,
+            }],
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(
+            !result.starts_with("export "),
+            "private union should not have export prefix, got: {result:?}"
+        );
+        assert!(
+            result.starts_with("type InternalOpt"),
+            "private union should start with 'type', got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_module_public_decls_exported() {
+        let mut backend = TypeScriptBackend::new();
+        let pub_fn = LirDecl::Function {
+            name: "publicFn".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            span: s(),
+        };
+        let priv_fn = LirDecl::Function {
+            name: "privateHelper".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[pub_fn, priv_fn]).unwrap();
+        assert!(
+            result.contains("export function publicFn"),
+            "public function should be exported"
+        );
+        assert!(
+            result.contains("function privateHelper"),
+            "private function should NOT be exported"
+        );
+        // Ensure the private function does NOT have export prefix
+        for line in result.lines() {
+            if line.contains("privateHelper") {
+                assert!(
+                    !line.contains("export "),
+                    "private helper line should not contain 'export', got: {line:?}"
+                );
+            }
+        }
     }
 }
