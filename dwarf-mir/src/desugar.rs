@@ -546,12 +546,101 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Decorator desugaring
+// ---------------------------------------------------------------------------
+
+/// Desugar decorator declarations.
+///
+/// `@decorator fn f(x) { body }` becomes:
+///
+/// ```ignore
+/// fn f(x) { decorator(fn __inner(x) { body }, x) }
+/// ```
+///
+/// Non-decorator declarations are delegated to `expand_type_aliases`.
+pub fn desugar_decorators(decls: Vec<Decl>) -> Vec<MirDecl> {
+    let mut result = Vec::new();
+
+    for decl in decls {
+        match decl {
+            Decl::Decorator {
+                name,
+                args,
+                target,
+                is_pub: _,
+                span,
+            } => {
+                // Extract the inner function from the decorated target.
+                if let Decl::Function {
+                    name: func_name,
+                    params,
+                    return_type,
+                    body,
+                    is_pub: func_is_pub,
+                    span: func_span,
+                } = *target
+                {
+                    // Convert the original function's parameters to MIR params.
+                    let mir_params: Vec<MirParam> =
+                        params.iter().map(convert_param).collect();
+
+                    // Build a lambda that wraps the original function body.
+                    let lambda = MirExpr::Lambda {
+                        params: mir_params.clone(),
+                        body: Box::new(desugar_for_loop(&body)),
+                        span: func_span,
+                    };
+
+                    // Convert decorator arguments (e.g., @route("/api") → "/api").
+                    let mir_args: Vec<MirExpr> =
+                        args.iter().map(desugar_for_loop).collect();
+
+                    // Pass the original function params as additional args
+                    // so the decorator receives both the wrapped function and
+                    // the original call-site arguments.
+                    let param_vars: Vec<MirExpr> = params
+                        .iter()
+                        .map(|p| MirExpr::Variable {
+                            name: p.name.clone(),
+                            span: func_span,
+                        })
+                        .collect();
+
+                    result.push(MirDecl::Function {
+                        name: func_name,
+                        params: mir_params,
+                        return_type,
+                        body: MirExpr::Call {
+                            func: Box::new(MirExpr::Variable { name, span }),
+                            args: std::iter::once(lambda)
+                                .chain(mir_args)
+                                .chain(param_vars)
+                                .collect(),
+                            span,
+                        },
+                        is_pub: func_is_pub,
+                        span: func_span,
+                    });
+                }
+                // Non-function targets are currently not supported for
+                // decoration — they are silently dropped.
+            }
+            other => {
+                result.extend(expand_type_aliases(&[other]));
+            }
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Pat, Param, Type, Variant};
     use dwarf_syntax::span::Span;
     use crate::*;
-    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop, expand_type_aliases};
+    use crate::desugar::{desugar_pipe, desugar_propagate, desugar_for_loop, expand_type_aliases, desugar_decorators};
 
     /// Shared zero-length synthetic span for test expressions.
     fn span() -> Span {
@@ -1237,6 +1326,152 @@ mod tests {
         assert!(
             matches!(&result[1], MirDecl::RecordDef { name, .. } if name == "Point"),
             "Second output should be the RecordDef"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Decorator desugaring tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_decorator_plain() {
+        let s = span();
+        let inner = Decl::Function {
+            name: "f".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "log".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(input);
+
+        // @log fn f() { 42 }  →  fn f() { log(fn() { 42 }) }
+        let expected = vec![MirDecl::Function {
+            name: "f".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "log".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Lambda {
+                    params: vec![],
+                    body: Box::new(MirExpr::Literal {
+                        value: MirLiteral::Int(42),
+                        span: s,
+                    }),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_decorator_with_args() {
+        let s = span();
+        let inner = Decl::Function {
+            name: "get".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "route".into(),
+            args: vec![Expr::Literal {
+                value: LiteralValue::Str("/api".into()),
+                span: s,
+            }],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(input);
+
+        // @route("/api") fn get() { 42 }
+        // → fn get() { route(fn() { 42 }, "/api") }
+        let expected = vec![MirDecl::Function {
+            name: "get".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "route".into(),
+                    span: s,
+                }),
+                args: vec![
+                    MirExpr::Lambda {
+                        params: vec![],
+                        body: Box::new(MirExpr::Literal {
+                            value: MirLiteral::Int(42),
+                            span: s,
+                        }),
+                        span: s,
+                    },
+                    MirExpr::Literal {
+                        value: MirLiteral::Str("/api".into()),
+                        span: s,
+                    },
+                ],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_decorator_non_decorator() {
+        let s = span();
+        let input = Decl::Function {
+            name: "f".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+
+        let result = desugar_decorators(vec![input.clone()]);
+
+        // Non-decorator declarations delegate to expand_type_aliases.
+        let expected = expand_type_aliases(&[input]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_decorator_empty_decls() {
+        let input: Vec<Decl> = vec![];
+        let result = desugar_decorators(input);
+        assert!(
+            result.is_empty(),
+            "Empty input should return empty output"
         );
     }
 }
