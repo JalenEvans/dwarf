@@ -19,7 +19,7 @@
 //! All other [`EmitterBackend`] methods currently panic with `unimplemented!()`.
 
 use dwarf_lir::{
-    Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirUnaryOp, TargetHint,
+    Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, LirUnaryOp, TargetHint,
 };
 use dwarf_syntax::hir::Type;
 
@@ -78,16 +78,247 @@ impl Default for TypeScriptBackend {
 impl EmitterBackend for TypeScriptBackend {
     type Output = String;
 
-    fn emit_module(&mut self, _decls: &[LirDecl]) -> Result<String, EmitterError> {
-        unimplemented!("TypeScriptBackend::emit_module")
+    fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
+        if decls.is_empty() {
+            return Ok(String::new());
+        }
+        let mut buf = CodeBuffer::new();
+        for (i, decl) in decls.iter().enumerate() {
+            if i > 0 {
+                buf.push_empty();
+            }
+            let decl_str = self.emit_decl(decl)?;
+            // Push each line of the decl with proper indentation
+            for line in decl_str.lines() {
+                buf.push_line(line);
+            }
+        }
+        Ok(buf.into_string().trim_end().to_string())
     }
 
-    fn emit_decl(&mut self, _decl: &LirDecl) -> Result<String, EmitterError> {
-        unimplemented!("TypeScriptBackend::emit_decl")
+    fn emit_decl(&mut self, decl: &LirDecl) -> Result<String, EmitterError> {
+        match decl {
+            LirDecl::Function {
+                name,
+                params,
+                return_type,
+                body,
+                effect,
+                hint,
+                ..
+            } => {
+                let async_prefix = if *hint == TargetHint::Async || *effect == Effect::Async {
+                    "async "
+                } else {
+                    ""
+                };
+                let params_str: Vec<String> = params
+                    .iter()
+                    .map(|p| match &p.type_ {
+                        Some(ty) => format!("{}: {}", p.name, self.type_mapper.map_type(ty)),
+                        None => p.name.clone(),
+                    })
+                    .collect();
+                let ret_str = match return_type {
+                    Some(ty) => format!(": {}", self.type_mapper.map_type(ty)),
+                    None => String::new(),
+                };
+                let header = format!(
+                    "{}function {}({}){}",
+                    async_prefix,
+                    name,
+                    params_str.join(", "),
+                    ret_str
+                );
+
+                // If the body is a Block, use proper multi-line formatting
+                match body {
+                    LirExpr::Block { stmts, .. } => {
+                        let mut buf = CodeBuffer::new();
+                        buf.push_line(format!("{} {{", header));
+                        buf.indent();
+                        for (i, stmt) in stmts.iter().enumerate() {
+                            let is_last = i == stmts.len() - 1;
+                            match stmt {
+                                LirStmt::Let { pat, value } => {
+                                    let val_str = self.emit_expr(value)?;
+                                    let pat_str = self.emit_pat_inline(pat);
+                                    buf.push_line(format!("let {} = {};", pat_str, val_str));
+                                }
+                                LirStmt::Expr(expr) => {
+                                    let expr_str = self.emit_expr(expr)?;
+                                    if is_last {
+                                        buf.push_line(format!("return {};", expr_str));
+                                    } else {
+                                        buf.push_line(format!("{};", expr_str));
+                                    }
+                                }
+                            }
+                        }
+                        buf.dedent();
+                        buf.push_line("}");
+                        Ok(buf.into_string().trim_end().to_string())
+                    }
+                    other => {
+                        let body_str = self.emit_expr(other)?;
+                        Ok(format!("{} {{ return {}; }}", header, body_str))
+                    }
+                }
+            }
+            LirDecl::RecordDef { name, fields, .. } => {
+                let fields_str: Vec<String> = fields
+                    .iter()
+                    .map(|f| format!("{}: {};", f.name, self.type_mapper.map_type(&f.type_)))
+                    .collect();
+                Ok(format!("interface {} {{ {} }}", name, fields_str.join(" ")))
+            }
+            LirDecl::UnionDef { name, variants, .. } => {
+                let variants_str: Vec<String> = variants
+                    .iter()
+                    .map(|v| match &v.arg {
+                        Some(_ty) => v.name.clone(),
+                        None => v.name.clone(),
+                    })
+                    .collect();
+                Ok(format!("type {} = {};", name, variants_str.join(" | ")))
+            }
+        }
     }
 
-    fn emit_expr(&mut self, _expr: &LirExpr) -> Result<String, EmitterError> {
-        unimplemented!("TypeScriptBackend::emit_expr")
+    fn emit_expr(&mut self, expr: &LirExpr) -> Result<String, EmitterError> {
+        match expr {
+            LirExpr::Literal { value, .. } => self.emit_literal(value),
+            LirExpr::Variable { name, .. } => Ok(name.clone()),
+            LirExpr::Call {
+                func, args, hint, ..
+            } => {
+                let func_str = self.emit_expr(func)?;
+                let args_str: Vec<String> = args
+                    .iter()
+                    .map(|a| self.emit_expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let call = format!("{}({})", func_str, args_str.join(", "));
+                if *hint == TargetHint::Async {
+                    Ok(format!("await {}", call))
+                } else {
+                    Ok(call)
+                }
+            }
+            LirExpr::Member {
+                obj, field, hint, ..
+            } => {
+                let obj_str = self.emit_expr(obj)?;
+                let op = if *hint == TargetHint::Optional {
+                    "?."
+                } else {
+                    "."
+                };
+                Ok(format!("{}{}{}", obj_str, op, field))
+            }
+            LirExpr::If {
+                cond, then, else_, ..
+            } => {
+                let cond_str = self.emit_expr(cond)?;
+                let then_str = self.emit_expr(then)?;
+                match else_ {
+                    Some(else_expr) => {
+                        let else_str = self.emit_expr(else_expr)?;
+                        Ok(format!("{} ? {} : {}", cond_str, then_str, else_str))
+                    }
+                    None => Ok(then_str),
+                }
+            }
+            LirExpr::Match {
+                expr, arms, ..
+            } => {
+                let expr_str = self.emit_expr(expr)?;
+                if arms.is_empty() {
+                    return Ok(String::new());
+                }
+                let mut chain = String::new();
+                for (i, arm) in arms.iter().enumerate() {
+                    let body_str = self.emit_expr(&arm.body)?;
+                    let is_last = i == arms.len() - 1;
+                    let is_wildcard_default = is_last && matches!(arm.pattern, LirPat::Wildcard);
+
+                    if is_wildcard_default {
+                        if chain.is_empty() {
+                            chain = body_str;
+                        } else {
+                            chain = format!("{} : {}", chain, body_str);
+                        }
+                    } else {
+                        let pat_str = match &arm.pattern {
+                            LirPat::Literal(lit) => self.emit_literal(lit)?,
+                            LirPat::Wildcard => "_".to_string(),
+                            LirPat::Variable(name) => name.clone(),
+                            LirPat::Variant { name, .. } => format!("\"{}\"", name),
+                            LirPat::Record { .. } => "_".to_string(),
+                        };
+                        let condition = format!("{} === {}", expr_str, pat_str);
+                        if chain.is_empty() {
+                            chain = format!("{} ? {}", condition, body_str);
+                        } else {
+                            chain = format!("{} : {} ? {}", chain, condition, body_str);
+                        }
+                    }
+                }
+                Ok(chain)
+            }
+            LirExpr::Block { stmts, .. } => self.emit_block_body(stmts),
+            LirExpr::Assign { target, value, .. } => {
+                let target_str = self.emit_expr(target)?;
+                let value_str = self.emit_expr(value)?;
+                Ok(format!("{} = {}", target_str, value_str))
+            }
+            LirExpr::Lambda { params, body, .. } => {
+                let params_str: Vec<String> = params
+                    .iter()
+                    .map(|p| match &p.type_ {
+                        Some(ty) => format!("{}: {}", p.name, self.type_mapper.map_type(ty)),
+                        None => p.name.clone(),
+                    })
+                    .collect();
+                let body_str = self.emit_expr(body)?;
+                Ok(format!("({}) => {}", params_str.join(", "), body_str))
+            }
+            LirExpr::Record { fields, .. } => {
+                let fields_str: Vec<String> = fields
+                    .iter()
+                    .map(|(name, expr)| {
+                        let val = self.emit_expr(expr)?;
+                        Ok(format!("{}: {}", name, val))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(format!("{{ {} }}", fields_str.join(", ")))
+            }
+            LirExpr::Variant { name, arg, .. } => match arg {
+                Some(expr) => {
+                    let val = self.emit_expr(expr)?;
+                    Ok(format!("{{ tag: \"{}\", value: {} }}", name, val))
+                }
+                None => Ok(format!("\"{}\"", name)),
+            },
+            LirExpr::Array { items, .. } => {
+                let items_str: Vec<String> = items
+                    .iter()
+                    .map(|i| self.emit_expr(i))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(format!("[{}]", items_str.join(", ")))
+            }
+            LirExpr::Binary { op, lhs, rhs, .. } => {
+                let lhs_str = self.emit_expr(lhs)?;
+                let rhs_str = self.emit_expr(rhs)?;
+                let op_str = self.emit_binary_op(op)?;
+                Ok(format!("{}{}{}", lhs_str, op_str, rhs_str))
+            }
+            LirExpr::Unary { op, expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                let op_str = self.emit_unary_op(op)?;
+                Ok(format!("{}{}", op_str, expr_str))
+            }
+            LirExpr::Wildcard { .. } => Ok("_".to_string()),
+        }
     }
 
     fn emit_pat(&mut self, _pat: &LirPat) -> Result<String, EmitterError> {
@@ -151,13 +382,93 @@ impl EmitterBackend for TypeScriptBackend {
     }
 }
 
+// ------------------------------------------------------------------
+// Internal helpers on TypeScriptBackend
+// ------------------------------------------------------------------
+
+impl TypeScriptBackend {
+    /// Emit a block body (stmts) as a single-line `{ ... }` string.
+    ///
+    /// For Let statements we inline pattern emission since `emit_pat` is
+    /// still a stub (will be replaced in Phase 2.3).
+    fn emit_block_body(&mut self, stmts: &[LirStmt]) -> Result<String, EmitterError> {
+        if stmts.is_empty() {
+            return Ok("{}".to_string());
+        }
+        let mut parts: Vec<String> = Vec::new();
+        for (i, stmt) in stmts.iter().enumerate() {
+            let is_last = i == stmts.len() - 1;
+            match stmt {
+                LirStmt::Let { pat, value } => {
+                    let val_str = self.emit_expr(value)?;
+                    let pat_str = self.emit_pat_inline(pat);
+                    parts.push(format!("let {} = {}", pat_str, val_str));
+                }
+                LirStmt::Expr(expr) => {
+                    let expr_str = self.emit_expr(expr)?;
+                    if is_last {
+                        parts.push(format!("return {}", expr_str));
+                    } else {
+                        parts.push(expr_str);
+                    }
+                }
+            }
+        }
+        Ok(format!("{{ {}; }}", parts.join("; ")))
+    }
+
+    /// Inline pattern emission helper for `let` statements.
+    ///
+    /// This is a temporary stand-in until `emit_pat` is properly implemented
+    /// in Phase 2.3. It covers all LirPat variants needed for let bindings.
+    fn emit_pat_inline(&mut self, pat: &LirPat) -> String {
+        match pat {
+            LirPat::Wildcard => "_".to_string(),
+            LirPat::Literal(lit) => self
+                .emit_literal(lit)
+                .unwrap_or_else(|_| "_".to_string()),
+            LirPat::Variable(name) => name.clone(),
+            LirPat::Variant { name, arg } => match arg {
+                Some(arg_pat) => format!("{}({})", name, self.emit_pat_inline(arg_pat)),
+                None => name.clone(),
+            },
+            LirPat::Record { fields, rest } => {
+                let fields_str: Vec<String> = fields
+                    .iter()
+                    .map(|(fname, pat)| format!("{}: {}", fname, self.emit_pat_inline(pat)))
+                    .collect();
+                let mut result = format!("{{ {} ", fields_str.join(", "));
+                if *rest {
+                    result.push_str(", ..");
+                }
+                result.push('}');
+                result
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use dwarf_lir::{
-        LirBinaryOp, LirLiteral, LirUnaryOp, TargetHint, Effect,
+        Effect, LirArm, LirBinaryOp, LirField, LirLiteral, LirParam, LirUnaryOp, LirVariant,
+        TargetHint,
     };
     use dwarf_syntax::hir::Type;
+    use dwarf_syntax::span::Span;
+
+    // ==================================================================
+    // Helpers
+    // ==================================================================
+
+    fn s() -> Span {
+        Span::new(0, 0, 0)
+    }
+
+    fn hint_none() -> TargetHint {
+        TargetHint::None
+    }
 
     // ==================================================================
     // Creation tests
@@ -166,15 +477,27 @@ mod tests {
     #[test]
     fn test_ts_backend_new() {
         let backend = TypeScriptBackend::new();
-        assert!(backend.buffer.is_empty(), "new backend should have empty buffer");
-        assert_eq!(backend.indent_level, 0, "new backend should have indent_level 0");
+        assert!(
+            backend.buffer.is_empty(),
+            "new backend should have empty buffer"
+        );
+        assert_eq!(
+            backend.indent_level, 0,
+            "new backend should have indent_level 0"
+        );
     }
 
     #[test]
     fn test_ts_backend_default() {
         let backend = TypeScriptBackend::default();
-        assert!(backend.buffer.is_empty(), "default backend should have empty buffer");
-        assert_eq!(backend.indent_level, 0, "default backend should have indent_level 0");
+        assert!(
+            backend.buffer.is_empty(),
+            "default backend should have empty buffer"
+        );
+        assert_eq!(
+            backend.indent_level, 0,
+            "default backend should have indent_level 0"
+        );
     }
 
     // ==================================================================
@@ -295,13 +618,19 @@ mod tests {
     #[test]
     fn test_emit_target_hint_async() {
         let mut backend = TypeScriptBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::Async).unwrap(), "async ");
+        assert_eq!(
+            backend.emit_target_hint(&TargetHint::Async).unwrap(),
+            "async "
+        );
     }
 
     #[test]
     fn test_emit_target_hint_optional() {
         let mut backend = TypeScriptBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::Optional).unwrap(), "?");
+        assert_eq!(
+            backend.emit_target_hint(&TargetHint::Optional).unwrap(),
+            "?"
+        );
     }
 
     #[test]
@@ -370,26 +699,466 @@ mod tests {
             ("x".into(), Box::new(Type::Named("Int".into()))),
             ("y".into(), Box::new(Type::Named("Int".into()))),
         ]);
-        assert_eq!(backend.emit_type(&ty).unwrap(), "{ x: number; y: number }");
+        assert_eq!(
+            backend.emit_type(&ty).unwrap(),
+            "{ x: number; y: number }"
+        );
     }
 
     // ==================================================================
-    // Stub methods — should panic with unimplemented!()
+    // Expression emission — every LirExpr variant
     // ==================================================================
 
     #[test]
-    #[should_panic(expected = "not implemented")]
-    fn test_emit_expr_unimplemented() {
-        use dwarf_lir::LirExpr;
-        use dwarf_syntax::span::Span;
+    fn test_emit_expr_literal() {
         let mut backend = TypeScriptBackend::new();
         let expr = LirExpr::Literal {
-            value: LirLiteral::Int(0),
-            hint: TargetHint::None,
-            span: Span::new(0, 0, 0),
+            value: LirLiteral::Int(42),
+            hint: hint_none(),
+            span: s(),
         };
-        let _ = backend.emit_expr(&expr);
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "42");
     }
+
+    #[test]
+    fn test_emit_expr_variable() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Variable {
+            name: "x".into(),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "x");
+    }
+
+    #[test]
+    fn test_emit_expr_call() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "f".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            args: vec![
+                LirExpr::Variable {
+                    name: "x".into(),
+                    hint: hint_none(),
+                    span: s(),
+                },
+                LirExpr::Literal {
+                    value: LirLiteral::Int(1),
+                    hint: hint_none(),
+                    span: s(),
+                },
+            ],
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "f(x, 1)");
+    }
+
+    #[test]
+    fn test_emit_expr_call_async() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "f".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            args: vec![LirExpr::Variable {
+                name: "x".into(),
+                hint: hint_none(),
+                span: s(),
+            }],
+            hint: TargetHint::Async,
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "await f(x)");
+    }
+
+    #[test]
+    fn test_emit_expr_member() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Member {
+            obj: Box::new(LirExpr::Variable {
+                name: "obj".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            field: "field".into(),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "obj.field");
+    }
+
+    #[test]
+    fn test_emit_expr_member_optional() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Member {
+            obj: Box::new(LirExpr::Variable {
+                name: "obj".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            field: "field".into(),
+            hint: TargetHint::Optional,
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "obj?.field");
+    }
+
+    #[test]
+    fn test_emit_expr_if_ternary() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::If {
+            cond: Box::new(LirExpr::Variable {
+                name: "cond".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            then: Box::new(LirExpr::Variable {
+                name: "thenVal".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            else_: Some(Box::new(LirExpr::Variable {
+                name: "elseVal".into(),
+                hint: hint_none(),
+                span: s(),
+            })),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "cond ? thenVal : elseVal"
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_if_no_else() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::If {
+            cond: Box::new(LirExpr::Literal {
+                value: LirLiteral::Bool(false),
+                hint: hint_none(),
+                span: s(),
+            }),
+            then: Box::new(LirExpr::Variable {
+                name: "thenVal".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            else_: None,
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "thenVal");
+    }
+
+    #[test]
+    fn test_emit_expr_match() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Match {
+            expr: Box::new(LirExpr::Variable {
+                name: "x".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            arms: vec![
+                LirArm {
+                    pattern: LirPat::Literal(LirLiteral::Int(1)),
+                    guard: None,
+                    body: LirExpr::Literal {
+                        value: LirLiteral::Str("one".into()),
+                        hint: hint_none(),
+                        span: s(),
+                    },
+                },
+                LirArm {
+                    pattern: LirPat::Wildcard,
+                    guard: None,
+                    body: LirExpr::Literal {
+                        value: LirLiteral::Str("other".into()),
+                        hint: hint_none(),
+                        span: s(),
+                    },
+                },
+            ],
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "x === 1 ? \"one\" : \"other\""
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_block() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Block {
+            stmts: vec![
+                LirStmt::Let {
+                    pat: LirPat::Variable("x".into()),
+                    value: LirExpr::Literal {
+                        value: LirLiteral::Int(1),
+                        hint: hint_none(),
+                        span: s(),
+                    },
+                },
+                LirStmt::Expr(LirExpr::Variable {
+                    name: "x".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+            ],
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "{ let x = 1; return x; }"
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_assign() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Assign {
+            target: Box::new(LirExpr::Variable {
+                name: "x".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            value: Box::new(LirExpr::Literal {
+                value: LirLiteral::Int(42),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "x = 42");
+    }
+
+    #[test]
+    fn test_emit_expr_lambda() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Lambda {
+            params: vec![
+                LirParam {
+                    name: "a".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+                LirParam {
+                    name: "b".into(),
+                    type_: None,
+                },
+            ],
+            body: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Add,
+                lhs: Box::new(LirExpr::Variable {
+                    name: "a".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                rhs: Box::new(LirExpr::Variable {
+                    name: "b".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "(a: number, b) => a + b"
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_record() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Record {
+            fields: vec![
+                (
+                    "x".into(),
+                    LirExpr::Literal {
+                        value: LirLiteral::Int(1),
+                        hint: hint_none(),
+                        span: s(),
+                    },
+                ),
+                (
+                    "y".into(),
+                    LirExpr::Literal {
+                        value: LirLiteral::Str("hello".into()),
+                        hint: hint_none(),
+                        span: s(),
+                    },
+                ),
+            ],
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "{ x: 1, y: \"hello\" }"
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_variant_no_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Variant {
+            name: "None".into(),
+            arg: None,
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "\"None\"");
+    }
+
+    #[test]
+    fn test_emit_expr_variant_with_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Variant {
+            name: "Ok".into(),
+            arg: Some(Box::new(LirExpr::Literal {
+                value: LirLiteral::Int(42),
+                hint: hint_none(),
+                span: s(),
+            })),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "{ tag: \"Ok\", value: 42 }"
+        );
+    }
+
+    #[test]
+    fn test_emit_expr_array() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Array {
+            items: vec![
+                LirExpr::Literal {
+                    value: LirLiteral::Int(1),
+                    hint: hint_none(),
+                    span: s(),
+                },
+                LirExpr::Literal {
+                    value: LirLiteral::Int(2),
+                    hint: hint_none(),
+                    span: s(),
+                },
+                LirExpr::Literal {
+                    value: LirLiteral::Int(3),
+                    hint: hint_none(),
+                    span: s(),
+                },
+            ],
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "[1, 2, 3]");
+    }
+
+    #[test]
+    fn test_emit_expr_binary() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Binary {
+            op: LirBinaryOp::Add,
+            lhs: Box::new(LirExpr::Variable {
+                name: "a".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            rhs: Box::new(LirExpr::Variable {
+                name: "b".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "a + b");
+    }
+
+    #[test]
+    fn test_emit_expr_binary_eq() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Binary {
+            op: LirBinaryOp::Eq,
+            lhs: Box::new(LirExpr::Variable {
+                name: "a".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            rhs: Box::new(LirExpr::Variable {
+                name: "b".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "a === b");
+    }
+
+    #[test]
+    fn test_emit_expr_unary_neg() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Unary {
+            op: LirUnaryOp::Neg,
+            expr: Box::new(LirExpr::Variable {
+                name: "x".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "-x");
+    }
+
+    #[test]
+    fn test_emit_expr_unary_not() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Unary {
+            op: LirUnaryOp::Not,
+            expr: Box::new(LirExpr::Variable {
+                name: "flag".into(),
+                hint: hint_none(),
+                span: s(),
+            }),
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "!flag");
+    }
+
+    #[test]
+    fn test_emit_expr_wildcard() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Wildcard {
+            hint: hint_none(),
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "_");
+    }
+
+    // ==================================================================
+    // Pattern emission — still unimplemented (Phase 2.3)
+    // ==================================================================
 
     #[test]
     #[should_panic(expected = "not implemented")]
@@ -398,47 +1167,217 @@ mod tests {
         let _ = backend.emit_pat(&LirPat::Wildcard);
     }
 
+    // ==================================================================
+    // Declaration emission
+    // ==================================================================
+
     #[test]
-    #[should_panic(expected = "not implemented")]
-    fn test_emit_decl_unimplemented() {
-        use dwarf_syntax::span::Span;
+    fn test_emit_decl_function() {
         let mut backend = TypeScriptBackend::new();
         let decl = LirDecl::Function {
-            name: "f".into(),
+            name: "main".into(),
             params: vec![],
-            return_type: None,
+            return_type: Some(Type::Named("Void".into())),
             body: LirExpr::Literal {
                 value: LirLiteral::Int(0),
-                hint: TargetHint::None,
-                span: Span::new(0, 0, 0),
+                hint: hint_none(),
+                span: s(),
             },
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
-            span: Span::new(0, 0, 0),
+            span: s(),
         };
-        let _ = backend.emit_decl(&decl);
+        assert_eq!(
+            backend.emit_decl(&decl).unwrap(),
+            "function main(): void { return 0; }"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "not implemented")]
-    fn test_emit_module_unimplemented() {
-        use dwarf_syntax::span::Span;
+    fn test_emit_decl_function_async() {
         let mut backend = TypeScriptBackend::new();
         let decl = LirDecl::Function {
-            name: "f".into(),
-            params: vec![],
-            return_type: None,
+            name: "fetchData".into(),
+            params: vec![LirParam {
+                name: "url".into(),
+                type_: Some(Type::Named("String".into())),
+            }],
+            return_type: Some(Type::Generic {
+                base: "Promise".into(),
+                args: vec![Type::Named("String".into())],
+            }),
             body: LirExpr::Literal {
-                value: LirLiteral::Int(0),
-                hint: TargetHint::None,
-                span: Span::new(0, 0, 0),
+                value: LirLiteral::Null,
+                hint: TargetHint::Async,
+                span: s(),
+            },
+            effect: Effect::Async,
+            hint: TargetHint::Async,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_decl(&decl).unwrap();
+        assert!(result.starts_with("async function fetchData"));
+        assert!(result.contains("url: string"));
+        assert!(result.contains("Promise<string>"));
+    }
+
+    #[test]
+    fn test_emit_decl_record() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::RecordDef {
+            name: "Point".into(),
+            fields: vec![
+                LirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                },
+                LirField {
+                    name: "y".into(),
+                    type_: Type::Named("Int".into()),
+                },
+            ],
+            is_pub: true,
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_decl(&decl).unwrap(),
+            "interface Point { x: number; y: number; }"
+        );
+    }
+
+    #[test]
+    fn test_emit_decl_union() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::UnionDef {
+            name: "Option".into(),
+            variants: vec![
+                LirVariant {
+                    name: "Some".into(),
+                    arg: Some(Type::Named("Int".into())),
+                },
+                LirVariant {
+                    name: "None".into(),
+                    arg: None,
+                },
+            ],
+            is_pub: true,
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_decl(&decl).unwrap(),
+            "type Option = Some | None;"
+        );
+    }
+
+    #[test]
+    fn test_emit_decl_function_with_params() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "add".into(),
+            params: vec![
+                LirParam {
+                    name: "a".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+                LirParam {
+                    name: "b".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".into())),
+            body: LirExpr::Binary {
+                op: LirBinaryOp::Add,
+                lhs: Box::new(LirExpr::Variable {
+                    name: "a".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                rhs: Box::new(LirExpr::Variable {
+                    name: "b".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                hint: hint_none(),
+                span: s(),
             },
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
-            span: Span::new(0, 0, 0),
+            span: s(),
         };
-        let _ = backend.emit_module(&[decl]);
+        assert_eq!(
+            backend.emit_decl(&decl).unwrap(),
+            "function add(a: number, b: number): number { return a + b; }"
+        );
+    }
+
+    // ==================================================================
+    // Module emission
+    // ==================================================================
+
+    #[test]
+    fn test_emit_module_empty() {
+        let mut backend = TypeScriptBackend::new();
+        assert_eq!(backend.emit_module(&[]).unwrap(), "");
+    }
+
+    #[test]
+    fn test_emit_module_single_function() {
+        let mut backend = TypeScriptBackend::new();
+        let decl = LirDecl::Function {
+            name: "main".into(),
+            params: vec![],
+            return_type: Some(Type::Named("Void".into())),
+            body: LirExpr::Literal {
+                value: LirLiteral::Int(0),
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(result.contains("function main"));
+    }
+
+    #[test]
+    fn test_emit_module_mixed() {
+        let mut backend = TypeScriptBackend::new();
+        let func_decl = LirDecl::Function {
+            name: "getOrigin".into(),
+            params: vec![],
+            return_type: None,
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            span: s(),
+        };
+        let record_decl = LirDecl::RecordDef {
+            name: "Point".into(),
+            fields: vec![
+                LirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                },
+                LirField {
+                    name: "y".into(),
+                    type_: Type::Named("Int".into()),
+                },
+            ],
+            is_pub: true,
+            span: s(),
+        };
+        let result = backend.emit_module(&[record_decl, func_decl]).unwrap();
+        assert!(result.contains("interface Point"));
+        assert!(result.contains("function getOrigin"));
     }
 }
