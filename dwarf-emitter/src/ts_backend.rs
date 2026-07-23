@@ -241,6 +241,21 @@ impl EmitterBackend for TypeScriptBackend {
             LirExpr::Call {
                 func, args, hint, ..
             } => {
+                // Check for assert/assert_eq → Jest expect compilation
+                if let LirExpr::Variable { name, .. } = func.as_ref() {
+                    match name.as_str() {
+                        "assert" if args.len() == 1 => {
+                            let arg = self.emit_expr(&args[0])?;
+                            return Ok(format!("expect({}).toBe(true)", arg));
+                        }
+                        "assert_eq" if args.len() == 2 => {
+                            let a = self.emit_expr(&args[0])?;
+                            let b = self.emit_expr(&args[1])?;
+                            return Ok(format!("expect({}).toBe({})", a, b));
+                        }
+                        _ => {} // fall through to regular call
+                    }
+                }
                 let func_str = self.emit_expr(func)?;
                 let args_str: Vec<String> = args
                     .iter()
@@ -925,6 +940,136 @@ mod tests {
             span: s(),
         };
         assert_eq!(backend.emit_expr(&expr).unwrap(), "await f(x)");
+    }
+
+    #[test]
+    fn test_emit_assert_single_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "assert".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }),
+            args: vec![LirExpr::Literal {
+                value: LirLiteral::Bool(true),
+                hint: TargetHint::None,
+                span: s(),
+            }],
+            hint: TargetHint::None,
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "expect(true).toBe(true)");
+    }
+
+    #[test]
+    fn test_emit_assert_eq_two_args() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "assert_eq".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }),
+            args: vec![
+                LirExpr::Literal {
+                    value: LirLiteral::Int(42),
+                    hint: TargetHint::None,
+                    span: s(),
+                },
+                LirExpr::Literal {
+                    value: LirLiteral::Int(42),
+                    hint: TargetHint::None,
+                    span: s(),
+                },
+            ],
+            hint: TargetHint::None,
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "expect(42).toBe(42)");
+    }
+
+    #[test]
+    fn test_emit_regular_call_unaffected() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "foo".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }),
+            args: vec![LirExpr::Literal {
+                value: LirLiteral::Int(1),
+                hint: TargetHint::None,
+                span: s(),
+            }],
+            hint: TargetHint::None,
+            span: s(),
+        };
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "foo(1)");
+    }
+
+    #[test]
+    fn test_emit_assert_with_variable_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "assert".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }),
+            args: vec![LirExpr::Variable {
+                name: "result".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }],
+            hint: TargetHint::None,
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "expect(result).toBe(true)"
+        );
+    }
+
+    #[test]
+    fn test_emit_assert_eq_with_expressions() {
+        let mut backend = TypeScriptBackend::new();
+        let expr = LirExpr::Call {
+            func: Box::new(LirExpr::Variable {
+                name: "assert_eq".into(),
+                hint: TargetHint::None,
+                span: s(),
+            }),
+            args: vec![
+                LirExpr::Binary {
+                    op: LirBinaryOp::Add,
+                    lhs: Box::new(LirExpr::Literal {
+                        value: LirLiteral::Int(1),
+                        hint: TargetHint::None,
+                        span: s(),
+                    }),
+                    rhs: Box::new(LirExpr::Literal {
+                        value: LirLiteral::Int(2),
+                        hint: TargetHint::None,
+                        span: s(),
+                    }),
+                    hint: TargetHint::None,
+                    span: s(),
+                },
+                LirExpr::Literal {
+                    value: LirLiteral::Int(3),
+                    hint: TargetHint::None,
+                    span: s(),
+                },
+            ],
+            hint: TargetHint::None,
+            span: s(),
+        };
+        assert_eq!(
+            backend.emit_expr(&expr).unwrap(),
+            "expect(1 + 2).toBe(3)"
+        );
     }
 
     #[test]
