@@ -8,4 +8,5 @@ members = [
     "dwarf-typecheck",
     "dwarf-mir",
     "dwarf-lir",
+    "dwarf-emitter",
 ]
