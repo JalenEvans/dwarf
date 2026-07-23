@@ -15,8 +15,9 @@
 //! - `emit_target_hint` — produces target-hint strings
 //! - `emit_effect` — produces effect-annotation strings
 //! - `emit_type` — delegates to [`TypeScriptMapper`]
+//! - `emit_pat` — produces TypeScript pattern syntax
 //!
-//! All other [`EmitterBackend`] methods currently panic with `unimplemented!()`.
+//! All [`EmitterBackend`] methods now have real implementations.
 
 use dwarf_lir::{
     Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, LirUnaryOp, TargetHint,
@@ -321,8 +322,30 @@ impl EmitterBackend for TypeScriptBackend {
         }
     }
 
-    fn emit_pat(&mut self, _pat: &LirPat) -> Result<String, EmitterError> {
-        unimplemented!("TypeScriptBackend::emit_pat")
+    fn emit_pat(&mut self, pat: &LirPat) -> Result<String, EmitterError> {
+        match pat {
+            LirPat::Wildcard => Ok("_".to_string()),
+            LirPat::Literal(lit) => self.emit_literal(lit),
+            LirPat::Variable(name) => Ok(name.clone()),
+            LirPat::Variant { name, arg } => match arg {
+                Some(a) => {
+                    let inner = self.emit_pat(a)?;
+                    Ok(format!("{}: {}", name, inner))
+                }
+                None => Ok(name.clone()),
+            },
+            LirPat::Record { fields, rest } => {
+                let fields_str: Vec<String> = fields
+                    .iter()
+                    .map(|(name, pat)| {
+                        let p = self.emit_pat(pat)?;
+                        Ok(format!("{}: {}", name, p))
+                    })
+                    .collect::<Result<Vec<_>, EmitterError>>()?;
+                let rest_str = if *rest { ", ..." } else { "" };
+                Ok(format!("{{ {}{} }}", fields_str.join(", "), rest_str))
+            }
+        }
     }
 
     fn emit_type(&mut self, ty: &Type) -> Result<String, EmitterError> {
@@ -389,8 +412,10 @@ impl EmitterBackend for TypeScriptBackend {
 impl TypeScriptBackend {
     /// Emit a block body (stmts) as a single-line `{ ... }` string.
     ///
-    /// For Let statements we inline pattern emission since `emit_pat` is
-    /// still a stub (will be replaced in Phase 2.3).
+    /// For Let statements we use `emit_pat_inline` which produces a slightly
+    /// different format than the trait `emit_pat` method — it uses `()` for
+    /// variant args and `..` for record rest, matching TypeScript destructuring
+    /// conventions.
     fn emit_block_body(&mut self, stmts: &[LirStmt]) -> Result<String, EmitterError> {
         if stmts.is_empty() {
             return Ok("{}".to_string());
@@ -417,10 +442,12 @@ impl TypeScriptBackend {
         Ok(format!("{{ {}; }}", parts.join("; ")))
     }
 
-    /// Inline pattern emission helper for `let` statements.
+    /// Inline pattern emission helper for `let` statement destructuring.
     ///
-    /// This is a temporary stand-in until `emit_pat` is properly implemented
-    /// in Phase 2.3. It covers all LirPat variants needed for let bindings.
+    /// This produces a slightly different format than the trait `emit_pat`
+    /// method: it uses `Variant(inner)` syntax (matching TypeScript
+    /// destructuring) instead of `Variant: inner`, and `..` for record rest
+    /// instead of `...`.
     fn emit_pat_inline(&mut self, pat: &LirPat) -> String {
         match pat {
             LirPat::Wildcard => "_".to_string(),
@@ -1157,14 +1184,93 @@ mod tests {
     }
 
     // ==================================================================
-    // Pattern emission — still unimplemented (Phase 2.3)
+    // Pattern emission — all LirPat variants
     // ==================================================================
 
     #[test]
-    #[should_panic(expected = "not implemented")]
-    fn test_emit_pat_unimplemented() {
+    fn test_emit_pat_wildcard() {
         let mut backend = TypeScriptBackend::new();
-        let _ = backend.emit_pat(&LirPat::Wildcard);
+        assert_eq!(backend.emit_pat(&LirPat::Wildcard).unwrap(), "_");
+    }
+
+    #[test]
+    fn test_emit_pat_literal() {
+        let mut backend = TypeScriptBackend::new();
+        let result = backend.emit_pat(&LirPat::Literal(LirLiteral::Int(42))).unwrap();
+        assert_eq!(result, "42");
+    }
+
+    #[test]
+    fn test_emit_pat_variable() {
+        let mut backend = TypeScriptBackend::new();
+        let result = backend.emit_pat(&LirPat::Variable("myVar".into())).unwrap();
+        assert_eq!(result, "myVar");
+    }
+
+    #[test]
+    fn test_emit_pat_variant_no_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Variant {
+            name: "None".into(),
+            arg: None,
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "None");
+    }
+
+    #[test]
+    fn test_emit_pat_variant_with_arg() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Variant {
+            name: "Some".into(),
+            arg: Some(Box::new(LirPat::Variable("inner".into()))),
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "Some: inner");
+    }
+
+    #[test]
+    fn test_emit_pat_record_no_rest() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Record {
+            fields: vec![("x".into(), LirPat::Wildcard)],
+            rest: false,
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "{ x: _ }");
+    }
+
+    #[test]
+    fn test_emit_pat_record_with_rest() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Record {
+            fields: vec![("x".into(), LirPat::Wildcard)],
+            rest: true,
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "{ x: _, ... }");
+    }
+
+    #[test]
+    fn test_emit_pat_record_empty() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Record {
+            fields: vec![],
+            rest: false,
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "{  }");
+    }
+
+    #[test]
+    fn test_emit_pat_nested_variant_in_record() {
+        let mut backend = TypeScriptBackend::new();
+        let pat = LirPat::Record {
+            fields: vec![(
+                "opt".into(),
+                LirPat::Variant {
+                    name: "Some".into(),
+                    arg: Some(Box::new(LirPat::Variable("val".into()))),
+                },
+            )],
+            rest: false,
+        };
+        assert_eq!(backend.emit_pat(&pat).unwrap(), "{ opt: Some: val }");
     }
 
     // ==================================================================
