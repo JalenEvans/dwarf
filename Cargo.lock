@@ -126,6 +126,7 @@ name = "dwarf-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "dwarf-emitter",
  "dwarf-lexer",
  "dwarf-lir",
  "dwarf-mir",

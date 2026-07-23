@@ -5,6 +5,7 @@
 //! produce code from LIR declarations.
 
 pub mod backend;
+pub mod debug_backend;
 pub mod error;
 pub mod format;
 pub mod imports;
