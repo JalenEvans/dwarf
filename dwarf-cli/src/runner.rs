@@ -70,7 +70,9 @@ impl TsRunner {
     ///
     /// The default assumes `node` is available on `$PATH`.
     pub fn new() -> Self {
-        Self { node_path: "node".to_string() }
+        Self {
+            node_path: "node".to_string(),
+        }
     }
 
     /// Create a new `TsRunner` with a custom Node.js executable path.
@@ -78,7 +80,9 @@ impl TsRunner {
     /// Use this when Node.js is installed at a non-standard location or
     /// when you want to test against a specific version.
     pub fn with_node_path(node_path: impl Into<String>) -> Self {
-        Self { node_path: node_path.into() }
+        Self {
+            node_path: node_path.into(),
+        }
     }
 
     /// Return the configured Node.js executable path.
@@ -93,8 +97,8 @@ impl TsRunner {
     /// emitted string.
     fn transpile_to_ts(source_path: &Path) -> Result<String, String> {
         // Read source
-        let source = std::fs::read_to_string(source_path)
-            .map_err(|e| format!("Cannot read file: {}", e))?;
+        let source =
+            std::fs::read_to_string(source_path).map_err(|e| format!("Cannot read file: {}", e))?;
 
         // Build compiler pipeline
         let mut pm = PassManager::new();
@@ -117,9 +121,13 @@ impl TsRunner {
         pm.run_all(&mut unit, &mut ctx);
 
         // Check for compilation errors
-        let has_errors = ctx.diagnostics().iter().any(|d| matches!(d.severity, Severity::Error));
+        let has_errors = ctx
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.severity, Severity::Error));
         if has_errors {
-            let errors: Vec<String> = ctx.diagnostics()
+            let errors: Vec<String> = ctx
+                .diagnostics()
                 .iter()
                 .filter(|d| matches!(d.severity, Severity::Error))
                 .map(|d| format!("{}: {}", d.code, d.message))
@@ -128,11 +136,14 @@ impl TsRunner {
         }
 
         // Emit TypeScript
-        let lir = unit.lir.as_ref()
+        let lir = unit
+            .lir
+            .as_ref()
             .ok_or_else(|| "No LIR produced — compilation may be incomplete".to_string())?;
 
         let mut backend = TypeScriptBackend::new("0.1.0");
-        backend.emit_module(lir)
+        backend
+            .emit_module(lir)
             .map_err(|e| format!("Emission failed: {}", e))
     }
 
@@ -162,7 +173,8 @@ impl Default for TsRunner {
 impl Runner for TsRunner {
     fn run(&self, source_path: &Path) -> Result<String, String> {
         // Validate extension
-        let ext = source_path.extension()
+        let ext = source_path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
         if ext != "kzd" {
@@ -174,21 +186,17 @@ impl Runner for TsRunner {
 
         // Validate file exists
         if !source_path.exists() {
-            return Err(format!(
-                "Source file not found: {}",
-                source_path.display()
-            ));
+            return Err(format!("Source file not found: {}", source_path.display()));
         }
 
         // Transpile to TypeScript
         let ts_code = Self::transpile_to_ts(source_path)?;
 
         // Write to temp file and execute
-        let temp_dir = TempDir::new()
-            .map_err(|e| format!("Cannot create temp directory: {}", e))?;
+        let temp_dir =
+            TempDir::new().map_err(|e| format!("Cannot create temp directory: {}", e))?;
         let ts_path = temp_dir.path().join("output.ts");
-        std::fs::write(&ts_path, &ts_code)
-            .map_err(|e| format!("Cannot write temp file: {}", e))?;
+        std::fs::write(&ts_path, &ts_code).map_err(|e| format!("Cannot write temp file: {}", e))?;
 
         Self::execute_with_node(&self.node_path, &ts_path)
     }
@@ -371,11 +379,8 @@ mod tests {
         let dir = std::env::temp_dir().join("dwarf_runner_integration");
         std::fs::create_dir_all(&dir).expect("Failed to create temp dir");
         let file_path = dir.join("test_valid.kzd");
-        std::fs::write(
-            &file_path,
-            "fn main() { print(\"Hello from Dwarf!\"); }",
-        )
-        .expect("Failed to write temp file");
+        std::fs::write(&file_path, "fn main() { print(\"Hello from Dwarf!\"); }")
+            .expect("Failed to write temp file");
 
         let result = runner.run(&file_path);
         assert!(
@@ -406,7 +411,11 @@ mod tests {
             .expect("Failed to write temp file");
 
         let result = runner.run(&file_path);
-        assert!(result.is_ok(), "Should execute expression file: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should execute expression file: {:?}",
+            result.err()
+        );
 
         let stdout = result.unwrap();
         assert!(
