@@ -127,6 +127,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dwarf-lexer",
+ "dwarf-mir",
  "dwarf-parser",
  "dwarf-syntax",
  "dwarf-typecheck",

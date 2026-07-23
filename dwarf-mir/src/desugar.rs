@@ -559,7 +559,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
 /// ```
 ///
 /// Non-decorator declarations are delegated to `expand_type_aliases`.
-pub fn desugar_decorators(decls: Vec<Decl>) -> Vec<MirDecl> {
+pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
     let mut result = Vec::new();
 
     for decl in decls {
@@ -579,7 +579,7 @@ pub fn desugar_decorators(decls: Vec<Decl>) -> Vec<MirDecl> {
                     body,
                     is_pub: func_is_pub,
                     span: func_span,
-                } = *target
+                } = target.as_ref().clone()
                 {
                     // Convert the original function's parameters to MIR params.
                     let mir_params: Vec<MirParam> =
@@ -612,12 +612,12 @@ pub fn desugar_decorators(decls: Vec<Decl>) -> Vec<MirDecl> {
                         params: mir_params,
                         return_type,
                         body: MirExpr::Call {
-                            func: Box::new(MirExpr::Variable { name, span }),
+                            func: Box::new(MirExpr::Variable { name: name.clone(), span: *span }),
                             args: std::iter::once(lambda)
                                 .chain(mir_args)
                                 .chain(param_vars)
                                 .collect(),
-                            span,
+                            span: *span,
                         },
                         is_pub: func_is_pub,
                         span: func_span,
@@ -627,7 +627,7 @@ pub fn desugar_decorators(decls: Vec<Decl>) -> Vec<MirDecl> {
                 // decoration — they are silently dropped.
             }
             other => {
-                result.extend(expand_type_aliases(&[other]));
+                result.extend(expand_type_aliases(std::slice::from_ref(other)));
             }
         }
     }
@@ -1355,7 +1355,7 @@ mod tests {
             span: s,
         }];
 
-        let result = desugar_decorators(input);
+        let result = desugar_decorators(&input);
 
         // @log fn f() { 42 }  →  fn f() { log(fn() { 42 }) }
         let expected = vec![MirDecl::Function {
@@ -1408,7 +1408,7 @@ mod tests {
             span: s,
         }];
 
-        let result = desugar_decorators(input);
+        let result = desugar_decorators(&input);
 
         // @route("/api") fn get() { 42 }
         // → fn get() { route(fn() { 42 }, "/api") }
@@ -1458,7 +1458,7 @@ mod tests {
             span: s,
         };
 
-        let result = desugar_decorators(vec![input.clone()]);
+        let result = desugar_decorators(&[input.clone()]);
 
         // Non-decorator declarations delegate to expand_type_aliases.
         let expected = expand_type_aliases(&[input]);
@@ -1468,7 +1468,7 @@ mod tests {
     #[test]
     fn test_decorator_empty_decls() {
         let input: Vec<Decl> = vec![];
-        let result = desugar_decorators(input);
+        let result = desugar_decorators(&input);
         assert!(
             result.is_empty(),
             "Empty input should return empty output"

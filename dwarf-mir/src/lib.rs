@@ -6,6 +6,7 @@
 //! capabilities but with a minimal, canonical set of expression forms.
 
 pub mod desugar;
+pub mod pass;
 
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;

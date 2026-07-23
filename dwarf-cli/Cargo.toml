@@ -16,6 +16,7 @@ dwarf-syntax = { path = "../dwarf-syntax" }
 dwarf-lexer = { path = "../dwarf-lexer" }
 dwarf-parser = { path = "../dwarf-parser" }
 dwarf-typecheck = { path = "../dwarf-typecheck" }
+dwarf-mir = { path = "../dwarf-mir" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -30,6 +30,7 @@ pub struct CompilationUnit {
     pub path: Option<PathBuf>,
     pub tokens: Option<Vec<Token>>,
     pub decls: Option<Vec<Decl>>,
+    pub mir: Option<Vec<dwarf_mir::MirDecl>>,
 }
 
 impl CompilationUnit {
@@ -39,6 +40,7 @@ impl CompilationUnit {
             path: None,
             tokens: None,
             decls: None,
+            mir: None,
         }
     }
 }
@@ -141,6 +143,8 @@ impl PassManager {
                 unit.tokens.as_ref().map_or(0, |t| t.len())
             } else if pass.name() == "parse" {
                 unit.decls.as_ref().map_or(0, |d| d.len())
+            } else if pass.name() == "mir" {
+                unit.mir.as_ref().map_or(0, |m| m.len())
             } else {
                 0
             };
@@ -178,6 +182,7 @@ impl Default for PassManager {
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::pass::ParsePass;
 use dwarf_typecheck::pass::TypeCheckPass;
+use dwarf_mir::pass::MirPass;
 
 impl Pass for TokenizePass {
     fn name(&self) -> &str {
@@ -277,6 +282,24 @@ impl Pass for TypeCheckPass {
                     col: Some(col),
                 });
             }
+        }
+        PassResult::Continue
+    }
+}
+
+impl Pass for MirPass {
+    fn name(&self) -> &str {
+        "mir"
+    }
+
+    fn description(&self) -> &str {
+        "Desugar HIR into MIR — pipes, propagation, for-loops, decorators, type aliases"
+    }
+
+    fn run(&self, _ctx: &mut PassContext, unit: &mut CompilationUnit) -> PassResult {
+        if let Some(decls) = &unit.decls {
+            let mir = MirPass::run(self, decls);
+            unit.mir = Some(mir);
         }
         PassResult::Continue
     }
