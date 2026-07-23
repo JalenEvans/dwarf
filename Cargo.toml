@@ -6,4 +6,6 @@ members = [
     "dwarf-parser",
     "dwarf-cli",
     "dwarf-typecheck",
+    "dwarf-mir",
+    "dwarf-lir",
 ]

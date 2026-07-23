@@ -127,6 +127,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dwarf-lexer",
+ "dwarf-lir",
+ "dwarf-mir",
  "dwarf-parser",
  "dwarf-syntax",
  "dwarf-typecheck",
@@ -140,6 +142,25 @@ version = "0.1.0"
 dependencies = [
  "dwarf-syntax",
  "insta",
+]
+
+[[package]]
+name = "dwarf-lir"
+version = "0.1.0"
+dependencies = [
+ "dwarf-mir",
+ "dwarf-syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dwarf-mir"
+version = "0.1.0"
+dependencies = [
+ "dwarf-syntax",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
