@@ -190,20 +190,18 @@ fn process_file(
     pm.run_all(&mut unit, &mut ctx);
 
     // Emit if LIR was produced successfully
-    let output = unit.lir.as_ref().map(|lir| {
-        match backend.emit_module(lir) {
-            Ok(out) => out,
-            Err(e) => {
-                ctx.push_diagnostic(Diagnostic {
-                    code: "DWARF-E-EMIT-0001".to_string(),
-                    severity: Severity::Error,
-                    message: format!("Emission failed: {}", e),
-                    file: Some(file_path.clone()),
-                    line: None,
-                    col: None,
-                });
-                String::new()
-            }
+    let output = unit.lir.as_ref().map(|lir| match backend.emit_module(lir) {
+        Ok(out) => out,
+        Err(e) => {
+            ctx.push_diagnostic(Diagnostic {
+                code: "DWARF-E-EMIT-0001".to_string(),
+                severity: Severity::Error,
+                message: format!("Emission failed: {}", e),
+                file: Some(file_path.clone()),
+                line: None,
+                col: None,
+            });
+            String::new()
         }
     });
 
@@ -252,8 +250,8 @@ mod tests {
     #[test]
     fn test_emit_cli_parse_simple() {
         let cmd = crate::Cli::command();
-        let matches = cmd
-            .try_get_matches_from(["dwarf-emitter", "emit", "file.kzd", "--target", "ts"]);
+        let matches =
+            cmd.try_get_matches_from(["dwarf-emitter", "emit", "file.kzd", "--target", "ts"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();
@@ -365,7 +363,10 @@ mod tests {
         });
         // passes: None means run all passes — no panic should occur.
         // The file "test.kzd" doesn't exist, but that's handled gracefully.
-        assert!(result.is_ok(), "run_emit should not panic with passes: None");
+        assert!(
+            result.is_ok(),
+            "run_emit should not panic with passes: None"
+        );
     }
 
     #[test]
@@ -382,6 +383,9 @@ mod tests {
         });
         // An empty target is accepted (it just passes through to the backend).
         // The function should not panic.
-        assert!(result.is_ok(), "run_emit should not panic with empty target");
+        assert!(
+            result.is_ok(),
+            "run_emit should not panic with empty target"
+        );
     }
 }

@@ -55,7 +55,10 @@ pub trait EmitterBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dwarf_lir::{Effect, LirArm, LirBinaryOp, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt, LirUnaryOp, LirVariant, LirDecl, TargetHint};
+    use dwarf_lir::{
+        Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat,
+        LirStmt, LirUnaryOp, LirVariant, TargetHint,
+    };
     use dwarf_syntax::hir::Type;
     use dwarf_syntax::span::Span;
 
@@ -162,7 +165,10 @@ mod tests {
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
-        assert!(!result.is_empty(), "module with a function should not be empty");
+        assert!(
+            !result.is_empty(),
+            "module with a function should not be empty"
+        );
         assert!(result.contains("fn main"), "should contain 'fn main'");
         assert!(result.contains("pure"), "should contain effect 'pure'");
     }
@@ -189,7 +195,10 @@ mod tests {
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
-        assert!(!result.starts_with("pub"), "private fn should not start with 'pub'");
+        assert!(
+            !result.starts_with("pub"),
+            "private fn should not start with 'pub'"
+        );
         assert!(result.contains("fn helper"), "should contain 'fn helper'");
         assert!(result.contains("impure"), "should contain 'impure'");
     }
@@ -326,10 +335,7 @@ mod tests {
             hint: hint_none(),
             span: s(),
         };
-        assert_eq!(
-            backend.emit_expr(&expr).unwrap(),
-            "if(true, 1, 2)"
-        );
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "if(true, 1, 2)");
     }
 
     #[test]
@@ -374,10 +380,7 @@ mod tests {
             hint: hint_none(),
             span: s(),
         };
-        assert_eq!(
-            backend.emit_expr(&expr).unwrap(),
-            "match(var(x), [_ => 0])"
-        );
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "match(var(x), [_ => 0])");
     }
 
     #[test]
@@ -433,10 +436,7 @@ mod tests {
             hint: hint_none(),
             span: s(),
         };
-        assert_eq!(
-            backend.emit_expr(&expr).unwrap(),
-            "block([let y = 2; 3])"
-        );
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "block([let y = 2; 3])");
     }
 
     #[test]
@@ -512,10 +512,7 @@ mod tests {
             hint: hint_none(),
             span: s(),
         };
-        assert_eq!(
-            backend.emit_expr(&expr).unwrap(),
-            "record({x: 1, y: 2})"
-        );
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "record({x: 1, y: 2})");
     }
 
     #[test]
@@ -628,13 +625,23 @@ mod tests {
     #[test]
     fn test_emit_pat_literal() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_pat(&LirPat::Literal(LirLiteral::Int(7))).unwrap(), "7");
+        assert_eq!(
+            backend
+                .emit_pat(&LirPat::Literal(LirLiteral::Int(7)))
+                .unwrap(),
+            "7"
+        );
     }
 
     #[test]
     fn test_emit_pat_variable() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_pat(&LirPat::Variable("binding".into())).unwrap(), "binding");
+        assert_eq!(
+            backend
+                .emit_pat(&LirPat::Variable("binding".into()))
+                .unwrap(),
+            "binding"
+        );
     }
 
     #[test]
@@ -684,7 +691,10 @@ mod tests {
     #[test]
     fn test_emit_type_named() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_type(&Type::Named("Int".into())).unwrap(), "Int");
+        assert_eq!(
+            backend.emit_type(&Type::Named("Int".into())).unwrap(),
+            "Int"
+        );
     }
 
     #[test]
@@ -700,10 +710,7 @@ mod tests {
     #[test]
     fn test_emit_type_union() {
         let mut backend = MockBackend::new();
-        let ty = Type::Union(vec![
-            Type::Named("Ok".into()),
-            Type::Named("Err".into()),
-        ]);
+        let ty = Type::Union(vec![Type::Named("Ok".into()), Type::Named("Err".into())]);
         assert_eq!(backend.emit_type(&ty).unwrap(), "union(Ok | Err)");
     }
 
@@ -740,20 +747,34 @@ mod tests {
     #[test]
     fn test_emit_literal_float() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(), "3.5");
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(),
+            "3.5"
+        );
     }
 
     #[test]
     fn test_emit_literal_str() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_literal(&LirLiteral::Str("hello".into())).unwrap(), "\"hello\"");
+        assert_eq!(
+            backend
+                .emit_literal(&LirLiteral::Str("hello".into()))
+                .unwrap(),
+            "\"hello\""
+        );
     }
 
     #[test]
     fn test_emit_literal_bool() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_literal(&LirLiteral::Bool(true)).unwrap(), "true");
-        assert_eq!(backend.emit_literal(&LirLiteral::Bool(false)).unwrap(), "false");
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Bool(true)).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Bool(false)).unwrap(),
+            "false"
+        );
     }
 
     #[test]
@@ -822,25 +843,39 @@ mod tests {
     #[test]
     fn test_emit_target_hint_async() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::Async).unwrap(), "async");
+        assert_eq!(
+            backend.emit_target_hint(&TargetHint::Async).unwrap(),
+            "async"
+        );
     }
 
     #[test]
     fn test_emit_target_hint_optional() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::Optional).unwrap(), "optional");
+        assert_eq!(
+            backend.emit_target_hint(&TargetHint::Optional).unwrap(),
+            "optional"
+        );
     }
 
     #[test]
     fn test_emit_target_hint_result() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::Result).unwrap(), "result");
+        assert_eq!(
+            backend.emit_target_hint(&TargetHint::Result).unwrap(),
+            "result"
+        );
     }
 
     #[test]
     fn test_emit_target_hint_react_component() {
         let mut backend = MockBackend::new();
-        assert_eq!(backend.emit_target_hint(&TargetHint::ReactComponent).unwrap(), "react_component");
+        assert_eq!(
+            backend
+                .emit_target_hint(&TargetHint::ReactComponent)
+                .unwrap(),
+            "react_component"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -889,12 +924,10 @@ mod tests {
         let decls = vec![
             LirDecl::RecordDef {
                 name: "Point".into(),
-                fields: vec![
-                    LirField {
-                        name: "x".into(),
-                        type_: Type::Named("Int".into()),
-                    },
-                ],
+                fields: vec![LirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                }],
                 is_pub: true,
                 span: s(),
             },

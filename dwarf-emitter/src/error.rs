@@ -33,10 +33,7 @@ mod tests {
     #[test]
     fn test_unsupported_feature_creation() {
         let err = EmitterError::UnsupportedFeature("async/await".into());
-        assert_eq!(
-            err,
-            EmitterError::UnsupportedFeature("async/await".into())
-        );
+        assert_eq!(err, EmitterError::UnsupportedFeature("async/await".into()));
     }
 
     #[test]
@@ -52,19 +49,13 @@ mod tests {
     #[test]
     fn test_display_unsupported_feature() {
         let err = EmitterError::UnsupportedFeature("generics".into());
-        assert_eq!(
-            err.to_string(),
-            "unsupported feature: generics"
-        );
+        assert_eq!(err.to_string(), "unsupported feature: generics");
     }
 
     #[test]
     fn test_display_io_error() {
         let err = EmitterError::Io("permission denied".into());
-        assert_eq!(
-            err.to_string(),
-            "IO error: permission denied"
-        );
+        assert_eq!(err.to_string(), "IO error: permission denied");
     }
 
     // ------------------------------------------------------------------
@@ -75,7 +66,10 @@ mod tests {
     fn test_debug_format() {
         let err = EmitterError::UnsupportedFeature("debug".into());
         let s = format!("{err:?}");
-        assert!(s.contains("UnsupportedFeature"), "Debug should contain the variant name");
+        assert!(
+            s.contains("UnsupportedFeature"),
+            "Debug should contain the variant name"
+        );
         assert!(s.contains("debug"), "Debug should contain the message");
     }
 

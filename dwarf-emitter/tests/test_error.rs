@@ -12,10 +12,7 @@ use dwarf_emitter::error::EmitterError;
 #[test]
 fn test_create_unsupported_feature() {
     let err = EmitterError::UnsupportedFeature("async/await".into());
-    assert_eq!(
-        err,
-        EmitterError::UnsupportedFeature("async/await".into())
-    );
+    assert_eq!(err, EmitterError::UnsupportedFeature("async/await".into()));
 }
 
 #[test]
@@ -72,7 +69,10 @@ fn test_debug_format_unsupported() {
         s.contains("UnsupportedFeature"),
         "Debug output should contain the variant name"
     );
-    assert!(s.contains("debug"), "Debug output should contain the message");
+    assert!(
+        s.contains("debug"),
+        "Debug output should contain the message"
+    );
 }
 
 #[test]
@@ -83,7 +83,10 @@ fn test_debug_format_io() {
         s.contains("Io"),
         "Debug output should contain the variant name"
     );
-    assert!(s.contains("timeout"), "Debug output should contain the message");
+    assert!(
+        s.contains("timeout"),
+        "Debug output should contain the message"
+    );
 }
 
 // ------------------------------------------------------------------
@@ -173,7 +176,10 @@ fn test_error_in_result_err() {
         Err(EmitterError::UnsupportedFeature("not supported".into()))
     }
     let err = might_fail().unwrap_err();
-    assert_eq!(err, EmitterError::UnsupportedFeature("not supported".into()));
+    assert_eq!(
+        err,
+        EmitterError::UnsupportedFeature("not supported".into())
+    );
 }
 
 // ------------------------------------------------------------------
@@ -191,5 +197,8 @@ fn test_error_downcast() {
     let err: Box<dyn std::error::Error> = Box::new(EmitterError::UnsupportedFeature("x".into()));
     let downcast = err.downcast_ref::<EmitterError>();
     assert!(downcast.is_some(), "should downcast to EmitterError");
-    assert_eq!(*downcast.unwrap(), EmitterError::UnsupportedFeature("x".into()));
+    assert_eq!(
+        *downcast.unwrap(),
+        EmitterError::UnsupportedFeature("x".into())
+    );
 }

@@ -45,13 +45,11 @@ impl TypeMapper for TypeScriptMapper {
                 .collect::<Vec<_>>()
                 .join(" | "),
             Type::Func { params, return_ } => {
-                let params_str: Vec<String> =
-                    params.iter().map(|p| self.map_type(p)).collect();
+                let params_str: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
                 format!("({}) => {}", params_str.join(", "), self.map_type(return_))
             }
             Type::Generic { base, args } => {
-                let args_str: Vec<String> =
-                    args.iter().map(|a| self.map_type(a)).collect();
+                let args_str: Vec<String> = args.iter().map(|a| self.map_type(a)).collect();
                 format!("{}<{}>", base, args_str.join(", "))
             }
         }
@@ -165,12 +163,11 @@ mod tests {
     #[test]
     fn test_map_record_type_nested() {
         let mapper = mapper();
-        let inner = Type::Record(vec![
-            ("a".to_string(), Box::new(Type::Named("Int".to_string()))),
-        ]);
-        let ty = Type::Record(vec![
-            ("inner".to_string(), Box::new(inner)),
-        ]);
+        let inner = Type::Record(vec![(
+            "a".to_string(),
+            Box::new(Type::Named("Int".to_string())),
+        )]);
+        let ty = Type::Record(vec![("inner".to_string(), Box::new(inner))]);
         let result = mapper.map_type(&ty);
         assert_eq!(result, "{ inner: { a: number } }");
     }
@@ -193,9 +190,7 @@ mod tests {
     #[test]
     fn test_map_union_type_single() {
         let mapper = mapper();
-        let ty = Type::Union(vec![
-            Type::Named("Int".to_string()),
-        ]);
+        let ty = Type::Union(vec![Type::Named("Int".to_string())]);
         let result = mapper.map_type(&ty);
         assert_eq!(result, "number");
     }
@@ -246,9 +241,7 @@ mod tests {
     fn test_map_func_type_void_return() {
         let mapper = mapper();
         let ty = Type::Func {
-            params: vec![
-                Type::Named("String".to_string()),
-            ],
+            params: vec![Type::Named("String".to_string())],
             return_: Box::new(Type::Named("Void".to_string())),
         };
         let result = mapper.map_type(&ty);
@@ -315,9 +308,7 @@ mod tests {
                 Type::Named("Bool".to_string()),
             ])),
         };
-        let ty = Type::Record(vec![
-            ("handler".to_string(), Box::new(func)),
-        ]);
+        let ty = Type::Record(vec![("handler".to_string(), Box::new(func))]);
         let result = mapper.map_type(&ty);
         assert_eq!(result, "{ handler: (number) => string | boolean }");
     }

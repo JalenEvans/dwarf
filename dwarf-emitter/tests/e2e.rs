@@ -7,8 +7,8 @@
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::ts_backend::TypeScriptBackend;
 use dwarf_lir::{
-    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat,
-    LirStmt, LirVariant, TargetHint,
+    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
+    LirVariant, TargetHint,
 };
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
@@ -298,8 +298,14 @@ fn test_e2e_mixed_module() {
     let pos_point = result.find("interface Point").unwrap();
     let pos_get_origin = result.find("function getOrigin").unwrap();
     let pos_option = result.find("type Option").unwrap();
-    assert!(pos_point < pos_get_origin, "record should come before function");
-    assert!(pos_get_origin < pos_option, "function should come before union");
+    assert!(
+        pos_point < pos_get_origin,
+        "record should come before function"
+    );
+    assert!(
+        pos_get_origin < pos_option,
+        "function should come before union"
+    );
 }
 
 // ==================================================================

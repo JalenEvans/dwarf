@@ -8,8 +8,8 @@
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::error::EmitterError;
 use dwarf_lir::{
-    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat,
-    LirStmt, LirUnaryOp, LirVariant, TargetHint,
+    Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
+    LirUnaryOp, LirVariant, TargetHint,
 };
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
@@ -80,11 +80,18 @@ impl EmitterBackend for MockBackend {
                 let body_str = self.emit_expr(body)?;
                 Ok(format!(
                     "{}fn {}({}){ret} [{}] [{}] = {body_str}",
-                    vis, name, params_str.join(", "), eff, h,
+                    vis,
+                    name,
+                    params_str.join(", "),
+                    eff,
+                    h,
                 ))
             }
             LirDecl::RecordDef {
-                name, fields, is_pub, ..
+                name,
+                fields,
+                is_pub,
+                ..
             } => {
                 let vis = if *is_pub { "pub " } else { "" };
                 let fields_str: Vec<String> = fields
@@ -94,10 +101,18 @@ impl EmitterBackend for MockBackend {
                         format!("{}: {}", f.name, ty)
                     })
                     .collect();
-                Ok(format!("{}record {} {{ {} }}", vis, name, fields_str.join(", ")))
+                Ok(format!(
+                    "{}record {} {{ {} }}",
+                    vis,
+                    name,
+                    fields_str.join(", ")
+                ))
             }
             LirDecl::UnionDef {
-                name, variants, is_pub, ..
+                name,
+                variants,
+                is_pub,
+                ..
             } => {
                 let vis = if *is_pub { "pub " } else { "" };
                 let variants_str: Vec<String> = variants
@@ -107,7 +122,12 @@ impl EmitterBackend for MockBackend {
                         None => v.name.clone(),
                     })
                     .collect();
-                Ok(format!("{}union {} = {}", vis, name, variants_str.join(" | ")))
+                Ok(format!(
+                    "{}union {} = {}",
+                    vis,
+                    name,
+                    variants_str.join(" | ")
+                ))
             }
         }
     }
@@ -118,7 +138,8 @@ impl EmitterBackend for MockBackend {
             LirExpr::Variable { name, .. } => Ok(format!("var({name})")),
             LirExpr::Call { func, args, .. } => {
                 let func_str = self.emit_expr(func)?;
-                let args_str: Vec<String> = args.iter().map(|a| self.emit_expr(a).unwrap()).collect();
+                let args_str: Vec<String> =
+                    args.iter().map(|a| self.emit_expr(a).unwrap()).collect();
                 Ok(format!("call({}, [{}])", func_str, args_str.join(", ")))
             }
             LirExpr::Member { obj, field, .. } => {
@@ -193,7 +214,10 @@ impl EmitterBackend for MockBackend {
                         format!("{name}: {v}")
                     })
                     .collect();
-                Ok(format!("record({{{fields_str}}})", fields_str = fields_str.join(", ")))
+                Ok(format!(
+                    "record({{{fields_str}}})",
+                    fields_str = fields_str.join(", ")
+                ))
             }
             LirExpr::Variant { name, arg, .. } => match arg {
                 Some(a) => {
@@ -203,7 +227,8 @@ impl EmitterBackend for MockBackend {
                 None => Ok(format!("variant({name})")),
             },
             LirExpr::Array { items, .. } => {
-                let items_str: Vec<String> = items.iter().map(|i| self.emit_expr(i).unwrap()).collect();
+                let items_str: Vec<String> =
+                    items.iter().map(|i| self.emit_expr(i).unwrap()).collect();
                 Ok(format!("array([{}])", items_str.join(", ")))
             }
             LirExpr::Binary { op, lhs, rhs, .. } => {
@@ -261,16 +286,21 @@ impl EmitterBackend for MockBackend {
                 Ok(format!("record({})", fields_str.join(", ")))
             }
             Type::Union(variants) => {
-                let vars_str: Vec<String> = variants.iter().map(|v| self.emit_type(v).unwrap()).collect();
+                let vars_str: Vec<String> = variants
+                    .iter()
+                    .map(|v| self.emit_type(v).unwrap())
+                    .collect();
                 Ok(format!("union({})", vars_str.join(" | ")))
             }
             Type::Func { params, return_ } => {
-                let params_str: Vec<String> = params.iter().map(|p| self.emit_type(p).unwrap()).collect();
+                let params_str: Vec<String> =
+                    params.iter().map(|p| self.emit_type(p).unwrap()).collect();
                 let ret = self.emit_type(return_)?;
                 Ok(format!("({}) -> {ret}", params_str.join(", ")))
             }
             Type::Generic { base, args } => {
-                let args_str: Vec<String> = args.iter().map(|a| self.emit_type(a).unwrap()).collect();
+                let args_str: Vec<String> =
+                    args.iter().map(|a| self.emit_type(a).unwrap()).collect();
                 Ok(format!("{base}<{}>", args_str.join(", ")))
             }
         }
@@ -486,7 +516,10 @@ fn test_emit_decl_func_private() {
     };
     let result = backend.emit_decl(&decl).unwrap();
     assert_eq!(result, "fn helper() [impure] [none] = null");
-    assert!(!result.starts_with("pub"), "private function should not be prefixed with 'pub'");
+    assert!(
+        !result.starts_with("pub"),
+        "private function should not be prefixed with 'pub'"
+    );
 }
 
 #[test]
@@ -1079,7 +1112,10 @@ fn test_emit_expr_binary_eq() {
         hint: MockBackend::hint_none(),
         span: MockBackend::span(),
     };
-    assert_eq!(backend.emit_expr(&expr).unwrap(), "binary(var(a), ==, var(b))");
+    assert_eq!(
+        backend.emit_expr(&expr).unwrap(),
+        "binary(var(a), ==, var(b))"
+    );
 }
 
 #[test]
@@ -1138,7 +1174,9 @@ fn test_emit_pat_wildcard() {
 fn test_emit_pat_literal_int() {
     let mut backend = MockBackend;
     assert_eq!(
-        backend.emit_pat(&LirPat::Literal(LirLiteral::Int(42))).unwrap(),
+        backend
+            .emit_pat(&LirPat::Literal(LirLiteral::Int(42)))
+            .unwrap(),
         "42"
     );
 }
@@ -1147,7 +1185,9 @@ fn test_emit_pat_literal_int() {
 fn test_emit_pat_literal_str() {
     let mut backend = MockBackend;
     assert_eq!(
-        backend.emit_pat(&LirPat::Literal(LirLiteral::Str("hi".into()))).unwrap(),
+        backend
+            .emit_pat(&LirPat::Literal(LirLiteral::Str("hi".into())))
+            .unwrap(),
         "\"hi\""
     );
 }
@@ -1156,7 +1196,9 @@ fn test_emit_pat_literal_str() {
 fn test_emit_pat_variable() {
     let mut backend = MockBackend;
     assert_eq!(
-        backend.emit_pat(&LirPat::Variable("myBinding".into())).unwrap(),
+        backend
+            .emit_pat(&LirPat::Variable("myBinding".into()))
+            .unwrap(),
         "myBinding"
     );
 }
@@ -1231,13 +1273,19 @@ fn test_emit_pat_record_empty() {
 #[test]
 fn test_emit_type_named() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_type(&Type::Named("String".into())).unwrap(), "String");
+    assert_eq!(
+        backend.emit_type(&Type::Named("String".into())).unwrap(),
+        "String"
+    );
 }
 
 #[test]
 fn test_emit_type_record_single() {
     let mut backend = MockBackend;
-    let ty = Type::Record(vec![("name".into(), Box::new(Type::Named("String".into())))]);
+    let ty = Type::Record(vec![(
+        "name".into(),
+        Box::new(Type::Named("String".into())),
+    )]);
     assert_eq!(backend.emit_type(&ty).unwrap(), "record(name: String)");
 }
 
@@ -1251,7 +1299,10 @@ fn test_emit_type_record_nested() {
             Box::new(Type::Named("String".into())),
         )])),
     )]);
-    assert_eq!(backend.emit_type(&ty).unwrap(), "record(meta: record(key: String))");
+    assert_eq!(
+        backend.emit_type(&ty).unwrap(),
+        "record(meta: record(key: String))"
+    );
 }
 
 #[test]
@@ -1292,7 +1343,10 @@ fn test_emit_type_func_multi_param() {
         ],
         return_: Box::new(Type::Named("Bool".into())),
     };
-    assert_eq!(backend.emit_type(&ty).unwrap(), "(Int, String, Float) -> Bool");
+    assert_eq!(
+        backend.emit_type(&ty).unwrap(),
+        "(Int, String, Float) -> Bool"
+    );
 }
 
 #[test]
@@ -1358,21 +1412,34 @@ fn test_emit_literal_int_negative() {
 #[test]
 fn test_emit_literal_float() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(), "3.5");
-    assert_eq!(backend.emit_literal(&LirLiteral::Float(-1.5)).unwrap(), "-1.5");
+    assert_eq!(
+        backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(),
+        "3.5"
+    );
+    assert_eq!(
+        backend.emit_literal(&LirLiteral::Float(-1.5)).unwrap(),
+        "-1.5"
+    );
 }
 
 #[test]
 fn test_emit_literal_str_empty() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_literal(&LirLiteral::Str(String::new())).unwrap(), "\"\"");
+    assert_eq!(
+        backend
+            .emit_literal(&LirLiteral::Str(String::new()))
+            .unwrap(),
+        "\"\""
+    );
 }
 
 #[test]
 fn test_emit_literal_str_non_empty() {
     let mut backend = MockBackend;
     assert_eq!(
-        backend.emit_literal(&LirLiteral::Str("hello world".into())).unwrap(),
+        backend
+            .emit_literal(&LirLiteral::Str("hello world".into()))
+            .unwrap(),
         "\"hello world\""
     );
 }
@@ -1380,13 +1447,19 @@ fn test_emit_literal_str_non_empty() {
 #[test]
 fn test_emit_literal_bool_true() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_literal(&LirLiteral::Bool(true)).unwrap(), "true");
+    assert_eq!(
+        backend.emit_literal(&LirLiteral::Bool(true)).unwrap(),
+        "true"
+    );
 }
 
 #[test]
 fn test_emit_literal_bool_false() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_literal(&LirLiteral::Bool(false)).unwrap(), "false");
+    assert_eq!(
+        backend.emit_literal(&LirLiteral::Bool(false)).unwrap(),
+        "false"
+    );
 }
 
 #[test]
@@ -1500,26 +1573,37 @@ fn test_emit_target_hint_none() {
 #[test]
 fn test_emit_target_hint_async() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_target_hint(&TargetHint::Async).unwrap(), "async");
+    assert_eq!(
+        backend.emit_target_hint(&TargetHint::Async).unwrap(),
+        "async"
+    );
 }
 
 #[test]
 fn test_emit_target_hint_optional() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_target_hint(&TargetHint::Optional).unwrap(), "optional");
+    assert_eq!(
+        backend.emit_target_hint(&TargetHint::Optional).unwrap(),
+        "optional"
+    );
 }
 
 #[test]
 fn test_emit_target_hint_result() {
     let mut backend = MockBackend;
-    assert_eq!(backend.emit_target_hint(&TargetHint::Result).unwrap(), "result");
+    assert_eq!(
+        backend.emit_target_hint(&TargetHint::Result).unwrap(),
+        "result"
+    );
 }
 
 #[test]
 fn test_emit_target_hint_react_component() {
     let mut backend = MockBackend;
     assert_eq!(
-        backend.emit_target_hint(&TargetHint::ReactComponent).unwrap(),
+        backend
+            .emit_target_hint(&TargetHint::ReactComponent)
+            .unwrap(),
         "react_component"
     );
 }

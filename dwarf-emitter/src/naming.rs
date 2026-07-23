@@ -32,10 +32,7 @@ pub fn to_camel_case(name: &str) -> String {
     }
 
     // Split on _ and -, filtering empty segments
-    let segments: Vec<&str> = rest
-        .split(['_', '-'])
-        .filter(|s| !s.is_empty())
-        .collect();
+    let segments: Vec<&str> = rest.split(['_', '-']).filter(|s| !s.is_empty()).collect();
 
     if segments.is_empty() {
         return name.to_string();
@@ -107,10 +104,7 @@ pub fn to_pascal_case(name: &str) -> String {
     }
 
     // Split on _ and -, filtering empty segments
-    let segments: Vec<&str> = rest
-        .split(['_', '-'])
-        .filter(|s| !s.is_empty())
-        .collect();
+    let segments: Vec<&str> = rest.split(['_', '-']).filter(|s| !s.is_empty()).collect();
 
     if segments.is_empty() {
         return name.to_string();
@@ -154,7 +148,9 @@ pub fn to_snake_case(name: &str) -> String {
             // 2. Previous char is uppercase but next is lowercase (acronym: "XMLParser")
             if i > 0 {
                 let prev = chars[i - 1];
-                if (prev.is_ascii_lowercase()) || (i + 1 < chars.len() && chars[i + 1].is_ascii_lowercase()) {
+                if (prev.is_ascii_lowercase())
+                    || (i + 1 < chars.len() && chars[i + 1].is_ascii_lowercase())
+                {
                     result.push('_');
                 }
             }

@@ -107,7 +107,10 @@ mod tests {
     fn test_empty_emit_imports() {
         let im = ImportManager::new();
         let imports = im.emit_imports();
-        assert!(imports.is_empty(), "emit_imports on empty manager should return empty vec");
+        assert!(
+            imports.is_empty(),
+            "emit_imports on empty manager should return empty vec"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -119,7 +122,10 @@ mod tests {
         let mut im = ImportManager::new();
         im.add_import("react", "useState", None);
         assert_eq!(im.len(), 1, "should have one import");
-        assert!(im.has_import("react", "useState"), "should have imported useState");
+        assert!(
+            im.has_import("react", "useState"),
+            "should have imported useState"
+        );
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 1, "should emit one import statement");
         assert_eq!(emitted[0], "import { useState } from 'react'");
@@ -134,8 +140,14 @@ mod tests {
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 2, "should emit two import statements");
         // Should be sorted: "lodash" < "react"
-        assert!(emitted[0].contains("lodash"), "first import should be from 'lodash'");
-        assert!(emitted[1].contains("react"), "second import should be from 'react'");
+        assert!(
+            emitted[0].contains("lodash"),
+            "first import should be from 'lodash'"
+        );
+        assert!(
+            emitted[1].contains("react"),
+            "second import should be from 'react'"
+        );
     }
 
     #[test]
@@ -148,11 +160,20 @@ mod tests {
         assert_eq!(emitted.len(), 2, "should emit two import statements");
         // Both should be from 'react'
         for line in &emitted {
-            assert!(line.contains("from 'react'"), "both imports should be from 'react': {line}");
+            assert!(
+                line.contains("from 'react'"),
+                "both imports should be from 'react': {line}"
+            );
         }
         // Names should be sorted: "useEffect" < "useState"
-        assert!(emitted[0].contains("useEffect"), "first import should be useEffect (sorted)");
-        assert!(emitted[1].contains("useState"), "second import should be useState (sorted)");
+        assert!(
+            emitted[0].contains("useEffect"),
+            "first import should be useEffect (sorted)"
+        );
+        assert!(
+            emitted[1].contains("useState"),
+            "second import should be useState (sorted)"
+        );
     }
 
     #[test]
@@ -163,10 +184,7 @@ mod tests {
         assert!(im.has_import("react", "useState"));
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 1);
-        assert_eq!(
-            emitted[0],
-            "import { useState as useMyState } from 'react'"
-        );
+        assert_eq!(emitted[0], "import { useState as useMyState } from 'react'");
     }
 
     #[test]
@@ -192,7 +210,11 @@ mod tests {
         let mut im = ImportManager::new();
         im.add_import("react", "useState", None);
         im.add_import("react", "useEffect", None);
-        assert_eq!(im.len(), 2, "two different names from same module should coexist");
+        assert_eq!(
+            im.len(),
+            2,
+            "two different names from same module should coexist"
+        );
         assert!(im.has_import("react", "useState"));
         assert!(im.has_import("react", "useEffect"));
     }
@@ -205,7 +227,10 @@ mod tests {
     fn test_has_import_returns_true_for_added() {
         let mut im = ImportManager::new();
         im.add_import("fs", "readFile", None);
-        assert!(im.has_import("fs", "readFile"), "has_import should return true for added import");
+        assert!(
+            im.has_import("fs", "readFile"),
+            "has_import should return true for added import"
+        );
     }
 
     #[test]
@@ -248,7 +273,10 @@ mod tests {
         im.add_import("module-a", "MyType", Some("RenamedType"));
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0], "import { MyType as RenamedType } from 'module-a'");
+        assert_eq!(
+            emitted[0],
+            "import { MyType as RenamedType } from 'module-a'"
+        );
     }
 
     #[test]
@@ -274,8 +302,14 @@ mod tests {
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 3);
         // All from same module, sorted by name
-        assert!(emitted[0].contains("alpha"), "first should be alpha (sorted)");
-        assert!(emitted[1].contains("beta"), "second should be beta (sorted)");
+        assert!(
+            emitted[0].contains("alpha"),
+            "first should be alpha (sorted)"
+        );
+        assert!(
+            emitted[1].contains("beta"),
+            "second should be beta (sorted)"
+        );
         assert!(emitted[2].contains("zeta"), "third should be zeta (sorted)");
     }
 
@@ -332,10 +366,7 @@ mod tests {
         let emitted = im.emit_imports();
         assert_eq!(emitted.len(), 2);
         // Sorted by name: "original" < "plain"
-        assert_eq!(
-            emitted[0],
-            "import { original as aliased } from 'mod'"
-        );
+        assert_eq!(emitted[0], "import { original as aliased } from 'mod'");
         assert_eq!(emitted[1], "import { plain } from 'mod'");
     }
 
@@ -348,8 +379,15 @@ mod tests {
         let mut im = ImportManager::new();
         im.add_import("react", "useState", None);
         let cloned = im.clone();
-        assert_eq!(im.len(), cloned.len(), "cloned manager should have same length");
-        assert!(cloned.has_import("react", "useState"), "cloned manager should have same imports");
+        assert_eq!(
+            im.len(),
+            cloned.len(),
+            "cloned manager should have same length"
+        );
+        assert!(
+            cloned.has_import("react", "useState"),
+            "cloned manager should have same imports"
+        );
     }
 
     #[test]
@@ -357,10 +395,7 @@ mod tests {
         let im = ImportManager::new();
         let debug_str = format!("{im:?}");
         // Debug output should at least contain the struct name or field name
-        assert!(
-            !debug_str.is_empty(),
-            "Debug format should not be empty"
-        );
+        assert!(!debug_str.is_empty(), "Debug format should not be empty");
     }
 
     // ------------------------------------------------------------------

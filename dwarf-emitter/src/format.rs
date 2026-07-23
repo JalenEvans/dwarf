@@ -266,14 +266,8 @@ mod tests {
         buf.push_line("line1");
         buf.push_line("line2");
         let output = buf.into_string();
-        assert!(
-            output.contains("line1"),
-            "output should contain 'line1'"
-        );
-        assert!(
-            output.contains("line2"),
-            "output should contain 'line2'"
-        );
+        assert!(output.contains("line1"), "output should contain 'line1'");
+        assert!(output.contains("line2"), "output should contain 'line2'");
         // into_string should consume the buffer; uncommenting the next line
         // would be a compile error because buf is moved:
         // let _ = buf.len();
@@ -288,7 +282,11 @@ mod tests {
         let mut buf = CodeBuffer::new();
         assert_eq!(buf.indent_level(), 0, "initial indent level should be 0");
         buf.indent();
-        assert_eq!(buf.indent_level(), 1, "indent level should be 1 after indent()");
+        assert_eq!(
+            buf.indent_level(),
+            1,
+            "indent level should be 1 after indent()"
+        );
         buf.indent();
         assert_eq!(
             buf.indent_level(),
@@ -314,11 +312,7 @@ mod tests {
         let mut buf = CodeBuffer::new();
         // Dedenting at level 0 should not panic and stay at 0
         buf.dedent();
-        assert_eq!(
-            buf.indent_level(),
-            0,
-            "dedent at level 0 should stay at 0"
-        );
+        assert_eq!(buf.indent_level(), 0, "dedent at level 0 should stay at 0");
         buf.dedent();
         buf.dedent();
         assert_eq!(
@@ -384,22 +378,14 @@ mod tests {
     fn test_push_lines_empty() {
         let mut buf = CodeBuffer::new();
         buf.push_lines(&[]);
-        assert_eq!(
-            buf.len(),
-            0,
-            "pushing empty slice should not add any lines"
-        );
+        assert_eq!(buf.len(), 0, "pushing empty slice should not add any lines");
         assert!(buf.is_empty(), "buffer should remain empty");
     }
 
     #[test]
     fn test_push_lines_multiple() {
         let mut buf = CodeBuffer::new();
-        let lines = vec![
-            "alpha".to_string(),
-            "beta".to_string(),
-            "gamma".to_string(),
-        ];
+        let lines = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
         buf.push_lines(&lines);
         assert_eq!(buf.len(), 3, "buffer should have three lines");
         let output = buf.into_string();
@@ -515,8 +501,7 @@ mod tests {
         let cw = CommentWriter::new();
         let comment = cw.write_block_comment("hello");
         assert_eq!(
-            comment,
-            "/* hello */",
+            comment, "/* hello */",
             "single-line block comment should be '/* hello */'"
         );
     }
@@ -575,22 +560,14 @@ mod tests {
     fn test_line_comment_format() {
         let cw = CommentWriter::new();
         let comment = cw.write_line_comment("hello");
-        assert_eq!(
-            comment,
-            "// hello",
-            "line comment should be '// hello'"
-        );
+        assert_eq!(comment, "// hello", "line comment should be '// hello'");
     }
 
     #[test]
     fn test_line_comment_empty() {
         let cw = CommentWriter::new();
         let comment = cw.write_line_comment("");
-        assert_eq!(
-            comment,
-            "//",
-            "line comment with empty text should be '//'"
-        );
+        assert_eq!(comment, "//", "line comment with empty text should be '//'");
     }
 
     // ==================================================================
@@ -601,11 +578,7 @@ mod tests {
     fn test_doc_comment_format() {
         let cw = CommentWriter::new();
         let comment = cw.write_doc_comment("hello");
-        assert_eq!(
-            comment,
-            "/// hello",
-            "doc comment should be '/// hello'"
-        );
+        assert_eq!(comment, "/// hello", "doc comment should be '/// hello'");
     }
 
     #[test]

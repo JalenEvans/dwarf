@@ -56,7 +56,11 @@ pub fn run_build(
 
     // Ensure the output directory exists
     if let Err(e) = fs::create_dir_all(&resolved_out_dir) {
-        eprintln!("Error: Cannot create output directory '{}': {}", resolved_out_dir.display(), e);
+        eprintln!(
+            "Error: Cannot create output directory '{}': {}",
+            resolved_out_dir.display(),
+            e
+        );
         process::exit(1);
     }
 
@@ -194,8 +198,10 @@ fn process_file(
     pm.run_all(&mut unit, &mut ctx);
 
     // Emit if LIR was produced successfully
-    let output = unit.lir.as_ref().and_then(|lir| {
-        match backend.emit_module(lir) {
+    let output = unit
+        .lir
+        .as_ref()
+        .and_then(|lir| match backend.emit_module(lir) {
             Ok(out) => Some(out),
             Err(e) => {
                 ctx.push_diagnostic(Diagnostic {
@@ -208,8 +214,7 @@ fn process_file(
                 });
                 None
             }
-        }
-    });
+        });
 
     // Write output file if emission succeeded
     let output_path = output.as_ref().and_then(|out| {
@@ -274,8 +279,8 @@ mod tests {
     #[test]
     fn test_build_cli_parse_simple() {
         let cmd = crate::Cli::command();
-        let matches = cmd
-            .try_get_matches_from(["dwarf-cli", "build", "file.kzd", "--target", "ts"]);
+        let matches =
+            cmd.try_get_matches_from(["dwarf-cli", "build", "file.kzd", "--target", "ts"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();
@@ -304,7 +309,9 @@ mod tests {
         let matches = matches.unwrap();
         let (_, sub_m) = matches.subcommand().unwrap();
         assert_eq!(
-            sub_m.get_one::<PathBuf>("out_dir").map(|p| p.to_string_lossy().to_string()),
+            sub_m
+                .get_one::<PathBuf>("out_dir")
+                .map(|p| p.to_string_lossy().to_string()),
             Some("custom/path".to_string())
         );
     }
