@@ -1639,7 +1639,7 @@ mod tests {
             span: s,
         };
 
-        let result = desugar_decorators(&[input.clone()]);
+        let result = desugar_decorators(std::slice::from_ref(&input));
 
         // Non-decorator declarations delegate to expand_type_aliases.
         let expected = expand_type_aliases(&[input]);

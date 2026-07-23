@@ -517,10 +517,6 @@ mod tests {
     // LirExpr — all expression variants
     // ------------------------------------------------------------------
 
-    fn some_hint() -> TargetHint {
-        TargetHint::Async
-    }
-
     #[test]
     fn test_lir_expr_literal() {
         let e = LirExpr::Literal {

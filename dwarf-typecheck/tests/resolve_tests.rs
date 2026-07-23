@@ -9,7 +9,7 @@
 use dwarf_syntax::hir::*;
 use dwarf_syntax::span::Span;
 use dwarf_typecheck::registry::TypeRegistry;
-use dwarf_typecheck::resolve::{self, *};
+use dwarf_typecheck::resolve::*;
 use dwarf_typecheck::types::*;
 
 // ---------------------------------------------------------------------------

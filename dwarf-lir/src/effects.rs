@@ -607,15 +607,15 @@ mod tests {
             "the function should default to Pure"
         );
         assert!(
-            effects.get("MyInt").is_none(),
+            !effects.contains_key("MyInt"),
             "TypeDef declarations should be skipped"
         );
         assert!(
-            effects.get("Point").is_none(),
+            !effects.contains_key("Point"),
             "RecordDef declarations should be skipped"
         );
         assert!(
-            effects.get("Option").is_none(),
+            !effects.contains_key("Option"),
             "UnionDef declarations should be skipped"
         );
     }
