@@ -10,6 +10,8 @@ use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
 use serde::{Deserialize, Serialize};
 
+pub mod lower;
+
 /// A literal value in the LIR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LirLiteral {
