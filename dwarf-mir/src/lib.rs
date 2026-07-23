@@ -5,6 +5,8 @@
 //! raw strings, imports) has been eliminated. The MIR mirrors the HIR in
 //! capabilities but with a minimal, canonical set of expression forms.
 
+pub mod desugar;
+
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
 
