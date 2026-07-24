@@ -341,6 +341,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-shrink"
+version = "0.1.0"
+
+[[package]]
 name = "dwarf-syntax"
 version = "0.1.0"
 dependencies = [
