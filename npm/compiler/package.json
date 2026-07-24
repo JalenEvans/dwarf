@@ -1,0 +1,12 @@
+{
+  "name": "@dwarf/compiler",
+  "version": "0.1.0",
+  "description": "Dwarf compiler native addon — compile Dwarf source in Node.js",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "keywords": ["dwarf", "compiler", "napi", "native"],
+  "license": "MIT",
+  "optionalDependencies": {
+    "@dwarf/compiler-linux-x64": "0.1.0"
+  }
+}
