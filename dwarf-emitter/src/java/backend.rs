@@ -69,7 +69,11 @@ impl EmitterBackend for JavaBackend {
         self.needs_completable_future = false;
         self.needs_optional = false;
         for decl in decls {
-            Self::scan_decl_for_imports(decl, &mut self.needs_completable_future, &mut self.needs_optional);
+            Self::scan_decl_for_imports(
+                decl,
+                &mut self.needs_completable_future,
+                &mut self.needs_optional,
+            );
         }
 
         let mut buf = CodeBuffer::new();
@@ -234,10 +238,8 @@ impl EmitterBackend for JavaBackend {
                 let union_name = to_pascal_case(name);
 
                 // Build the sealed interface with permits clause
-                let variant_names: Vec<String> = variants
-                    .iter()
-                    .map(|v| to_pascal_case(&v.name))
-                    .collect();
+                let variant_names: Vec<String> =
+                    variants.iter().map(|v| to_pascal_case(&v.name)).collect();
 
                 // We need to return multiple lines: the sealed interface + each variant record.
                 // Build them as a single string with newlines.
@@ -284,20 +286,16 @@ impl EmitterBackend for JavaBackend {
 
     fn emit_expr(&mut self, expr: &LirExpr) -> Result<String, EmitterError> {
         match expr {
-            LirExpr::Literal { value, hint, .. } => {
-                match hint {
-                    TargetHint::Optional => {
-                        match value {
-                            LirLiteral::Null => Ok("Optional.empty()".to_string()),
-                            _ => {
-                                let val = self.emit_literal(value)?;
-                                Ok(format!("Optional.of({})", val))
-                            }
-                        }
+            LirExpr::Literal { value, hint, .. } => match hint {
+                TargetHint::Optional => match value {
+                    LirLiteral::Null => Ok("Optional.empty()".to_string()),
+                    _ => {
+                        let val = self.emit_literal(value)?;
+                        Ok(format!("Optional.of({})", val))
                     }
-                    _ => self.emit_literal(value),
-                }
-            }
+                },
+                _ => self.emit_literal(value),
+            },
             LirExpr::Variable { name, .. } => Ok(name.clone()),
             LirExpr::Call {
                 func, args, hint, ..
@@ -329,9 +327,7 @@ impl EmitterBackend for JavaBackend {
                     Ok(call)
                 }
             }
-            LirExpr::Member {
-                obj, field, ..
-            } => {
+            LirExpr::Member { obj, field, .. } => {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
             }
@@ -395,11 +391,9 @@ impl EmitterBackend for JavaBackend {
             LirExpr::Lambda { params, body, .. } => {
                 let params_str: Vec<String> = params
                     .iter()
-                    .map(|p| {
-                        match &p.type_ {
-                            Some(ty) => format!("{} {}", self.type_mapper.map_type(ty), p.name),
-                            None => p.name.clone(),
-                        }
+                    .map(|p| match &p.type_ {
+                        Some(ty) => format!("{} {}", self.type_mapper.map_type(ty), p.name),
+                        None => p.name.clone(),
                     })
                     .collect();
                 let body_str = self.emit_expr(body)?;
@@ -667,9 +661,7 @@ impl JavaBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dwarf_lir::{
-        Effect, LirBinaryOp, LirLiteral, LirUnaryOp, TargetHint,
-    };
+    use dwarf_lir::{Effect, LirBinaryOp, LirLiteral, LirUnaryOp, TargetHint};
     use dwarf_syntax::hir::Type;
 
     // ==================================================================
@@ -687,13 +679,19 @@ mod tests {
     #[test]
     fn test_java_backend_new() {
         let backend = JavaBackend::new("com.example", "1.0.0");
-        assert!(backend.buffer.is_empty(), "new backend should have empty buffer");
+        assert!(
+            backend.buffer.is_empty(),
+            "new backend should have empty buffer"
+        );
     }
 
     #[test]
     fn test_java_backend_default() {
         let backend = JavaBackend::default();
-        assert!(backend.buffer.is_empty(), "default backend should have empty buffer");
+        assert!(
+            backend.buffer.is_empty(),
+            "default backend should have empty buffer"
+        );
         assert_eq!(backend.package_name, "dwarf.gen");
         assert_eq!(backend.version, "0.1.0");
     }
@@ -717,14 +715,19 @@ mod tests {
     #[test]
     fn test_emit_literal_float() {
         let mut backend = make_backend();
-        assert_eq!(backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(), "3.5");
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Float(3.5)).unwrap(),
+            "3.5"
+        );
     }
 
     #[test]
     fn test_emit_literal_str() {
         let mut backend = make_backend();
         assert_eq!(
-            backend.emit_literal(&LirLiteral::Str("hello".into())).unwrap(),
+            backend
+                .emit_literal(&LirLiteral::Str("hello".into()))
+                .unwrap(),
             "\"hello\""
         );
     }
@@ -732,13 +735,19 @@ mod tests {
     #[test]
     fn test_emit_literal_bool_true() {
         let mut backend = make_backend();
-        assert_eq!(backend.emit_literal(&LirLiteral::Bool(true)).unwrap(), "true");
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Bool(true)).unwrap(),
+            "true"
+        );
     }
 
     #[test]
     fn test_emit_literal_bool_false() {
         let mut backend = make_backend();
-        assert_eq!(backend.emit_literal(&LirLiteral::Bool(false)).unwrap(), "false");
+        assert_eq!(
+            backend.emit_literal(&LirLiteral::Bool(false)).unwrap(),
+            "false"
+        );
     }
 
     #[test]
@@ -870,7 +879,12 @@ mod tests {
     #[test]
     fn test_emit_target_hint_react_component() {
         let mut backend = make_backend();
-        assert_eq!(backend.emit_target_hint(&TargetHint::ReactComponent).unwrap(), "");
+        assert_eq!(
+            backend
+                .emit_target_hint(&TargetHint::ReactComponent)
+                .unwrap(),
+            ""
+        );
     }
 
     // ==================================================================
@@ -902,7 +916,10 @@ mod tests {
     #[test]
     fn test_emit_type_int() {
         let mut backend = make_backend();
-        assert_eq!(backend.emit_type(&Type::Named("Int".into())).unwrap(), "int");
+        assert_eq!(
+            backend.emit_type(&Type::Named("Int".into())).unwrap(),
+            "int"
+        );
     }
 
     #[test]
@@ -947,7 +964,9 @@ mod tests {
     fn test_emit_pat_literal() {
         let mut backend = make_backend();
         assert_eq!(
-            backend.emit_pat(&LirPat::Literal(LirLiteral::Int(42))).unwrap(),
+            backend
+                .emit_pat(&LirPat::Literal(LirLiteral::Int(42)))
+                .unwrap(),
             "42"
         );
     }
@@ -1053,8 +1072,14 @@ mod tests {
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();
-        assert!(result.contains("static void f("), "should contain static method signature");
-        assert!(result.contains("return 0;"), "should contain return statement");
+        assert!(
+            result.contains("static void f("),
+            "should contain static method signature"
+        );
+        assert!(
+            result.contains("return 0;"),
+            "should contain return statement"
+        );
     }
 
     #[test]
@@ -1087,7 +1112,10 @@ mod tests {
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();
-        assert!(result.starts_with("public "), "public fn should have public modifier");
+        assert!(
+            result.starts_with("public "),
+            "public fn should have public modifier"
+        );
     }
 
     #[test]
@@ -1108,6 +1136,9 @@ mod tests {
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();
-        assert!(!result.starts_with("public "), "private fn should not have public modifier");
+        assert!(
+            !result.starts_with("public "),
+            "private fn should not have public modifier"
+        );
     }
 }

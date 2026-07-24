@@ -488,7 +488,11 @@ impl JavaRunner {
     }
 
     /// Execute a compiled Java class and return its stdout.
-    fn execute_with_java(java_path: &str, class_name: &str, temp_dir: &Path) -> Result<String, String> {
+    fn execute_with_java(
+        java_path: &str,
+        class_name: &str,
+        temp_dir: &Path,
+    ) -> Result<String, String> {
         let output = Command::new(java_path)
             .arg(class_name)
             .current_dir(temp_dir)
@@ -541,8 +545,7 @@ impl Runner for JavaRunner {
             .map_err(|e| format!("Cannot write temp file: {}", e))?;
 
         // Compile with javac
-        let class_name =
-            Self::compile_with_javac(&self.javac_path, &java_path, temp_dir.path())?;
+        let class_name = Self::compile_with_javac(&self.javac_path, &java_path, temp_dir.path())?;
 
         // Run with java
         Self::execute_with_java(&self.java_path, &class_name, temp_dir.path())

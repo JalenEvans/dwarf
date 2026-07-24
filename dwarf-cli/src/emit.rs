@@ -57,9 +57,9 @@ pub fn run_emit(
             let cli_options = CompileOptions {
                 target: tgt.clone(),
                 pretty: false,
-                passes: passes.clone().map(|s| {
-                    s.split(',').map(|s| s.trim().to_string()).collect()
-                }),
+                passes: passes
+                    .clone()
+                    .map(|s| s.split(',').map(|s| s.trim().to_string()).collect()),
                 skip_passes: skip_passes
                     .clone()
                     .unwrap_or_default()
@@ -216,13 +216,8 @@ mod tests {
     #[test]
     fn test_emit_cli_parse_target_all() {
         let cmd = crate::Cli::command();
-        let matches = cmd.try_get_matches_from([
-            "dwarf-emitter",
-            "emit",
-            "file.kzd",
-            "--target",
-            "all",
-        ]);
+        let matches =
+            cmd.try_get_matches_from(["dwarf-emitter", "emit", "file.kzd", "--target", "all"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();

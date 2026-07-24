@@ -339,9 +339,7 @@ impl EmitterBackend for PythonBackend {
                     Ok(call)
                 }
             }
-            LirExpr::Member {
-                obj, field, ..
-            } => {
+            LirExpr::Member { obj, field, .. } => {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
             }
@@ -404,10 +402,7 @@ impl EmitterBackend for PythonBackend {
                 Ok(format!("{} = {}", target_str, value_str))
             }
             LirExpr::Lambda { params, body, .. } => {
-                let params_str: Vec<String> = params
-                    .iter()
-                    .map(|p| p.name.clone())
-                    .collect();
+                let params_str: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
                 let body_str = self.emit_expr(body)?;
                 Ok(format!("lambda {}: {}", params_str.join(", "), body_str))
             }
@@ -932,8 +927,14 @@ mod tests {
             span: s(),
         };
         let result = backend.emit_expr(&expr).unwrap();
-        assert!(result.contains("if x == 1"), "should contain first condition");
-        assert!(result.contains("if x == 2"), "should contain second condition");
+        assert!(
+            result.contains("if x == 1"),
+            "should contain first condition"
+        );
+        assert!(
+            result.contains("if x == 2"),
+            "should contain second condition"
+        );
         assert!(result.contains("None"), "should fallback to None");
     }
 
@@ -959,10 +960,7 @@ mod tests {
             hint: hint_none(),
             span: s(),
         };
-        assert_eq!(
-            backend.emit_expr(&expr).unwrap(),
-            "{ x = 1; return x; }"
-        );
+        assert_eq!(backend.emit_expr(&expr).unwrap(), "{ x = 1; return x; }");
     }
 
     #[test]

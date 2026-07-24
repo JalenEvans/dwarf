@@ -2,8 +2,8 @@
 //!
 //! Maps Dwarf types to their Python equivalents.
 
-use dwarf_syntax::hir::Type;
 use crate::types::TypeMapper;
+use dwarf_syntax::hir::Type;
 
 /// Python implementation of [`TypeMapper`].
 pub struct PythonMapper;
@@ -33,14 +33,19 @@ impl TypeMapper for PythonMapper {
                     return self.map_type(&variants[0]);
                 }
                 // Python 3.10+ uses `X | Y` syntax
-                variants.iter()
+                variants
+                    .iter()
                     .map(|t| self.map_type(t))
                     .collect::<Vec<_>>()
                     .join(" | ")
             }
             Type::Func { params, return_ } => {
                 let params_str: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
-                format!("Callable[[{}], {}]", params_str.join(", "), self.map_type(return_))
+                format!(
+                    "Callable[[{}], {}]",
+                    params_str.join(", "),
+                    self.map_type(return_)
+                )
             }
             Type::Generic { base, args } => {
                 let args_str: Vec<String> = args.iter().map(|a| self.map_type(a)).collect();
