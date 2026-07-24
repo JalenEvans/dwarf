@@ -203,6 +203,44 @@ fn default_out_dir() -> String {
     "dist".to_string()
 }
 
+impl CompilerConfig {
+    /// Load configuration from a JSON string.
+    pub fn from_json(json: &str) -> Result<Self, DwarfError> {
+        serde_json::from_str(json)
+            .map_err(|e| DwarfError::Config(format!("Failed to parse config: {}", e)))
+    }
+
+    /// Load configuration from a JSON file.
+    pub fn from_file(path: &str) -> Result<Self, DwarfError> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| DwarfError::Io(format!("Cannot read config file '{}': {}", path, e)))?;
+        Self::from_json(&content)
+    }
+
+    /// Merge this config with CLI-provided options.
+    ///
+    /// CLI options take precedence over config file values.
+    pub fn merge_with_cli(self, options: &CompileOptions) -> CompileOptions {
+        CompileOptions {
+            // CLI target overrides config's first target
+            target: if !options.target.is_empty() && options.target != "ts" {
+                options.target.clone()
+            } else if !self.targets.is_empty() {
+                self.targets[0].clone()
+            } else {
+                options.target.clone()
+            },
+            pretty: options.pretty || self.pretty,
+            passes: options.passes.clone(),
+            skip_passes: if !options.skip_passes.is_empty() {
+                options.skip_passes.clone()
+            } else {
+                self.skip_passes.clone()
+            },
+        }
+    }
+}
+
 /// Top-level error type for the compiler library.
 #[derive(Debug)]
 pub enum DwarfError {
