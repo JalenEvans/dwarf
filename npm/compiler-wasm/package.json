@@ -1,0 +1,15 @@
+{
+  "name": "@dwarf/compiler-wasm",
+  "version": "0.1.0",
+  "description": "Dwarf compiler compiled to WASM — compile Dwarf source in Node.js and the browser",
+  "main": "dwarf_wasm.js",
+  "types": "dwarf_wasm.d.ts",
+  "files": [
+    "dwarf_wasm_bg.wasm",
+    "dwarf_wasm.js",
+    "dwarf_wasm.d.ts",
+    "dwarf_wasm_bg.wasm.d.ts"
+  ],
+  "keywords": ["dwarf", "compiler", "wasm", "webassembly"],
+  "license": "MIT"
+}

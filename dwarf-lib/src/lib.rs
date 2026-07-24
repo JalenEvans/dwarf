@@ -111,7 +111,8 @@ impl Default for DwarfCompiler {
 }
 
 /// Configuration for a single compilation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 pub struct CompileOptions {
     /// Target language to emit (e.g., "ts", "debug").
     pub target: String,

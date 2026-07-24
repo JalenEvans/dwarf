@@ -10,4 +10,5 @@ members = [
     "dwarf-lir",
     "dwarf-emitter",
     "dwarf-lib",
+    "dwarf-wasm",
 ]
