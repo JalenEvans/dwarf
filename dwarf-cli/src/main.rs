@@ -154,6 +154,10 @@ enum Commands {
         /// Output results as JSON
         #[arg(long)]
         json: bool,
+
+        /// Diff mode: compile to all targets and compare against oracle
+        #[arg(long)]
+        diff: bool,
     },
 }
 
@@ -225,8 +229,9 @@ fn main() {
             files,
             target,
             json,
+            diff,
         }) => {
-            test::run_test(files, target, json);
+            test::run_test(files, target, json, diff);
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");

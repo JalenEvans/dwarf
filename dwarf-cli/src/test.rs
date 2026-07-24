@@ -2,14 +2,26 @@
 //!
 //! Compiles Dwarf source files to TypeScript, runs Jest, and
 //! returns structured results (JSON or text summary).
+//!
+//! With `--diff`, runs the [`DiffRunner`](crate::diff_runner) to compare
+//! emitted output across all targets against the TypeScript oracle.
 
 use std::path::PathBuf;
 use std::process;
 
+use dwarf_cli::diff_runner;
 use dwarf_cli::runner::{JavaRunner, PyRunner, TsRunner};
 
 /// Run the test subcommand.
-pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
+///
+/// When `diff` is `true`, the `target` argument is ignored and every file
+/// is compiled to all targets, with outputs compared against the TypeScript
+/// oracle.
+pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool) {
+    if diff {
+        return run_diff_mode(files, json);
+    }
+
     let supported = ["ts", "py", "java"];
     if !supported.contains(&target.as_str()) {
         eprintln!(
@@ -61,6 +73,84 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
     }
 
     if !all_passed {
+        process::exit(1);
+    }
+}
+
+/// Run the `--diff` code path: compile every file to all targets and compare
+/// each target's emitted output against the TypeScript oracle.
+fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
+    let mut all_match = true;
+    let mut diff_results = Vec::new();
+
+    for file_path in &files {
+        let path_str = file_path.to_string_lossy().to_string();
+
+        match diff_runner::run_diff(file_path) {
+            Ok(result) => {
+                if !result.all_match {
+                    all_match = false;
+                }
+                diff_results.push((path_str, result));
+            }
+            Err(e) => {
+                eprintln!("Error running diff on {}: {}", path_str, e);
+                all_match = false;
+            }
+        }
+    }
+
+    if json {
+        let output = serde_json::json!({
+            "ok": all_match,
+            "diff_results": diff_results.iter().map(|(file, result)| serde_json::json!({
+                "file": file,
+                "oracle": result.oracle,
+                "others": result.others,
+                "all_match": result.all_match,
+                "mismatches": result.mismatches,
+            })).collect::<Vec<_>>(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).expect("JSON serialization should not fail")
+        );
+    } else {
+        for (file, result) in &diff_results {
+            println!("--- Diff: {} ---", file);
+            println!(
+                "  Oracle (ts): {}",
+                if result.oracle.success {
+                    format!("{} bytes emitted", result.oracle.stdout.len())
+                } else {
+                    format!("FAILED: {}", result.oracle.stderr)
+                }
+            );
+
+            for other in &result.others {
+                let status = if other.success { "OK" } else { "FAIL" };
+                println!("  Target ({}): {} ({} bytes)", other.target, status, other.stdout.len());
+            }
+
+            if result.all_match {
+                println!("  ✓ All targets match oracle");
+            } else {
+                println!("  ✗ Mismatches found:");
+                for mm in &result.mismatches {
+                    println!("    - {}: outputs differ", mm.target);
+                }
+            }
+        }
+
+        let summary = if all_match {
+            "All targets match across all files"
+        } else {
+            "Some targets differ from oracle"
+        };
+        println!("\n{}", summary);
+    }
+
+    if !all_match {
         process::exit(1);
     }
 }
