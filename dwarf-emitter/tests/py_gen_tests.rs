@@ -157,3 +157,126 @@ fn test_forall_bool_emits_st_booleans() {
         "Should use @given decorator, got: {result}"
     );
 }
+
+// ==================================================================
+// Test 4: forAll emits Hypothesis imports
+// ==================================================================
+
+#[test]
+fn test_forall_emits_hypothesis_imports() {
+    let decl = LirDecl::Function {
+        name: "test_prop".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // Check for Hypothesis imports needed for @given and strategies
+    assert!(
+        result.contains("from hypothesis import given, strategies as st"),
+        "Should import hypothesis given and strategies, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 5: forAll body uses assert keyword
+// ==================================================================
+
+#[test]
+fn test_forall_body_uses_assert() {
+    let decl = LirDecl::Function {
+        name: "test_prop".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // The body should use assert, not just the bare expression
+    assert!(
+        result.contains("assert x > 0"),
+        "Should use assert keyword in the test body, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 6: forAll full integration — imports + @given + assert
+// ==================================================================
+
+#[test]
+fn test_forall_full_integration() {
+    let decl = LirDecl::Function {
+        name: "test_prop".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // Full compilation should include all of these:
+    assert!(
+        result.contains("from hypothesis import given, strategies as st"),
+        "Should have Hypothesis imports"
+    );
+    assert!(
+        result.contains("@given(st.integers())"),
+        "Should have @given decorator with st.integers()"
+    );
+    assert!(
+        result.contains("def test_prop(x):"),
+        "Should have def with correct parameter name"
+    );
+    assert!(
+        result.contains("assert x > 0"),
+        "Should have assert statement in body"
+    );
+}

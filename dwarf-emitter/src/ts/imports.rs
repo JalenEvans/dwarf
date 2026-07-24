@@ -60,6 +60,9 @@ impl ImportManager {
         self.imports
             .iter()
             .map(|(module, name, alias)| match alias {
+                Some(alias) if name == "*" => {
+                    format!("import * as {alias} from '{module}'")
+                }
                 Some(alias) => format!("import {{ {name} as {alias} }} from '{module}'"),
                 None => format!("import {{ {name} }} from '{module}'"),
             })

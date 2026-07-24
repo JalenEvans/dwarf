@@ -131,3 +131,170 @@ fn test_forall_string_has_forall_annotation() {
         "Should include String type annotation, got: {result}"
     );
 }
+
+// ==================================================================
+// Test 3: forAll emits jqwik import
+// ==================================================================
+
+#[test]
+fn test_forall_emits_jqwik_import() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    assert!(
+        result.contains("import net.jqwik.api.*"),
+        "Should import jqwik for property-based testing annotations, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 4: forAll method returns boolean (not void)
+// ==================================================================
+
+#[test]
+fn test_forall_method_returns_boolean() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // The method should have boolean return type, not void
+    assert!(
+        result.contains("boolean testProp"),
+        "Should have 'boolean' return type on the @Property method, got: {result}"
+    );
+    assert!(
+        !result.contains("void testProp"),
+        "Should NOT have 'void' return type on the @Property method, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 5: forAll uses return statement (not assert() call)
+// ==================================================================
+
+#[test]
+fn test_forall_uses_return_statement() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // The body should use return, not assert()
+    assert!(
+        result.contains("return x > 0"),
+        "Should use 'return' statement in the @Property method body, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 6: forAll full integration — import + annotations + return type
+// ==================================================================
+
+#[test]
+fn test_forall_full_integration() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // Full compilation should include all of these:
+    assert!(
+        result.contains("import net.jqwik.api.*"),
+        "Should have jqwik import"
+    );
+    assert!(
+        result.contains("@Property"),
+        "Should have @Property annotation"
+    );
+    assert!(
+        result.contains("@ForAll int x"),
+        "Should have @ForAll with int parameter"
+    );
+    assert!(
+        result.contains("boolean testProp"),
+        "Should have boolean return type"
+    );
+    assert!(
+        result.contains("return x > 0"),
+        "Should have return statement"
+    );
+}

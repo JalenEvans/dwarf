@@ -30,6 +30,7 @@ pub struct PythonBackend {
     version: String,
     needs_dataclass: bool,
     needs_typing_union: bool,
+    needs_hypothesis: bool,
 }
 
 impl PythonBackend {
@@ -41,6 +42,7 @@ impl PythonBackend {
             version: String::new(),
             needs_dataclass: false,
             needs_typing_union: false,
+            needs_hypothesis: false,
         }
     }
 
@@ -185,7 +187,11 @@ impl EmitterBackend for PythonBackend {
             match decl {
                 LirDecl::RecordDef { .. } => self.needs_dataclass = true,
                 LirDecl::UnionDef { .. } => self.needs_typing_union = true,
-                _ => {}
+                LirDecl::Function { body, .. } => {
+                    if matches!(*body, LirExpr::ForAll { .. }) {
+                        self.needs_hypothesis = true;
+                    }
+                }
             }
         }
 
@@ -201,6 +207,11 @@ impl EmitterBackend for PythonBackend {
         }
         if self.needs_typing_union {
             imports.push("from typing import Union".to_string());
+        }
+        if self.needs_hypothesis {
+            imports.push(
+                "from hypothesis import given, strategies as st".to_string(),
+            );
         }
 
         if !imports.is_empty() {
@@ -295,8 +306,8 @@ impl EmitterBackend for PythonBackend {
                     lines[last_idx] = format!("def {}({}):", fn_name, binding_str);
                     // Insert @given decorator above the def
                     lines.insert(last_idx, format!("@given({})", gen_str));
-                    // Use the property expression as the function body
-                    lines.push(format!("{}{}", PY_INDENT, prop_str));
+                    // Use the property expression as the function body with assert
+                    lines.push(format!("{}assert {}", PY_INDENT, prop_str));
                     return Ok(lines.join("\n"));
                 }
 

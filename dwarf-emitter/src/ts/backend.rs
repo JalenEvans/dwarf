@@ -140,6 +140,15 @@ impl EmitterBackend for TypeScriptBackend {
     }
 
     fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
+        // First pass: scan for ForAll declarations to add fast-check import
+        for decl in decls {
+            if let LirDecl::Function { body, .. } = decl {
+                if matches!(*body, LirExpr::ForAll { .. }) {
+                    self.imports.add_import("fast-check", "*", Some("fc"));
+                }
+            }
+        }
+
         if decls.is_empty() && self.imports.is_empty() {
             return Ok(String::new());
         }
@@ -176,6 +185,13 @@ impl EmitterBackend for TypeScriptBackend {
 
     fn emit_decl(&mut self, decl: &LirDecl) -> Result<String, EmitterError> {
         match decl {
+            // ForAll property-based test — emit as Jest test() wrapper
+            LirDecl::Function {
+                name, body, ..
+            } if matches!(*body, LirExpr::ForAll { .. }) => {
+                let inner = self.emit_expr(body)?;
+                Ok(format!("test('{name}', () => {{\n  fc.assert(\n    {inner}\n  );\n}});"))
+            }
             LirDecl::Function {
                 name,
                 params,
@@ -474,7 +490,7 @@ impl EmitterBackend for TypeScriptBackend {
                 let binding_str = self.emit_pat(binding)?;
                 let property_str = self.emit_expr(property)?;
                 Ok(format!(
-                    "fc.property({}, ({}) => {})",
+                    "fc.property({}, ({}) => {{\n        return {};\n      }})",
                     gen_str, binding_str, property_str
                 ))
             }

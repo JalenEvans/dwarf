@@ -27,6 +27,8 @@ pub struct JavaBackend {
     version: String,
     needs_completable_future: bool,
     needs_optional: bool,
+    needs_jqwik: bool,
+    has_forall: bool,
 }
 
 impl JavaBackend {
@@ -39,6 +41,8 @@ impl JavaBackend {
             version: version.to_string(),
             needs_completable_future: false,
             needs_optional: false,
+            needs_jqwik: false,
+            has_forall: false,
         }
     }
 
@@ -68,12 +72,21 @@ impl EmitterBackend for JavaBackend {
         // Reset import flags and scan all decls
         self.needs_completable_future = false;
         self.needs_optional = false;
+        self.needs_jqwik = false;
+        self.has_forall = false;
         for decl in decls {
             Self::scan_decl_for_imports(
                 decl,
                 &mut self.needs_completable_future,
                 &mut self.needs_optional,
             );
+            // Detect ForAll declarations for jqwik import and class name
+            if let LirDecl::Function { body, .. } = decl {
+                if matches!(*body, LirExpr::ForAll { .. }) {
+                    self.needs_jqwik = true;
+                    self.has_forall = true;
+                }
+            }
         }
 
         let mut buf = CodeBuffer::new();
@@ -93,12 +106,16 @@ impl EmitterBackend for JavaBackend {
         if self.needs_optional {
             buf.push_line("import java.util.Optional;");
         }
-        if self.needs_completable_future || self.needs_optional {
+        if self.needs_jqwik {
+            buf.push_line("import net.jqwik.api.*;");
+        }
+        if self.needs_completable_future || self.needs_optional || self.needs_jqwik {
             buf.push_empty();
         }
 
-        // Class declaration
-        buf.push_line("public class Main {");
+        // Class declaration — use PropertyTests when ForAll declarations are present
+        let class_name = if self.has_forall { "PropertyTests" } else { "Main" };
+        buf.push_line(format!("public class {} {{", class_name));
         buf.indent();
 
         // Emit each declaration
@@ -187,11 +204,11 @@ impl EmitterBackend for JavaBackend {
                     let mut body_buf = CodeBuffer::new();
                     body_buf.push_line("@Property");
                     body_buf.push_line(format!(
-                        "{}void {}({} {} {}) {{",
+                        "{}boolean {}({} {} {}) {{",
                         access, method_name, annotation, java_type, binding_str
                     ));
                     body_buf.indent();
-                    body_buf.push_line(format!("assert({});", prop_str));
+                    body_buf.push_line(format!("return {};", prop_str));
                     body_buf.dedent();
                     body_buf.push_line("}");
                     return Ok(body_buf.into_string().trim_end().to_string());
@@ -581,8 +598,8 @@ impl JavaBackend {
     fn type_to_jqwik_info(&self, ty: &Type) -> Result<(String, String), EmitterError> {
         match ty {
             Type::Named(name) => match name.as_str() {
-                "Int" => Ok(("int".into(), "@ForAll @IntGenerator(\"int\")".into())),
-                "String" => Ok(("String".into(), "@ForAll @StringGenerator".into())),
+                "Int" => Ok(("int".into(), "@ForAll".into())),
+                "String" => Ok(("String".into(), "@ForAll".into())),
                 "Bool" => Ok(("boolean".into(), "@ForAll".into())),
                 _ => Ok(("Object".into(), "@ForAll".into())),
             },

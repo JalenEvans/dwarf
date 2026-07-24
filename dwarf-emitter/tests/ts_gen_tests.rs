@@ -198,3 +198,160 @@ fn test_forall_list_int_emits_fc_array_integer() {
         "Should wrap in fc.property, got: {result}"
     );
 }
+
+// ==================================================================
+// Test 5: forAll emits fast-check import
+// ==================================================================
+
+#[test]
+fn test_forall_emits_fast_check_import() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    assert!(
+        result.contains("import * as fc from 'fast-check'"),
+        "Should import fast-check with namespace import, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 6: forAll wraps in Jest test()
+// ==================================================================
+
+#[test]
+fn test_forall_wraps_in_test_function() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    assert!(
+        result.contains("test('testProp',"),
+        "Should wrap test property in Jest test() call with function name, got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 7: forAll uses fc.assert()
+// ==================================================================
+
+#[test]
+fn test_forall_uses_fc_assert() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    assert!(
+        result.contains("fc.assert("),
+        "Should wrap fc.property inside fc.assert(), got: {result}"
+    );
+}
+
+// ==================================================================
+// Test 8: forAll full integration — import + test + fc.assert + generator
+// ==================================================================
+
+#[test]
+fn test_forall_full_integration() {
+    let decl = LirDecl::Function {
+        name: "testProp".into(),
+        params: vec![],
+        return_type: None,
+        body: LirExpr::ForAll {
+            type_: Type::Named("Int".into()),
+            binding: LirPat::Variable("x".into()),
+            property: Box::new(LirExpr::Binary {
+                op: LirBinaryOp::Gt,
+                lhs: Box::new(var("x")),
+                rhs: Box::new(int_lit(0)),
+                hint: no_hint(),
+                span: s(),
+            }),
+            hint: no_hint(),
+            span: s(),
+        },
+        effect: Effect::Pure,
+        hint: TargetHint::None,
+        is_pub: true,
+        is_generator: false,
+        span: s(),
+    };
+    let result = emit_program(vec![decl]);
+    // Full compilation should include all of these:
+    assert!(
+        result.contains("import * as fc from 'fast-check'"),
+        "Should have fast-check import"
+    );
+    assert!(
+        result.contains("test('testProp',"),
+        "Should have Jest test wrapper"
+    );
+    assert!(
+        result.contains("fc.assert("),
+        "Should have fc.assert wrapper"
+    );
+    assert!(
+        result.contains("fc.integer()"),
+        "Should have fc.integer() generator"
+    );
+}
