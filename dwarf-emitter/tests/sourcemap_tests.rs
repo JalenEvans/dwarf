@@ -12,7 +12,7 @@
 //! - `no method named add_mapping found` — `SourceMapBuilder::add_mapping` doesn't exist yet
 
 use dwarf_emitter::sourcemap::SourceMapBuilder;
-use dwarf_emitter::ts_backend::TypeScriptBackend;
+use dwarf_emitter::ts::backend::TypeScriptBackend;
 use dwarf_lir::{Effect, LirDecl, LirExpr, LirLiteral, TargetHint};
 use dwarf_syntax::span::Span;
 

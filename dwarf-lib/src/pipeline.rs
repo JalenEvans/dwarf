@@ -6,7 +6,7 @@
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::debug_backend::DebugBackend;
-use dwarf_emitter::ts_backend::TypeScriptBackend;
+use dwarf_emitter::ts::backend::TypeScriptBackend;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_lir::pass::LirPass;
 use dwarf_lir::LirDecl;

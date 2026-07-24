@@ -20,7 +20,7 @@ use tempfile::TempDir;
 
 use crate::pass_manager::*;
 use dwarf_emitter::backend::EmitterBackend;
-use dwarf_emitter::ts_backend::TypeScriptBackend;
+use dwarf_emitter::ts::backend::TypeScriptBackend;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_lir::pass::LirPass;
 use dwarf_mir::pass::MirPass;

@@ -8,8 +8,8 @@ pub mod backend;
 pub mod debug_backend;
 pub mod error;
 pub mod format;
-pub mod imports;
 pub mod naming;
 pub mod sourcemap;
-pub mod ts_backend;
 pub mod types;
+
+pub mod ts;

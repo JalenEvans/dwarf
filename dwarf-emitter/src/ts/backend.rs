@@ -30,9 +30,10 @@ use dwarf_syntax::span::Span;
 use crate::backend::EmitterBackend;
 use crate::error::EmitterError;
 use crate::format::CodeBuffer;
-use crate::imports::ImportManager;
 use crate::sourcemap::{SourceMapBuilder, SourceMapOutput};
-use crate::types::{TypeMapper, TypeScriptMapper};
+use crate::ts::imports::ImportManager;
+use crate::ts::mapper::TypeScriptMapper;
+use crate::types::TypeMapper;
 
 /// A backend that emits TypeScript code from LIR declarations.
 ///
