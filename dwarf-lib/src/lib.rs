@@ -5,6 +5,8 @@
 //! project configuration via `dwarf.conf.json`.
 
 mod pipeline;
+pub mod resolver;
+pub use resolver::{FilesystemResolver, ModuleResolver, PureResolver};
 
 /// The main entry point for the Dwarf compiler.
 ///
