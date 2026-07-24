@@ -270,6 +270,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-gen"
+version = "0.1.0"
+dependencies = [
+ "dwarf-syntax",
+]
+
+[[package]]
 name = "dwarf-lexer"
 version = "0.1.0"
 dependencies = [
