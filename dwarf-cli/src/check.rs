@@ -15,20 +15,17 @@ pub fn run_check(
 ) {
     if list_passes {
         println!(
-            "  {:<20} {}",
-            "tokenize", "Tokenize source text into a stream of tokens"
+            "  {:<20} Tokenize source text into a stream of tokens",
+            "tokenize"
         );
-        println!("  {:<20} {}", "parse", "Parse tokens into HIR declarations");
+        println!("  {:<20} Parse tokens into HIR declarations", "parse");
+        println!("  {:<20} Check types and infer expressions", "typecheck");
         println!(
-            "  {:<20} {}",
-            "typecheck", "Check types and infer expressions"
+            "  {:<20} Resolve module imports and build dependency graph",
+            "modules"
         );
-        println!(
-            "  {:<20} {}",
-            "modules", "Resolve module imports and build dependency graph"
-        );
-        println!("  {:<20} {}", "mir", "Desugar HIR into MIR");
-        println!("  {:<20} {}", "lir", "Lower MIR to LIR with target hints");
+        println!("  {:<20} Desugar HIR into MIR", "mir");
+        println!("  {:<20} Lower MIR to LIR with target hints", "lir");
         return;
     }
 
