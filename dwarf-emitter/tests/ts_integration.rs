@@ -5,7 +5,7 @@
 //! output matches the expected form.
 
 use dwarf_emitter::backend::EmitterBackend;
-use dwarf_emitter::ts_backend::TypeScriptBackend;
+use dwarf_emitter::ts::backend::TypeScriptBackend;
 use dwarf_lir::{
     Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
     LirVariant, TargetHint,

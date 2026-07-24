@@ -6,7 +6,9 @@
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::debug_backend::DebugBackend;
-use dwarf_emitter::ts_backend::TypeScriptBackend;
+use dwarf_emitter::java::backend::JavaBackend;
+use dwarf_emitter::py::backend::PythonBackend;
+use dwarf_emitter::ts::backend::TypeScriptBackend;
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_lir::pass::LirPass;
 use dwarf_lir::LirDecl;
@@ -92,8 +94,10 @@ pub(crate) fn select_backend(
     match target {
         "debug" => Ok(Box::new(DebugBackend::new())),
         "ts" => Ok(Box::new(TypeScriptBackend::new("0.1.0"))),
+        "py" => Ok(Box::new(PythonBackend::new())),
+        "java" => Ok(Box::new(JavaBackend::new("dwarf.gen", "0.1.0"))),
         other => Err(format!(
-            "Unsupported target: '{}'. Supported targets: debug, ts",
+            "Unsupported target: '{}'. Supported targets: debug, ts, py, java",
             other
         )),
     }

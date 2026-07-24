@@ -92,6 +92,8 @@ impl DwarfCompiler {
 
         let ext = match options.target.as_str() {
             "ts" => "ts",
+            "py" => "py",
+            "java" => "java",
             "debug" => "txt",
             _ => "txt",
         };

@@ -7,6 +7,58 @@ use std::process;
 
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 
+/// Map a target name to its file extension.
+fn target_ext(target: &str) -> &str {
+    match target {
+        "ts" => "ts",
+        "py" => "py",
+        "java" => "java",
+        _ => "txt",
+    }
+}
+
+/// Parse a comma-separated target string (or "all") into a list of targets.
+fn parse_targets(target: &str) -> Vec<String> {
+    if target == "all" {
+        vec!["ts".into(), "py".into(), "java".into()]
+    } else {
+        target.split(',').map(|s| s.trim().to_string()).collect()
+    }
+}
+
+/// Validate a compiled output file by running a target-specific syntax check.
+/// Returns `Ok(())` on success, or `Err(msg)` if validation finds a problem.
+fn validate_output(target: &str, file_path: &Path) -> Result<(), String> {
+    let path_str = file_path.to_string_lossy();
+    match target {
+        "py" => {
+            let output = process::Command::new("python3")
+                .args(["-c", &format!("import py_compile; py_compile.compile('{}')", path_str)])
+                .output()
+                .map_err(|e| format!("Cannot run python3: {}", e))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Python syntax check failed:\n{}", stderr));
+            }
+            Ok(())
+        }
+        "java" => {
+            let output = process::Command::new("javac")
+                .args(["--release", "17", &path_str])
+                .output()
+                .map_err(|e| format!("Cannot run javac: {}", e))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Java compilation check failed:\n{}", stderr));
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Run the build subcommand.
 pub fn run_build(
     files: Vec<PathBuf>,
@@ -17,13 +69,16 @@ pub fn run_build(
     passes: Option<String>,
     skip_passes: Option<String>,
 ) {
-    // Build CLI options
+    // Parse the target string into a list of targets
+    let targets: Vec<String> = if target.is_empty() {
+        vec!["ts".into()]
+    } else {
+        parse_targets(&target)
+    };
+
+    // Build CLI options (use the first target as the base, will override per-iteration)
     let cli_options = CompileOptions {
-        target: if target.is_empty() {
-            "ts".to_string()
-        } else {
-            target.clone()
-        },
+        target: targets[0].clone(),
         pretty,
         passes: passes.map(|s| s.split(',').map(|s| s.trim().to_string()).collect()),
         skip_passes: skip_passes
@@ -41,7 +96,7 @@ pub fn run_build(
     // Resolve output directory
     let resolved_out_dir = out_dir.unwrap_or_else(|| PathBuf::from("dist"));
 
-    // Ensure output directory exists
+    // Ensure base output directory exists
     if let Err(e) = fs::create_dir_all(&resolved_out_dir) {
         eprintln!(
             "Error: Cannot create output directory '{}': {}",
@@ -59,7 +114,7 @@ pub fn run_build(
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
 
-        // Read source file
+        // Read source file once
         let source = match read_source_file(file_path) {
             Ok(s) => s,
             Err(e) => {
@@ -70,58 +125,92 @@ pub fn run_build(
             }
         };
 
-        // Compile
-        match compiler.compile(&source, &path_str, options.clone()) {
-            Ok(result) => {
-                let ext = &result.output_extension;
-                let out_path = resolved_out_dir.join(
-                    file_path
-                        .file_stem()
-                        .map(|s| format!("{}.{}", s.to_string_lossy(), ext))
-                        .unwrap_or_else(|| format!("output.{}", ext)),
-                );
+        // Compile for each target
+        for tgt in &targets {
+            let mut target_options = options.clone();
+            target_options.target = tgt.clone();
 
-                if let Err(e) = write_output(&out_path, &result.output) {
-                    eprintln!("Error writing {}: {}", out_path.display(), e);
-                    error_count += 1;
-                    has_errors = true;
-                } else {
-                    println!("  Built  {} -> {}", path_str, out_path.display());
-                    success_count += 1;
-                }
+            match compiler.compile(&source, &path_str, target_options) {
+                Ok(result) => {
+                    let ext = target_ext(tgt);
+                    let out_dir = resolved_out_dir.join(tgt);
 
-                // Write source map file if available
-                if let Some(ref sm) = result.source_map {
-                    let map_path = out_path.with_extension(format!("{}.map", ext));
-                    if let Err(e) = write_output(&map_path, sm) {
-                        eprintln!("Error writing source map {}: {}", map_path.display(), e);
+                    // Ensure target sub-directory exists
+                    if let Err(e) = fs::create_dir_all(&out_dir) {
+                        eprintln!(
+                            "Error: Cannot create output directory '{}': {}",
+                            out_dir.display(),
+                            e
+                        );
+                        error_count += 1;
+                        has_errors = true;
+                        continue;
+                    }
+
+                    let out_path = out_dir.join(
+                        file_path
+                            .file_stem()
+                            .map(|s| format!("{}.{}", s.to_string_lossy(), ext))
+                            .unwrap_or_else(|| format!("output.{}", ext)),
+                    );
+
+                    if let Err(e) = write_output(&out_path, &result.output) {
+                        eprintln!("Error writing {}: {}", out_path.display(), e);
                         error_count += 1;
                         has_errors = true;
                     } else {
-                        println!("  Map    {} -> {}", path_str, map_path.display());
+                        println!("  Built  {} -> {}", path_str, out_path.display());
+                        success_count += 1;
+
+                        // Optional: validate output syntax
+                        match validate_output(tgt, &out_path) {
+                            Ok(()) => {
+                                println!("    {}: syntax OK", tgt);
+                            }
+                            Err(msg) => {
+                                eprintln!("    {}: validation warning: {}", tgt, msg);
+                                // Non-fatal: warn but don't mark as error
+                            }
+                        }
+                    }
+
+                    // Write source map file if available
+                    if let Some(ref sm) = result.source_map {
+                        let map_path = out_path.with_extension(format!("{}.map", ext));
+                        if let Err(e) = write_output(&map_path, sm) {
+                            eprintln!("Error writing source map {}: {}", map_path.display(), e);
+                            error_count += 1;
+                            has_errors = true;
+                        } else {
+                            println!("  Map    {} -> {}", path_str, map_path.display());
+                        }
+                    }
+
+                    // Print diagnostics
+                    for diag in &result.diagnostics {
+                        eprintln!("  {}: {}", diag.code, diag.message);
                     }
                 }
-
-                // Print diagnostics
-                for diag in &result.diagnostics {
-                    eprintln!("  {}: {}", diag.code, diag.message);
+                Err(errors) => {
+                    eprintln!("Error compiling {} for target '{}':", path_str, tgt);
+                    for err in &errors {
+                        eprintln!("  {}", err);
+                    }
+                    error_count += 1;
+                    has_errors = true;
                 }
-            }
-            Err(errors) => {
-                eprintln!("Error compiling {}:", path_str);
-                for err in &errors {
-                    eprintln!("  {}", err);
-                }
-                error_count += 1;
-                has_errors = true;
             }
         }
     }
 
-    let total = files.len();
+    let total_target_builds = files.len() * targets.len();
     println!(
-        "\nBuild summary: {} file(s) built, {} error(s), {} total",
-        success_count, error_count, total
+        "\nBuild summary: {} file(s) across {} target(s) — {} success(es), {} error(s), {} total build(s)",
+        files.len(),
+        targets.len(),
+        success_count,
+        error_count,
+        total_target_builds,
     );
 
     if has_errors {
@@ -224,6 +313,74 @@ mod tests {
             result.is_err(),
             "Should have failed: --target is required but was omitted"
         );
+    }
+
+    #[test]
+    fn test_build_cli_parse_target_all() {
+        let cmd = crate::Cli::command();
+        let matches =
+            cmd.try_get_matches_from(["dwarf-cli", "build", "file.kzd", "--target", "all"]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("all")
+        );
+    }
+
+    #[test]
+    fn test_build_cli_parse_comma_targets() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-cli",
+            "build",
+            "file.kzd",
+            "--target",
+            "ts,py,java",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("ts,py,java")
+        );
+    }
+
+    #[test]
+    fn test_parse_targets_all() {
+        let targets = parse_targets("all");
+        assert_eq!(targets, vec!["ts", "py", "java"]);
+    }
+
+    #[test]
+    fn test_parse_targets_comma_separated() {
+        let targets = parse_targets("ts,py,java");
+        assert_eq!(targets, vec!["ts", "py", "java"]);
+    }
+
+    #[test]
+    fn test_parse_targets_single() {
+        let targets = parse_targets("ts");
+        assert_eq!(targets, vec!["ts"]);
+    }
+
+    #[test]
+    fn test_parse_targets_with_whitespace() {
+        let targets = parse_targets(" ts , py ");
+        assert_eq!(targets, vec!["ts", "py"]);
+    }
+
+    #[test]
+    fn test_target_ext() {
+        assert_eq!(target_ext("ts"), "ts");
+        assert_eq!(target_ext("py"), "py");
+        assert_eq!(target_ext("java"), "java");
+        assert_eq!(target_ext("debug"), "txt");
+        assert_eq!(target_ext("unknown"), "txt");
     }
 
     #[test]

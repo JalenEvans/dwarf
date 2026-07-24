@@ -5,6 +5,25 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
+/// Map a target name to its file extension.
+fn target_ext(target: &str) -> &str {
+    match target {
+        "ts" => "ts",
+        "py" => "py",
+        "java" => "java",
+        _ => "txt",
+    }
+}
+
+/// Parse a comma-separated target string (or "all") into a list of targets.
+fn parse_targets(target: &str) -> Vec<String> {
+    if target == "all" {
+        vec!["ts".into(), "py".into(), "java".into()]
+    } else {
+        target.split(',').map(|s| s.trim().to_string()).collect()
+    }
+}
+
 pub fn run_emit(
     files: Vec<PathBuf>,
     target: String,
@@ -12,24 +31,13 @@ pub fn run_emit(
     passes: Option<String>,
     skip_passes: Option<String>,
 ) {
-    let cli_options = CompileOptions {
-        target: if target.is_empty() {
-            "ts".to_string()
-        } else {
-            target.clone()
-        },
-        pretty: false,
-        passes: passes.map(|s| s.split(',').map(|s| s.trim().to_string()).collect()),
-        skip_passes: skip_passes
-            .unwrap_or_default()
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .map(|s| s.trim().to_string())
-            .collect(),
-        source_map: false,
+    // Parse the target string into a list of targets
+    let targets: Vec<String> = if target.is_empty() {
+        vec!["ts".into()]
+    } else {
+        parse_targets(&target)
     };
 
-    let options = dwarf_cli::config::merge_config_with_cli(cli_options);
     let compiler = DwarfCompiler::new();
     let mut has_errors = false;
     let mut all_results = Vec::new();
@@ -45,43 +53,66 @@ pub fn run_emit(
             }
         };
 
-        match compiler.compile(&source, &path_str, options.clone()) {
-            Ok(result) => {
-                if json {
-                    all_results.push(serde_json::json!({
-                        "file": path_str,
-                        "success": true,
-                        "output": result.output,
-                        "errors": result.diagnostics.iter().map(|d| {
-                            serde_json::json!({
-                                "code": d.code,
-                                "severity": format!("{}", d.severity),
-                                "message": d.message,
-                                "file": d.file,
-                                "line": d.line,
-                                "col": d.col,
-                            })
-                        }).collect::<Vec<_>>(),
-                    }));
-                } else {
-                    println!("// {}:\n{}", path_str, result.output);
-                    for diag in &result.diagnostics {
-                        eprintln!("{}: {}", diag.code, diag.message);
+        for tgt in &targets {
+            let cli_options = CompileOptions {
+                target: tgt.clone(),
+                pretty: false,
+                passes: passes.clone().map(|s| {
+                    s.split(',').map(|s| s.trim().to_string()).collect()
+                }),
+                skip_passes: skip_passes
+                    .clone()
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+                source_map: false,
+            };
+
+            let options = dwarf_cli::config::merge_config_with_cli(cli_options);
+
+            match compiler.compile(&source, &path_str, options.clone()) {
+                Ok(result) => {
+                    if json {
+                        all_results.push(serde_json::json!({
+                            "target": tgt,
+                            "file": path_str,
+                            "success": true,
+                            "output": result.output,
+                            "extension": target_ext(tgt),
+                            "errors": result.diagnostics.iter().map(|d| {
+                                serde_json::json!({
+                                    "code": d.code,
+                                    "severity": format!("{}", d.severity),
+                                    "message": d.message,
+                                    "file": d.file,
+                                    "line": d.line,
+                                    "col": d.col,
+                                })
+                            }).collect::<Vec<_>>(),
+                        }));
+                    } else {
+                        println!("// {} [{}]:\n{}", path_str, tgt, result.output);
+                        for diag in &result.diagnostics {
+                            eprintln!("[{}] {}: {}", tgt, diag.code, diag.message);
+                        }
                     }
                 }
-            }
-            Err(errors) => {
-                has_errors = true;
-                if json {
-                    all_results.push(serde_json::json!({
-                        "file": path_str,
-                        "success": false,
-                        "errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-                    }));
-                } else {
-                    eprintln!("Error compiling {}:", path_str);
-                    for err in &errors {
-                        eprintln!("  {}", err);
+                Err(errors) => {
+                    has_errors = true;
+                    if json {
+                        all_results.push(serde_json::json!({
+                            "target": tgt,
+                            "file": path_str,
+                            "success": false,
+                            "errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
+                        }));
+                    } else {
+                        eprintln!("Error compiling {} for target '{}':", path_str, tgt);
+                        for err in &errors {
+                            eprintln!("  {}", err);
+                        }
                     }
                 }
             }
@@ -93,7 +124,7 @@ pub fn run_emit(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "ok": !has_errors,
-                "target": target,
+                "targets": targets,
                 "results": all_results,
             }))
             .unwrap()
@@ -180,6 +211,78 @@ mod tests {
             sub_m.get_one::<String>("passes").map(String::as_str),
             Some("tokenize,parse")
         );
+    }
+
+    #[test]
+    fn test_emit_cli_parse_target_all() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-emitter",
+            "emit",
+            "file.kzd",
+            "--target",
+            "all",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("all")
+        );
+    }
+
+    #[test]
+    fn test_emit_cli_parse_comma_targets() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-emitter",
+            "emit",
+            "file.kzd",
+            "--target",
+            "ts,py,java",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("target").map(String::as_str),
+            Some("ts,py,java")
+        );
+    }
+
+    #[test]
+    fn test_emit_parse_targets_all() {
+        let targets = parse_targets("all");
+        assert_eq!(targets, vec!["ts", "py", "java"]);
+    }
+
+    #[test]
+    fn test_emit_parse_targets_comma() {
+        let targets = parse_targets("ts,py,java");
+        assert_eq!(targets, vec!["ts", "py", "java"]);
+    }
+
+    #[test]
+    fn test_emit_parse_targets_single() {
+        let targets = parse_targets("ts");
+        assert_eq!(targets, vec!["ts"]);
+    }
+
+    #[test]
+    fn test_emit_parse_targets_whitespace() {
+        let targets = parse_targets(" ts , py ");
+        assert_eq!(targets, vec!["ts", "py"]);
+    }
+
+    #[test]
+    fn test_emit_target_ext() {
+        assert_eq!(target_ext("ts"), "ts");
+        assert_eq!(target_ext("py"), "py");
+        assert_eq!(target_ext("java"), "java");
+        assert_eq!(target_ext("debug"), "txt");
     }
 
     #[test]
