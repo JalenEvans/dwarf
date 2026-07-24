@@ -128,6 +128,34 @@ impl PythonBackend {
         }
     }
 
+    /// Map a Dwarf type to a Hypothesis strategy generator expression.
+    ///
+    /// | Dwarf Type | Hypothesis generator |
+    /// |---|---|
+    /// | `Int` | `st.integers()` |
+    /// | `String` | `st.text()` |
+    /// | `Bool` | `st.booleans()` |
+    /// | `List<X>` | `st.lists(<X_gen>)` |
+    /// | other | `st.just(None)` |
+    fn type_to_st_generator(&mut self, ty: &Type) -> Result<String, EmitterError> {
+        match ty {
+            Type::Named(name) => match name.as_str() {
+                "Int" => Ok("st.integers()".to_string()),
+                "String" => Ok("st.text()".to_string()),
+                "Bool" => Ok("st.booleans()".to_string()),
+                _ => Ok("st.just(None)".to_string()),
+            },
+            Type::Generic { base, args } => match base.as_str() {
+                "List" if args.len() == 1 => {
+                    let elem_gen = self.type_to_st_generator(&args[0])?;
+                    Ok(format!("st.lists({})", elem_gen))
+                }
+                _ => Ok("st.just(None)".to_string()),
+            },
+            _ => Ok("st.just(None)".to_string()),
+        }
+    }
+
     /// Build the header comment string, optionally including the version.
     fn header_comment(&self) -> String {
         if self.version.is_empty() {
@@ -250,6 +278,27 @@ impl EmitterBackend for PythonBackend {
                     params_str.join(", "),
                     ret_str
                 ));
+
+                // Check for ForAll (property-based testing) body — emit @given decorator
+                if let LirExpr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } = body
+                {
+                    let gen_str = self.type_to_st_generator(type_)?;
+                    let binding_str = self.emit_pat(binding)?;
+                    let prop_str = self.emit_expr(property)?;
+                    // Replace the def line to use the ForAll binding as parameter
+                    let last_idx = lines.len() - 1;
+                    lines[last_idx] = format!("def {}({}):", fn_name, binding_str);
+                    // Insert @given decorator above the def
+                    lines.insert(last_idx, format!("@given({})", gen_str));
+                    // Use the property expression as the function body
+                    lines.push(format!("{}{}", PY_INDENT, prop_str));
+                    return Ok(lines.join("\n"));
+                }
 
                 // Body — multi-line with 4-space Python indentation
                 let body_lines = self.emit_function_body(body)?;

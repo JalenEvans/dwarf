@@ -172,6 +172,31 @@ impl EmitterBackend for JavaBackend {
                     params = params_str.join(", ")
                 );
 
+                // Check for ForAll (property-based testing) body — emit @Property + @ForAll
+                if let LirExpr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } = body
+                {
+                    let (java_type, annotation) = self.type_to_jqwik_info(type_)?;
+                    let binding_str = self.emit_pat(binding)?;
+                    let prop_str = self.emit_expr(property)?;
+                    let access = if *is_pub { "public " } else { "" };
+                    let mut body_buf = CodeBuffer::new();
+                    body_buf.push_line("@Property");
+                    body_buf.push_line(format!(
+                        "{}void {}({} {} {}) {{",
+                        access, method_name, annotation, java_type, binding_str
+                    ));
+                    body_buf.indent();
+                    body_buf.push_line(format!("assert({});", prop_str));
+                    body_buf.dedent();
+                    body_buf.push_line("}");
+                    return Ok(body_buf.into_string().trim_end().to_string());
+                }
+
                 // Body handling
                 match body {
                     LirExpr::Block { stmts, .. } => {
@@ -544,6 +569,26 @@ impl EmitterBackend for JavaBackend {
 // ------------------------------------------------------------------
 
 impl JavaBackend {
+    /// Map a Dwarf type to a (Java type, jqwik annotations) pair for
+    /// property-based testing with `@ForAll`.
+    ///
+    /// | Dwarf Type | Java type | jqwik annotation |
+    /// |---|---|---|
+    /// | `Int` | `int` | `@ForAll @IntGenerator("int")` |
+    /// | `String` | `String` | `@ForAll @StringGenerator` |
+    /// | `Bool` | `boolean` | `@ForAll` |
+    /// | other | `Object` | `@ForAll` |
+    fn type_to_jqwik_info(&self, ty: &Type) -> Result<(String, String), EmitterError> {
+        match ty {
+            Type::Named(name) => match name.as_str() {
+                "Int" => Ok(("int".into(), "@ForAll @IntGenerator(\"int\")".into())),
+                "String" => Ok(("String".into(), "@ForAll @StringGenerator".into())),
+                "Bool" => Ok(("boolean".into(), "@ForAll".into())),
+                _ => Ok(("Object".into(), "@ForAll".into())),
+            },
+            _ => Ok(("Object".into(), "@ForAll".into())),
+        }
+    }
     /// Emit a block body (stmts) as a single-line `{ ... }` string.
     ///
     /// For Let statements we produce `pat = value` (Java has no `let` keyword).

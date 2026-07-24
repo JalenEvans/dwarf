@@ -470,11 +470,12 @@ impl EmitterBackend for TypeScriptBackend {
                 property,
                 ..
             } => {
-                let ty_str = self.emit_type(type_)?;
+                let gen_str = self.type_to_fc_generator(type_)?;
                 let binding_str = self.emit_pat(binding)?;
                 let property_str = self.emit_expr(property)?;
                 Ok(format!(
-                    "/* forAll<{ty_str}>({binding_str} => {property_str}) */"
+                    "fc.property({}, ({}) => {})",
+                    gen_str, binding_str, property_str
                 ))
             }
         }
@@ -701,6 +702,45 @@ impl TypeScriptBackend {
                     export, name, props_type, params_jsx, body_str
                 ))
             }
+        }
+    }
+
+    /// Map a Dwarf type to a fast-check generator expression.
+    ///
+    /// | Dwarf Type | fast-check generator |
+    /// |---|---|
+    /// | `Int` | `fc.integer()` |
+    /// | `String` | `fc.string()` |
+    /// | `Bool` | `fc.boolean()` |
+    /// | `List<X>` | `fc.array(<X_gen>)` |
+    /// | `Option<X>` | `fc.option(<X_gen>)` |
+    /// | `Result<O, E>` | `fc.oneof(<O_gen>, <E_gen>)` |
+    /// | other | `fc.anything()` |
+    fn type_to_fc_generator(&mut self, ty: &Type) -> Result<String, EmitterError> {
+        match ty {
+            Type::Named(name) => match name.as_str() {
+                "Int" => Ok("fc.integer()".to_string()),
+                "String" => Ok("fc.string()".to_string()),
+                "Bool" => Ok("fc.boolean()".to_string()),
+                _ => Ok("fc.anything()".to_string()),
+            },
+            Type::Generic { base, args } => match base.as_str() {
+                "List" if args.len() == 1 => {
+                    let elem_gen = self.type_to_fc_generator(&args[0])?;
+                    Ok(format!("fc.array({})", elem_gen))
+                }
+                "Option" if args.len() == 1 => {
+                    let elem_gen = self.type_to_fc_generator(&args[0])?;
+                    Ok(format!("fc.option({})", elem_gen))
+                }
+                "Result" if args.len() == 2 => {
+                    let ok_gen = self.type_to_fc_generator(&args[0])?;
+                    let err_gen = self.type_to_fc_generator(&args[1])?;
+                    Ok(format!("fc.oneof({}, {})", ok_gen, err_gen))
+                }
+                _ => Ok("fc.anything()".to_string()),
+            },
+            _ => Ok("fc.anything()".to_string()),
         }
     }
 }
