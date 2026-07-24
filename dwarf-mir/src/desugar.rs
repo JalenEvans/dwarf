@@ -640,24 +640,71 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                         })
                         .collect();
 
-                    result.push(MirDecl::Function {
-                        name: func_name,
-                        params: mir_params,
-                        return_type,
-                        body: MirExpr::Call {
-                            func: Box::new(MirExpr::Variable {
-                                name: name.clone(),
-                                span: *span,
-                            }),
-                            args: std::iter::once(lambda)
-                                .chain(mir_args)
-                                .chain(param_vars)
-                                .collect(),
-                            span: *span,
-                        },
-                        is_pub: func_is_pub,
-                        span: func_span,
-                    });
+                    // xUnit decorators get special Jest-like desugaring.
+                    // @Test → it(), @Suite → describe(), @Before → beforeEach(), etc.
+                    match name.as_str() {
+                        "Test" | "Suite" | "Before" | "After" | "BeforeAll" | "AfterAll" => {
+                            let jest_name = match name.as_str() {
+                                "Test" => "it",
+                                "Suite" => "describe",
+                                "Before" => "beforeEach",
+                                "After" => "afterEach",
+                                "BeforeAll" => "beforeAll",
+                                "AfterAll" => "afterAll",
+                                _ => unreachable!(),
+                            };
+
+                            let mut jest_args: Vec<MirExpr> = Vec::new();
+
+                            // @Test and @Suite get the function name as first arg (string literal).
+                            if name == "Test" || name == "Suite" {
+                                jest_args.push(MirExpr::Literal {
+                                    value: MirLiteral::Str(func_name.clone()),
+                                    span: func_span,
+                                });
+                            }
+
+                            // All xUnit decorators wrap the lambda.
+                            jest_args.push(lambda);
+
+                            result.push(MirDecl::Function {
+                                name: func_name,
+                                params: mir_params,
+                                return_type,
+                                body: MirExpr::Call {
+                                    func: Box::new(MirExpr::Variable {
+                                        name: jest_name.to_string(),
+                                        span: *span,
+                                    }),
+                                    args: jest_args,
+                                    span: *span,
+                                },
+                                is_pub: func_is_pub,
+                                span: func_span,
+                            });
+                        }
+                        _ => {
+                            // Generic decorator desugaring (unchanged for non-xUnit).
+                            result.push(MirDecl::Function {
+                                name: func_name,
+                                params: mir_params,
+                                return_type,
+                                body: MirExpr::Call {
+                                    func: Box::new(MirExpr::Variable {
+                                        name: name.clone(),
+                                        span: *span,
+                                    }),
+                                    args: std::iter::once(lambda)
+                                        .chain(mir_args)
+                                        .chain(param_vars)
+                                        .collect(),
+                                    span: *span,
+                                },
+                                is_pub: func_is_pub,
+                                span: func_span,
+                            });
+                        }
+                    }
                 }
                 // Non-function targets are currently not supported for
                 // decoration — they are silently dropped.
@@ -677,7 +724,7 @@ mod tests {
         desugar_decorators, desugar_for_loop, desugar_pipe, desugar_propagate, expand_type_aliases,
     };
     use crate::*;
-    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Param, Pat, Type, Variant};
+    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Param, Pat, Stmt, Type, Variant};
     use dwarf_syntax::span::Span;
 
     /// Shared zero-length synthetic span for test expressions.
@@ -1651,5 +1698,519 @@ mod tests {
         let input: Vec<Decl> = vec![];
         let result = desugar_decorators(&input);
         assert!(result.is_empty(), "Empty input should return empty output");
+    }
+
+    // ------------------------------------------------------------------
+    // xUnit decorator desugaring (@Test, @Suite, @Before, etc.)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_desugar_decorator_test() {
+        let s = span();
+        // @Test fn my_test() { assert.ok(true) }
+        let inner = Decl::Function {
+            name: "my_test".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Member {
+                    obj: Box::new(Expr::Variable {
+                        name: "assert".into(),
+                        span: s,
+                    }),
+                    field: "ok".into(),
+                    span: s,
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Bool(true),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "Test".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn my_test() { it("my_test", fn() { assert.ok(true) }) }
+        let desugared_body = MirExpr::Call {
+            func: Box::new(MirExpr::Member {
+                obj: Box::new(MirExpr::Variable {
+                    name: "assert".into(),
+                    span: s,
+                }),
+                field: "ok".into(),
+                span: s,
+            }),
+            args: vec![MirExpr::Literal {
+                value: MirLiteral::Bool(true),
+                span: s,
+            }],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "my_test".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "it".into(),
+                    span: s,
+                }),
+                args: vec![
+                    MirExpr::Literal {
+                        value: MirLiteral::Str("my_test".into()),
+                        span: s,
+                    },
+                    MirExpr::Lambda {
+                        params: vec![],
+                        body: Box::new(desugared_body),
+                        span: s,
+                    },
+                ],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_decorator_suite() {
+        let s = span();
+        // @Suite fn math_tests() { add(1, 1); sub(2, 1) }
+        let inner = Decl::Function {
+            name: "math_tests".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Block {
+                stmts: vec![
+                    Stmt::Expr(Expr::Call {
+                        func: Box::new(Expr::Variable {
+                            name: "add".into(),
+                            span: s,
+                        }),
+                        args: vec![
+                            Expr::Literal {
+                                value: LiteralValue::Int(1),
+                                span: s,
+                            },
+                            Expr::Literal {
+                                value: LiteralValue::Int(1),
+                                span: s,
+                            },
+                        ],
+                        span: s,
+                    }),
+                    Stmt::Expr(Expr::Call {
+                        func: Box::new(Expr::Variable {
+                            name: "sub".into(),
+                            span: s,
+                        }),
+                        args: vec![
+                            Expr::Literal {
+                                value: LiteralValue::Int(2),
+                                span: s,
+                            },
+                            Expr::Literal {
+                                value: LiteralValue::Int(1),
+                                span: s,
+                            },
+                        ],
+                        span: s,
+                    }),
+                ],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "Suite".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn math_tests() { describe("math_tests", fn() { add(1,1); sub(2,1) }) }
+        let desugared_body = MirExpr::Block {
+            stmts: vec![
+                MirStmt::Expr(MirExpr::Call {
+                    func: Box::new(MirExpr::Variable {
+                        name: "add".into(),
+                        span: s,
+                    }),
+                    args: vec![
+                        MirExpr::Literal {
+                            value: MirLiteral::Int(1),
+                            span: s,
+                        },
+                        MirExpr::Literal {
+                            value: MirLiteral::Int(1),
+                            span: s,
+                        },
+                    ],
+                    span: s,
+                }),
+                MirStmt::Expr(MirExpr::Call {
+                    func: Box::new(MirExpr::Variable {
+                        name: "sub".into(),
+                        span: s,
+                    }),
+                    args: vec![
+                        MirExpr::Literal {
+                            value: MirLiteral::Int(2),
+                            span: s,
+                        },
+                        MirExpr::Literal {
+                            value: MirLiteral::Int(1),
+                            span: s,
+                        },
+                    ],
+                    span: s,
+                }),
+            ],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "math_tests".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "describe".into(),
+                    span: s,
+                }),
+                args: vec![
+                    MirExpr::Literal {
+                        value: MirLiteral::Str("math_tests".into()),
+                        span: s,
+                    },
+                    MirExpr::Lambda {
+                        params: vec![],
+                        body: Box::new(desugared_body),
+                        span: s,
+                    },
+                ],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_decorator_before() {
+        let s = span();
+        // @Before fn setup() { init() }
+        let inner = Decl::Function {
+            name: "setup".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "init".into(),
+                    span: s,
+                }),
+                args: vec![],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "Before".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn setup() { beforeEach(fn() { init() }) }
+        let desugared_body = MirExpr::Call {
+            func: Box::new(MirExpr::Variable {
+                name: "init".into(),
+                span: s,
+            }),
+            args: vec![],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "setup".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "beforeEach".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Lambda {
+                    params: vec![],
+                    body: Box::new(desugared_body),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_decorator_after() {
+        let s = span();
+        // @After fn cleanup() { reset() }
+        let inner = Decl::Function {
+            name: "cleanup".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "reset".into(),
+                    span: s,
+                }),
+                args: vec![],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "After".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn cleanup() { afterEach(fn() { reset() }) }
+        let desugared_body = MirExpr::Call {
+            func: Box::new(MirExpr::Variable {
+                name: "reset".into(),
+                span: s,
+            }),
+            args: vec![],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "cleanup".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "afterEach".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Lambda {
+                    params: vec![],
+                    body: Box::new(desugared_body),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_decorator_before_all() {
+        let s = span();
+        // @BeforeAll fn setup_all() { init_db() }
+        let inner = Decl::Function {
+            name: "setup_all".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "init_db".into(),
+                    span: s,
+                }),
+                args: vec![],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "BeforeAll".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn setup_all() { beforeAll(fn() { init_db() }) }
+        let desugared_body = MirExpr::Call {
+            func: Box::new(MirExpr::Variable {
+                name: "init_db".into(),
+                span: s,
+            }),
+            args: vec![],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "setup_all".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "beforeAll".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Lambda {
+                    params: vec![],
+                    body: Box::new(desugared_body),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_decorator_after_all() {
+        let s = span();
+        // @AfterAll fn cleanup_all() { close_db() }
+        let inner = Decl::Function {
+            name: "cleanup_all".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "close_db".into(),
+                    span: s,
+                }),
+                args: vec![],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "AfterAll".into(),
+            args: vec![],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn cleanup_all() { afterAll(fn() { close_db() }) }
+        let desugared_body = MirExpr::Call {
+            func: Box::new(MirExpr::Variable {
+                name: "close_db".into(),
+                span: s,
+            }),
+            args: vec![],
+            span: s,
+        };
+        let expected = vec![MirDecl::Function {
+            name: "cleanup_all".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "afterAll".into(),
+                    span: s,
+                }),
+                args: vec![MirExpr::Lambda {
+                    params: vec![],
+                    body: Box::new(desugared_body),
+                    span: s,
+                }],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_desugar_other_decorator_unchanged() {
+        let s = span();
+        // @route("/api") fn handler() { 42 }
+        // Generic decorator desugaring is preserved.
+        let inner = Decl::Function {
+            name: "handler".into(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "route".into(),
+            args: vec![Expr::Literal {
+                value: LiteralValue::Str("/api".into()),
+                span: s,
+            }],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // Expected: fn handler() { route(fn() { 42 }, "/api") }
+        // Same generic desugaring as the existing @route test.
+        let expected = vec![MirDecl::Function {
+            name: "handler".into(),
+            params: vec![],
+            return_type: None,
+            body: MirExpr::Call {
+                func: Box::new(MirExpr::Variable {
+                    name: "route".into(),
+                    span: s,
+                }),
+                args: vec![
+                    MirExpr::Lambda {
+                        params: vec![],
+                        body: Box::new(MirExpr::Literal {
+                            value: MirLiteral::Int(42),
+                            span: s,
+                        }),
+                        span: s,
+                    },
+                    MirExpr::Literal {
+                        value: MirLiteral::Str("/api".into()),
+                        span: s,
+                    },
+                ],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        }];
+        assert_eq!(result, expected);
     }
 }
