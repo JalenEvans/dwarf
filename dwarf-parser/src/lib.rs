@@ -774,6 +774,7 @@ impl Parser {
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
             TokenKind::For => self.parse_for_expr(),
+            TokenKind::ForAll => self.parse_forall_expr(),
             TokenKind::Pipe => self.parse_lambda(),
             TokenKind::LBrace => self.parse_block(),
             TokenKind::LBracket => self.parse_array_literal(),
@@ -863,6 +864,22 @@ impl Parser {
             binding,
             iterable: Box::new(iterable),
             body: Box::new(body),
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    fn parse_forall_expr(&mut self) -> Result<Expr, ParseError> {
+        let start = self.advance().span; // consume 'forAll'
+        let type_ = self.parse_type()?;
+        self.consume(TokenKind::LBrace, "expected '{' after forAll type")?;
+        let binding = self.parse_pattern()?;
+        self.consume(TokenKind::Arrow, "expected '->' after forAll binding")?;
+        let property = self.parse_expression()?;
+        self.consume(TokenKind::RBrace, "expected '}' after forAll property")?;
+        Ok(Expr::ForAll {
+            type_,
+            binding,
+            property: Box::new(property),
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -1332,5 +1349,147 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 2);
+    }
+
+    // ------------------------------------------------------------------
+    // forAll property-test expression tests (DWARF-37)
+    //
+    // These tests specify the expected shape of the forAll HIR node once
+    // the lexer, HIR, and parser have been extended.  They will fail to
+    // compile until Expr::ForAll, TokenKind::ForAll, and the parser branch
+    // are implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_forall_expr_basic() {
+        // forAll Int { x -> x > 0 }
+        //
+        // At top level, a bare forAll is wrapped in a synthetic function
+        // declaration.  The body should be Expr::ForAll { type_: Int,
+        // binding: x, property: x > 0 }.
+        let tokens = tokenize("forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { body, .. } => match body {
+                Expr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } => {
+                    assert_eq!(*type_, Type::Named("Int".to_string()));
+                    assert_eq!(*binding, Pat::Variable("x".to_string()));
+                    assert!(matches!(
+                        property.as_ref(),
+                        Expr::Binary { op: BinaryOp::Gt, .. }
+                    ));
+                }
+                other => panic!("Expected ForAll expression, got {other:?}"),
+            },
+            other => panic!("Expected synthetic function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_expr_string() {
+        // forAll String { s -> s.length() >= 0 }
+        //
+        // Verify that string types and member-access properties work.
+        let tokens = tokenize("forAll String { s -> s.length() >= 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { body, .. } => match body {
+                Expr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } => {
+                    assert_eq!(*type_, Type::Named("String".to_string()));
+                    assert_eq!(*binding, Pat::Variable("s".to_string()));
+                    assert!(matches!(
+                        property.as_ref(),
+                        Expr::Binary { op: BinaryOp::Ge, .. }
+                    ));
+                }
+                other => panic!("Expected ForAll expression, got {other:?}"),
+            },
+            other => panic!("Expected synthetic function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_expr_in_block() {
+        // fn test() { forAll Int { x -> x + 1 > x } }
+        //
+        // When forAll appears inside a function body, it should parse as
+        // an expression statement inside the block.
+        let tokens = tokenize("fn test() { forAll Int { x -> x + 1 > x } }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::ForAll {
+                                type_,
+                                binding,
+                                ..
+                            }) => {
+                                assert_eq!(*type_, Type::Named("Int".to_string()));
+                                assert_eq!(*binding, Pat::Variable("x".to_string()));
+                            }
+                            other => {
+                                panic!("Expected ForAll statement, got {other:?}")
+                            }
+                        }
+                    }
+                    other => panic!("Expected block body, got {other:?}"),
+                }
+            }
+            other => panic!("Expected function declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_with_decorator() {
+        // @QuickCheck forAll Int { x -> x > 0 }
+        //
+        // A decorator applied to a forAll expression — the decorator wraps
+        // the synthetic function that contains the forAll.
+        let tokens = tokenize("@QuickCheck forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator {
+                name,
+                target,
+                ..
+            } => {
+                assert_eq!(name, "QuickCheck");
+                match target.as_ref() {
+                    Decl::Function { body, .. } => {
+                        assert!(matches!(body, Expr::ForAll { .. }));
+                    }
+                    other => {
+                        panic!("Expected synthetic function, got {other:?}")
+                    }
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
     }
 }

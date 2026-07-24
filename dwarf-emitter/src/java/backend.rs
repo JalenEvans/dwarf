@@ -438,6 +438,21 @@ impl EmitterBackend for JavaBackend {
                 Ok(format!("{}{}", op_str, expr_str))
             }
             LirExpr::Wildcard { .. } => Ok("_".to_string()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                // ForAll is a property-based testing construct; emit as a comment
+                // with the sub-expression for now.
+                Ok(format!(
+                    "/* forAll<{ty_str}>({binding_str} -> {property_str}) */"
+                ))
+            }
         }
     }
 
@@ -654,6 +669,9 @@ impl JavaBackend {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
             LirExpr::Wildcard { .. } => {}
+            LirExpr::ForAll { property, .. } => {
+                Self::scan_expr_for_imports(property, needs_cf, needs_opt);
+            }
         }
     }
 }

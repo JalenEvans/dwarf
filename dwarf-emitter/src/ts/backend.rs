@@ -464,6 +464,19 @@ impl EmitterBackend for TypeScriptBackend {
                 Ok(format!("{}{}", op_str, expr_str))
             }
             LirExpr::Wildcard { .. } => Ok("_".to_string()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                Ok(format!(
+                    "/* forAll<{ty_str}>({binding_str} => {property_str}) */"
+                ))
+            }
         }
     }
 

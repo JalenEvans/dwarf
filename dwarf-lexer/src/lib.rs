@@ -756,6 +756,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "for" => TokenKind::For,
+            "forAll" => TokenKind::ForAll,
             "import" => TokenKind::Import,
             "from" => TokenKind::From,
             "module" => TokenKind::Module,

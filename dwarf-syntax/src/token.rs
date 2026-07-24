@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// The kind of a token — categorizes what the token represents.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TokenKind {
-    // ---- Keywords (12 reserved words + true/false/null) ----
+    // ---- Keywords (13 reserved words + true/false/null) ----
     Fn,
     Type,
     Let,
@@ -14,6 +14,7 @@ pub enum TokenKind {
     If,
     Else,
     For,
+    ForAll,
     Import,
     From,
     Module,
@@ -89,6 +90,7 @@ impl TokenKind {
             Self::If => "'if'",
             Self::Else => "'else'",
             Self::For => "'for'",
+            Self::ForAll => "'forAll'",
             Self::Import => "'import'",
             Self::From => "'from'",
             Self::Module => "'module'",

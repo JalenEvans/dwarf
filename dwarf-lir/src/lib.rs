@@ -157,6 +157,14 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    /// Property-based testing: forAll Type { binding -> property }
+    ForAll {
+        type_: Type,
+        binding: LirPat,
+        property: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
 }
 
 impl LirExpr {
@@ -177,7 +185,8 @@ impl LirExpr {
             | LirExpr::Array { span, .. }
             | LirExpr::Binary { span, .. }
             | LirExpr::Unary { span, .. }
-            | LirExpr::Wildcard { span, .. } => *span,
+            | LirExpr::Wildcard { span, .. }
+            | LirExpr::ForAll { span, .. } => *span,
         }
     }
 
@@ -198,7 +207,8 @@ impl LirExpr {
             | LirExpr::Array { hint, .. }
             | LirExpr::Binary { hint, .. }
             | LirExpr::Unary { hint, .. }
-            | LirExpr::Wildcard { hint, .. } => hint.clone(),
+            | LirExpr::Wildcard { hint, .. }
+            | LirExpr::ForAll { hint, .. } => hint.clone(),
         }
     }
 }

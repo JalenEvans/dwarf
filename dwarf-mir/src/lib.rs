@@ -135,6 +135,13 @@ pub enum MirExpr {
     Wildcard {
         span: Span,
     },
+    /// Property-based testing: forAll Type { binding -> property }
+    ForAll {
+        type_: Type,
+        binding: MirPat,
+        property: Box<MirExpr>,
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -156,7 +163,8 @@ impl MirExpr {
             | MirExpr::Array { span, .. }
             | MirExpr::Binary { span, .. }
             | MirExpr::Unary { span, .. }
-            | MirExpr::Wildcard { span } => *span,
+            | MirExpr::Wildcard { span }
+            | MirExpr::ForAll { span, .. } => *span,
         }
     }
 }

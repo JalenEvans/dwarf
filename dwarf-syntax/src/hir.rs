@@ -175,6 +175,13 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// Property-based testing: forAll Type { var -> property }
+    ForAll {
+        type_: Type,
+        binding: Pat,
+        property: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -199,6 +206,7 @@ impl Expr {
             Expr::Wildcard { span } => *span,
             Expr::Binary { span, .. } => *span,
             Expr::Unary { span, .. } => *span,
+            Expr::ForAll { span, .. } => *span,
         }
     }
 }

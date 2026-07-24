@@ -145,6 +145,7 @@ pub fn infer_expr(
         Expr::Pipe { .. }
         | Expr::Propagate { .. }
         | Expr::For { .. }
+        | Expr::ForAll { .. }
         | Expr::Assign { .. }
         | Expr::Array { .. }
         | Expr::Wildcard { .. }

@@ -317,6 +317,18 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
                 span: *span,
             }
         }
+
+        Expr::ForAll {
+            type_,
+            binding,
+            property,
+            span,
+        } => MirExpr::ForAll {
+            type_: type_.clone(),
+            binding: convert_pat(binding.clone()),
+            property: Box::new(desugar_pipe(property)),
+            span: *span,
+        },
     }
 }
 

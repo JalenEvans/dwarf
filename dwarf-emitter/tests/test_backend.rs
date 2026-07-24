@@ -243,6 +243,19 @@ impl EmitterBackend for MockBackend {
                 Ok(format!("unary({op_str}, {e_str})"))
             }
             LirExpr::Wildcard { .. } => Ok("wildcard".into()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                Ok(format!(
+                    "forAll({ty_str}, {binding_str} => {property_str})"
+                ))
+            }
         }
     }
 

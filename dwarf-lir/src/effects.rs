@@ -222,6 +222,9 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
             extract_calls_inner(target, calls);
             extract_calls_inner(value, calls);
         }
+        MirExpr::ForAll { property, .. } => {
+            extract_calls_inner(property, calls);
+        }
     }
 }
 

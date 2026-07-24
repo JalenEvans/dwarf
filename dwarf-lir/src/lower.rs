@@ -192,6 +192,18 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::ForAll {
+            type_,
+            binding,
+            property,
+            span,
+        } => LirExpr::ForAll {
+            type_: type_.clone(),
+            binding: lower_pat(binding),
+            property: Box::new(lower_expr(property)),
+            hint: TargetHint::None,
+            span: *span,
+        },
     }
 }
 
