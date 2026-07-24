@@ -169,6 +169,209 @@ fn test_parse_multiple_decls() {
 }
 
 // ============================================================================
+// Decorator parsing edge-case tests
+//
+// The parser supports decorators (`@name(args?) decl`), producing
+// Decl::Decorator { name, args, target, is_pub, span }.
+// These tests verify patterns needed for xUnit testing support.
+// ============================================================================
+
+#[test]
+fn test_decorator_suite_on_function() {
+    let tokens = tokenize("@Suite fn math_tests() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "Suite");
+            assert!(args.is_empty(), "Suite should have no args");
+            match target.as_ref() {
+                Decl::Function {
+                    name: fn_name,
+                    params,
+                    ..
+                } => {
+                    assert_eq!(fn_name, "math_tests");
+                    assert!(params.is_empty(), "Expected no params");
+                }
+                other => panic!("Expected Function target, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Decorator, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_decorator_suite_with_params() {
+    let tokens = tokenize("@Suite fn math_tests(a: i32, b: i32) { a + b }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "Suite");
+            assert!(args.is_empty());
+            match target.as_ref() {
+                Decl::Function {
+                    name: fn_name,
+                    params,
+                    ..
+                } => {
+                    assert_eq!(fn_name, "math_tests");
+                    assert_eq!(params.len(), 2);
+                    assert_eq!(params[0].name, "a");
+                    assert_eq!(params[1].name, "b");
+                }
+                other => panic!("Expected Function target, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Decorator, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_decorator_with_argument() {
+    let tokens = tokenize("@benchmark(1000) fn test_perf() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "benchmark");
+            assert_eq!(args.len(), 1, "Should have one argument");
+            match &args[0] {
+                Expr::Literal { value, .. } => {
+                    assert_eq!(*value, LiteralValue::Int(1000));
+                }
+                other => panic!("Expected Literal arg, got {:?}", other),
+            }
+            match target.as_ref() {
+                Decl::Function { name: fn_name, .. } => {
+                    assert_eq!(fn_name, "test_perf");
+                }
+                other => panic!("Expected Function target, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Decorator, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_multiple_decorators_on_function() {
+    let tokens = tokenize("@Suite @Test fn run_all() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    // Outer decorator: @Suite wraps @Test fn run_all()
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "Suite");
+            assert!(args.is_empty());
+
+            // Inner target should be another Decorator: @Test fn run_all()
+            match target.as_ref() {
+                Decl::Decorator {
+                    name: inner_name,
+                    args: inner_args,
+                    target: inner_target,
+                    ..
+                } => {
+                    assert_eq!(inner_name, "Test");
+                    assert!(inner_args.is_empty());
+                    match inner_target.as_ref() {
+                        Decl::Function { name: fn_name, .. } => {
+                            assert_eq!(fn_name, "run_all");
+                        }
+                        other => panic!("Expected Function, got {:?}", other),
+                    }
+                }
+                other => panic!("Expected inner Decorator, got {:?}", other),
+            }
+        }
+        other => panic!("Expected outer Decorator, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_decorator_on_record_def() {
+    let tokens = tokenize("@Serializable type TestResult = { passed: bool, duration: float }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "Serializable");
+            assert!(args.is_empty());
+            match target.as_ref() {
+                Decl::RecordDef {
+                    name: record_name,
+                    fields,
+                    ..
+                } => {
+                    assert_eq!(record_name, "TestResult");
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].name, "passed");
+                    assert_eq!(fields[1].name, "duration");
+                }
+                other => panic!("Expected RecordDef target, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Decorator, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_decorator_with_pub_function() {
+    let tokens = tokenize("@Test pub fn visible_test() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (program, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(program.len(), 1);
+
+    match &program[0] {
+        Decl::Decorator {
+            name, args, target, ..
+        } => {
+            assert_eq!(name, "Test");
+            assert!(args.is_empty());
+            match target.as_ref() {
+                Decl::Function {
+                    name: fn_name,
+                    is_pub,
+                    ..
+                } => {
+                    assert_eq!(fn_name, "visible_test");
+                    assert!(is_pub, "Function should be pub");
+                }
+                other => panic!("Expected Function target, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Decorator, got {:?}", other),
+    }
+}
+
+// ============================================================================
 // Panic-mode error recovery tests
 //
 // These tests will FAIL until the parser gains error-recovery logic and the
