@@ -206,6 +206,11 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::AssertConsistent { expr, span } => LirExpr::AssertConsistent {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
     }
 }
 
@@ -562,5 +567,40 @@ mod tests {
         };
         let result = lower_expr(&mir_expr);
         assert_eq!(result.span(), span2(), "span should be preserved from MIR");
+    }
+
+    // ------------------------------------------------------------------
+    // AssertConsistent lowering tests (DWARF-41)
+    //
+    // These tests verify that lower_expr correctly handles
+    // MirExpr::AssertConsistent by wrapping the lowered inner expression
+    // in LirExpr::AssertConsistent. They will fail to compile until
+    // both MirExpr::AssertConsistent and LirExpr::AssertConsistent are
+    // implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_lower_assert_consistent_expr() {
+        let mir_expr = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        let result = lower_expr(&mir_expr);
+        match &result {
+            LirExpr::AssertConsistent { expr, hint, .. } => {
+                assert!(
+                    matches!(
+                        expr.as_ref(),
+                        LirExpr::Literal { value: LirLiteral::Int(42), .. }
+                    ),
+                    "inner expression should be preserved as literal 42"
+                );
+                assert_eq!(*hint, TargetHint::None);
+            }
+            other => panic!("expected AssertConsistent variant, got {other:?}"),
+        }
     }
 }

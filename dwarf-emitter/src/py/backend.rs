@@ -517,6 +517,7 @@ impl EmitterBackend for PythonBackend {
                     "# forAll<{ty_str}>({binding_str} => {property_str})"
                 ))
             }
+            LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
         }
     }
 

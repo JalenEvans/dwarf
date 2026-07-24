@@ -256,6 +256,10 @@ impl EmitterBackend for MockBackend {
                     "forAll({ty_str}, {binding_str} => {property_str})"
                 ))
             }
+            LirExpr::AssertConsistent { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("assert.consistent({})", inner))
+            }
         }
     }
 

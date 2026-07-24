@@ -195,6 +195,11 @@ pub enum Expr {
         property: Box<Expr>,
         span: Span,
     },
+    /// Assert that an expression produces consistent results across all targets.
+    AssertConsistent {
+        expr: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -220,6 +225,7 @@ impl Expr {
             Expr::Binary { span, .. } => *span,
             Expr::Unary { span, .. } => *span,
             Expr::ForAll { span, .. } => *span,
+            Expr::AssertConsistent { span, .. } => *span,
         }
     }
 }
@@ -430,5 +436,76 @@ mod tests {
         } else {
             panic!("Expected Record variant");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // AssertConsistent expression tests (DWARF-41)
+    //
+    // These tests specify the expected shape of Expr::AssertConsistent
+    // once the HIR variant is added. They will fail to compile until
+    // the variant is implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_hir_assert_consistent_construction() {
+        let expr = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: Span::new(0, 0, 0),
+            }),
+            span: Span::new(0, 0, 0),
+        };
+        match &expr {
+            Expr::AssertConsistent { expr: inner, .. } => {
+                match inner.as_ref() {
+                    Expr::Literal { value, .. } => {
+                        assert_eq!(*value, LiteralValue::Int(42));
+                    }
+                    _ => panic!("Expected literal inside AssertConsistent"),
+                }
+            }
+            _ => panic!("Expected AssertConsistent variant"),
+        }
+    }
+
+    #[test]
+    fn test_hir_assert_consistent_span() {
+        let span = Span::new(0, 5, 20);
+        let expr = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Null,
+                span: Span::new(0, 15, 18),
+            }),
+            span,
+        };
+        assert_eq!(expr.span(), span);
+    }
+
+    #[test]
+    fn test_hir_assert_consistent_partial_eq() {
+        let span = Span::new(0, 0, 0);
+        let a = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(42),
+                span,
+            }),
+            span,
+        };
+        let b = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(42),
+                span,
+            }),
+            span,
+        };
+        let c = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(99),
+                span,
+            }),
+            span,
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

@@ -150,7 +150,8 @@ pub fn infer_expr(
         | Expr::Assign { .. }
         | Expr::Array { .. }
         | Expr::Wildcard { .. }
-        | Expr::Variant { .. } => Ok(0),
+        | Expr::Variant { .. }
+        | Expr::AssertConsistent { .. } => Ok(0),
     }
 }
 

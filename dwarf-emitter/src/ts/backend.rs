@@ -494,6 +494,7 @@ impl EmitterBackend for TypeScriptBackend {
                     gen_str, binding_str, property_str
                 ))
             }
+            LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
         }
     }
 

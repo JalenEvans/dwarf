@@ -495,6 +495,7 @@ impl EmitterBackend for JavaBackend {
                     "/* forAll<{ty_str}>({binding_str} -> {property_str}) */"
                 ))
             }
+            LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
         }
     }
 
@@ -733,6 +734,9 @@ impl JavaBackend {
             LirExpr::Wildcard { .. } => {}
             LirExpr::ForAll { property, .. } => {
                 Self::scan_expr_for_imports(property, needs_cf, needs_opt);
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
         }
     }

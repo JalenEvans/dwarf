@@ -142,6 +142,11 @@ pub enum MirExpr {
         property: Box<MirExpr>,
         span: Span,
     },
+    /// Assert consistent evaluation across targets.
+    AssertConsistent {
+        expr: Box<MirExpr>,
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -164,7 +169,8 @@ impl MirExpr {
             | MirExpr::Binary { span, .. }
             | MirExpr::Unary { span, .. }
             | MirExpr::Wildcard { span }
-            | MirExpr::ForAll { span, .. } => *span,
+            | MirExpr::ForAll { span, .. }
+            | MirExpr::AssertConsistent { span, .. } => *span,
         }
     }
 }
@@ -1448,5 +1454,34 @@ mod tests {
                 constraint: RefConstraint::Range { min: 0, max: 150 },
             }
         );
+    }
+
+    // ------------------------------------------------------------------
+    // MirExpr::AssertConsistent — cross-target consistency marking
+    //
+    // These tests verify that MirExpr::AssertConsistent exists as a
+    // pass-through wrapper that preserves the inner expression across
+    // the MIR boundary. They will fail to compile until the variant
+    // is added (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_mir_expr_assert_consistent() {
+        let e = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        assert_eq!(e.span(), span1());
+        if let MirExpr::AssertConsistent { expr, .. } = &e {
+            assert!(matches!(
+                expr.as_ref(),
+                MirExpr::Literal { value: MirLiteral::Int(42), .. }
+            ));
+        } else {
+            panic!("expected AssertConsistent variant");
+        }
     }
 }

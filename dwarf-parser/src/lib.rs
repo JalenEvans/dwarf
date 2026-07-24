@@ -780,6 +780,33 @@ impl Parser {
                     span,
                 })
             }
+            TokenKind::Ident(name) if name == "assert" => {
+                let name = name.clone();
+                let start = self.peek().span;
+                let saved = self.position;
+                // Check for assert.consistent(expr) special form via lookahead.
+                // Use self.tokens directly to avoid borrowing through self.peek()
+                if saved + 3 < self.tokens.len()
+                    && self.tokens[saved + 1].kind == TokenKind::Dot
+                    && self.tokens[saved + 2].kind == TokenKind::Ident("consistent".to_string())
+                    && self.tokens[saved + 3].kind == TokenKind::LParen
+                {
+                    self.advance(); // consume 'assert'
+                    self.advance(); // consume '.'
+                    self.advance(); // consume 'consistent'
+                    self.advance(); // consume '('
+                    let expr = self.parse_expression()?;
+                    self.consume(TokenKind::RParen, "expected ')' after assert.consistent expr")?;
+                    let end = self.previous().span.end;
+                    return Ok(Expr::AssertConsistent {
+                        expr: Box::new(expr),
+                        span: Span::new(start.file_id, start.start, end),
+                    });
+                }
+                // Not assert.consistent( — fall through to normal variable.
+                let span = self.advance().span;
+                Ok(Expr::Variable { name, span })
+            }
             TokenKind::Ident(name) => {
                 let name = name.clone();
                 let span = self.advance().span;
@@ -1831,6 +1858,131 @@ mod tests {
                 }
             }
             other => panic!("Expected TypeDef declaration, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // assert.consistent expression tests (DWARF-41)
+    //
+    // These tests verify that the parser can handle the
+    // `assert.consistent(expr)` construct, which marks an expression
+    // for cross-target consistency checking. They will fail to compile
+    // until Expr::AssertConsistent and the parser branch are implemented
+    // (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_assert_consistent() {
+        let tokens = tokenize("fn test() { assert.consistent(42) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                match expr.as_ref() {
+                                    Expr::Literal { value, .. } => {
+                                        assert_eq!(*value, LiteralValue::Int(42));
+                                    }
+                                    _ => panic!("Expected literal inside assert.consistent"),
+                                }
+                            }
+                            _ => panic!("Expected AssertConsistent expression"),
+                        }
+                    }
+                    _ => panic!("Expected block body"),
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_assert_consistent_with_expr() {
+        let tokens = tokenize("fn test() { assert.consistent(x + 1) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                // The inner expression should be x + 1 (a Binary Add)
+                                match expr.as_ref() {
+                                    Expr::Binary { op: BinaryOp::Add, lhs, rhs, .. } => {
+                                        match lhs.as_ref() {
+                                            Expr::Variable { name, .. } => {
+                                                assert_eq!(name, "x");
+                                            }
+                                            _ => panic!("Expected variable 'x' on LHS"),
+                                        }
+                                        match rhs.as_ref() {
+                                            Expr::Literal { value, .. } => {
+                                                assert_eq!(*value, LiteralValue::Int(1));
+                                            }
+                                            _ => panic!("Expected literal 1 on RHS"),
+                                        }
+                                    }
+                                    _ => panic!("Expected binary expression inside assert.consistent"),
+                                }
+                            }
+                            _ => panic!("Expected AssertConsistent expression"),
+                        }
+                    }
+                    _ => panic!("Expected block body"),
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_assert_consistent_in_diff_suite() {
+        let tokens = tokenize("@Diff(\"ts\") fn test() { assert.consistent(result) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        // The @Diff decorator wraps the function declaration
+        match &program[0] {
+            Decl::Decorator { name, target, .. } => {
+                assert_eq!(name, "Diff");
+                match target.as_ref() {
+                    Decl::Function { name: fn_name, body, .. } => {
+                        assert_eq!(fn_name, "test");
+                        match body {
+                            Expr::Block { stmts, .. } => {
+                                assert_eq!(stmts.len(), 1);
+                                match &stmts[0] {
+                                    Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                        match expr.as_ref() {
+                                            Expr::Variable { name, .. } => {
+                                                assert_eq!(name, "result");
+                                            }
+                                            _ => panic!("Expected variable reference inside assert.consistent"),
+                                        }
+                                    }
+                                    _ => panic!("Expected AssertConsistent expression"),
+                                }
+                            }
+                            _ => panic!("Expected block body"),
+                        }
+                    }
+                    _ => panic!("Expected function target"),
+                }
+            }
+            _ => panic!("Expected decorator declaration"),
         }
     }
 }

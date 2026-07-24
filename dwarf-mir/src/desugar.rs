@@ -329,6 +329,11 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             property: Box::new(desugar_pipe(property)),
             span: *span,
         },
+
+        Expr::AssertConsistent { expr, span } => MirExpr::AssertConsistent {
+            expr: Box::new(desugar_pipe(expr)),
+            span: *span,
+        },
     }
 }
 
@@ -2426,5 +2431,36 @@ mod tests {
             }
             other => panic!("Expected MirDecl::Function, got {other:?}"),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // assert.consistent desugaring tests (DWARF-41)
+    //
+    // These tests verify that desugar_pipe correctly handles
+    // Expr::AssertConsistent by wrapping the desugared inner expression
+    // in MirExpr::AssertConsistent. They will fail to compile until
+    // both Expr::AssertConsistent and MirExpr::AssertConsistent are
+    // implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_desugar_assert_consistent_passthrough() {
+        let s = span();
+        let input = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            }),
+            span: s,
+        };
+        let result = desugar_pipe(&input);
+        let expected = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: s,
+            }),
+            span: s,
+        };
+        assert_eq!(result, expected);
     }
 }
