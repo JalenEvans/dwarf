@@ -4,6 +4,8 @@
 //! MIR → LIR → emitter) into a reusable library API. It also handles
 //! project configuration via `dwarf.conf.json`.
 
+mod pipeline;
+
 /// The main entry point for the Dwarf compiler.
 ///
 /// Orchestrates the full compilation pipeline and returns emitted output
@@ -34,8 +36,69 @@ impl DwarfCompiler {
         filename: &str,
         options: CompileOptions,
     ) -> Result<CompileResult, Vec<DwarfError>> {
-        let _ = (source, filename, options);
-        todo!("implement compile() in Phase 1")
+        // Run the pipeline
+        let (lir, mut diagnostics) = match pipeline::run_pipeline(source, filename, &options) {
+            Ok(result) => result,
+            Err(msg) => {
+                return Err(vec![DwarfError::Compilation(vec![Diagnostic {
+                    code: "DWARF-E-PIPE-0001".to_string(),
+                    severity: Severity::Error,
+                    message: msg,
+                    file: Some(filename.to_string()),
+                    line: None,
+                    col: None,
+                }])]);
+            }
+        };
+
+        // Select backend
+        let mut backend = match pipeline::select_backend(&options.target) {
+            Ok(b) => b,
+            Err(msg) => {
+                diagnostics.push(Diagnostic {
+                    code: "DWARF-E-EMIT-0002".to_string(),
+                    severity: Severity::Error,
+                    message: msg,
+                    file: Some(filename.to_string()),
+                    line: None,
+                    col: None,
+                });
+                // Return what we have so far — diagnostics include the error
+                return Ok(CompileResult {
+                    output: String::new(),
+                    diagnostics,
+                    output_extension: "txt".to_string(),
+                });
+            }
+        };
+
+        // Emit
+        let output = match backend.emit_module(&lir) {
+            Ok(out) => out,
+            Err(e) => {
+                diagnostics.push(Diagnostic {
+                    code: "DWARF-E-EMIT-0001".to_string(),
+                    severity: Severity::Error,
+                    message: format!("Emission failed: {}", e),
+                    file: Some(filename.to_string()),
+                    line: None,
+                    col: None,
+                });
+                String::new()
+            }
+        };
+
+        let ext = match options.target.as_str() {
+            "ts" => "ts",
+            "debug" => "txt",
+            _ => "txt",
+        };
+
+        Ok(CompileResult {
+            output,
+            diagnostics,
+            output_extension: ext.to_string(),
+        })
     }
 }
 

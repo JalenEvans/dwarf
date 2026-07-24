@@ -239,7 +239,8 @@ impl Parser {
         Ok(names)
     }
 
-    /// Parse a function declaration: `fn name(params) -> ret { body }`.
+    /// Parse a function declaration: `fn name(params) -> ret { body }`
+    /// or `fn name(params) -> ret = expr`.
     fn parse_function(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
         let fn_start = self.advance().span; // consume `fn`
         let name = self.consume_ident("expected function name")?;
@@ -254,7 +255,12 @@ impl Parser {
             None
         };
 
-        let body = self.parse_block()?;
+        // Support both `= expr` and `{ stmts }` function bodies
+        let body = if self.match_token(TokenKind::Eq) {
+            self.parse_expression()?
+        } else {
+            self.parse_block()?
+        };
 
         Ok(Decl::Function {
             name,
