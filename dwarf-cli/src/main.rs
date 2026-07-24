@@ -127,6 +127,10 @@ enum Commands {
         #[arg(long)]
         pretty: bool,
 
+        /// Generate source maps (.map files) alongside output
+        #[arg(long)]
+        source_map: bool,
+
         /// Comma-separated list of passes to run
         #[arg(long)]
         passes: Option<String>,
@@ -187,10 +191,19 @@ fn main() {
             target,
             out_dir,
             pretty,
+            source_map,
             passes,
             skip_passes,
         }) => {
-            build::run_build(files, target, out_dir, pretty, passes, skip_passes);
+            build::run_build(
+                files,
+                target,
+                out_dir,
+                pretty,
+                source_map,
+                passes,
+                skip_passes,
+            );
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");

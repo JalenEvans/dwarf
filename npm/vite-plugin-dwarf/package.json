@@ -1,0 +1,16 @@
+{
+  "name": "vite-plugin-dwarf",
+  "version": "0.1.0",
+  "description": "Vite plugin for Dwarf compiler — compile .kzd files with HMR and source maps",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "keywords": ["vite", "plugin", "dwarf", "compiler", "wasm"],
+  "license": "MIT",
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0"
+  },
+  "optionalDependencies": {
+    "@dwarf/compiler": "^0.1.0",
+    "@dwarf/compiler-wasm": "^0.1.0"
+  }
+}
