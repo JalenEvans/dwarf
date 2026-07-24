@@ -70,6 +70,13 @@ pub enum Pat {
 
 // ---- Types ----
 
+/// A constraint on a refined type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RefConstraint {
+    /// Range constraint: min..max (inclusive)
+    Range { min: i64, max: i64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
     Named(String),
@@ -82,6 +89,12 @@ pub enum Type {
     Generic {
         base: String,
         args: Vec<Type>,
+    },
+    /// A refinement of a base type with a constraint.
+    /// e.g., `Int(0..100)` → Type::Refined { base: Box::new(Type::Named("Int")), constraint: RefConstraint::Range { min: 0, max: 100 } }
+    Refined {
+        base: Box<Type>,
+        constraint: RefConstraint,
     },
 }
 
@@ -278,4 +291,144 @@ pub enum Decl {
         is_pub: bool,
         span: Span,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // Refinement type tests (DWARF-38: Edge Case Generator)
+    //
+    // These tests specify the expected shape of Type::Refined and
+    // RefConstraint once they are implemented. They will fail to compile
+    // until both are added (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_hir_refined_type_construction() {
+        let refined = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        assert_eq!(
+            refined,
+            Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 100 },
+            }
+        );
+    }
+
+    #[test]
+    fn test_hir_refined_type_partial_eq() {
+        let a = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        let b = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        let c = Type::Refined {
+            base: Box::new(Type::Named("String".to_string())),
+            constraint: RefConstraint::Range { min: 1, max: 50 },
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(
+            a,
+            Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 200 },
+            }
+        );
+    }
+
+    #[test]
+    fn test_ref_constraint_range_values() {
+        let constraint = RefConstraint::Range { min: 0, max: 100 };
+        assert_eq!(
+            constraint,
+            RefConstraint::Range { min: 0, max: 100 }
+        );
+        assert_ne!(
+            constraint,
+            RefConstraint::Range { min: 0, max: 50 }
+        );
+        assert_ne!(
+            constraint,
+            RefConstraint::Range { min: 1, max: 100 }
+        );
+    }
+
+    #[test]
+    fn test_ref_constraint_negative_range() {
+        let constraint = RefConstraint::Range {
+            min: -10,
+            max: 10,
+        };
+        assert_eq!(
+            constraint,
+            RefConstraint::Range {
+                min: -10,
+                max: 10
+            }
+        );
+    }
+
+    #[test]
+    fn test_refined_type_clone() {
+        let refined = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        assert_eq!(refined, refined.clone());
+    }
+
+    #[test]
+    fn test_refined_type_debug() {
+        let refined = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        let s = format!("{refined:?}");
+        assert!(!s.is_empty(), "Debug output should not be empty");
+    }
+
+    #[test]
+    fn test_refined_type_serde_roundtrip() {
+        let original = Type::Refined {
+            base: Box::new(Type::Named("Int".to_string())),
+            constraint: RefConstraint::Range { min: 0, max: 100 },
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let deserialized: Type = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_refined_type_in_record() {
+        // Type::Record containing a Type::Refined field
+        let record = Type::Record(vec![(
+            "age".to_string(),
+            Box::new(Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 150 },
+            }),
+        )]);
+        if let Type::Record(fields) = &record {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].0, "age");
+            assert_eq!(
+                *fields[0].1,
+                Type::Refined {
+                    base: Box::new(Type::Named("Int".to_string())),
+                    constraint: RefConstraint::Range { min: 0, max: 150 },
+                }
+            );
+        } else {
+            panic!("Expected Record variant");
+        }
+    }
 }

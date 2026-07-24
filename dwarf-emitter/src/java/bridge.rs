@@ -191,6 +191,7 @@ mod tests {
                     let a: Vec<String> = args.iter().map(|t| self.map_type(t)).collect();
                     format!("{}<{}>", base, a.join(","))
                 }
+                Type::Refined { base, .. } => self.map_type(base),
             }
         }
     }

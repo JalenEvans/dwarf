@@ -11,7 +11,7 @@ use dwarf_lir::{
     Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
     LirUnaryOp, LirVariant, TargetHint,
 };
-use dwarf_syntax::hir::Type;
+use dwarf_syntax::hir::{RefConstraint, Type};
 use dwarf_syntax::span::Span;
 
 // ------------------------------------------------------------------
@@ -315,6 +315,14 @@ impl EmitterBackend for MockBackend {
                 let args_str: Vec<String> =
                     args.iter().map(|a| self.emit_type(a).unwrap()).collect();
                 Ok(format!("{base}<{}>", args_str.join(", ")))
+            }
+            Type::Refined { base, constraint } => {
+                let base_str = self.emit_type(base)?;
+                match constraint {
+                    RefConstraint::Range { min, max } => {
+                        Ok(format!("{base_str}({min}..{max})"))
+                    }
+                }
             }
         }
     }

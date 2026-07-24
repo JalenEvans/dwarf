@@ -272,6 +272,7 @@ pub struct MirVariant {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use dwarf_syntax::hir::RefConstraint;
     use dwarf_syntax::hir::Type;
     use dwarf_syntax::span::Span;
 
@@ -1349,5 +1350,103 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize");
         let deserialized: MirArm = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, deserialized);
+    }
+
+    // ------------------------------------------------------------------
+    // Refinement type through MIR (DWARF-38: Edge Case Generator)
+    //
+    // These tests verify that Type::Refined and RefConstraint are
+    // accessible in the MIR crate (which reuses dwarf_syntax::hir::Type).
+    // They will fail to compile until the HIR types are added.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_refined_type_flows_through_mir() {
+        // Verify that a Type::Refined can be used in a MirDecl::TypeDef.
+        // This validates that refined types survive the MIR boundary.
+        let decl = MirDecl::TypeDef {
+            name: "MyInt".into(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 100 },
+            },
+            is_pub: true,
+            span: span1(),
+        };
+        match &decl {
+            MirDecl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyInt");
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected TypeDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_refined_type_in_mir_forall() {
+        // Verify that a refined type can appear in a forAll expression's
+        // type position in the MIR. This exercises the Type::Refined
+        // variant in MIR expression nodes.
+        let expr = MirExpr::ForAll {
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 100 },
+            },
+            binding: MirPat::Variable("x".into()),
+            property: Box::new(MirExpr::Binary {
+                op: MirBinaryOp::Gt,
+                lhs: Box::new(MirExpr::Variable {
+                    name: "x".into(),
+                    span: span1(),
+                }),
+                rhs: Box::new(MirExpr::Literal {
+                    value: MirLiteral::Int(0),
+                    span: span1(),
+                }),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        match &expr {
+            MirExpr::ForAll { type_, binding, .. } => {
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+                assert_eq!(*binding, MirPat::Variable("x".into()));
+            }
+            other => panic!("Expected ForAll expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_refined_type_in_mir_field() {
+        // Verify that a refined type can appear in a record field type
+        // within the MIR. Refined types should not be lost when lowering
+        // records from HIR to MIR.
+        let field = MirField {
+            name: "age".into(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 150 },
+            },
+        };
+        assert_eq!(field.name, "age");
+        assert_eq!(
+            field.type_,
+            Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 150 },
+            }
+        );
     }
 }

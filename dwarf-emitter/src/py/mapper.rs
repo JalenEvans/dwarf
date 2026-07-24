@@ -51,6 +51,7 @@ impl TypeMapper for PythonMapper {
                 let args_str: Vec<String> = args.iter().map(|a| self.map_type(a)).collect();
                 format!("{}[{}]", base, args_str.join(", "))
             }
+            Type::Refined { base, .. } => self.map_type(base),
         }
     }
 }

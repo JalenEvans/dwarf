@@ -88,6 +88,7 @@ fn resolve_hir_type_param(hir_type: &HirType) -> Result<TypeId, String> {
         HirType::Func { .. } => {
             Err("function types are not supported in parameter annotations".to_string())
         }
+        HirType::Refined { base, .. } => resolve_hir_type_param(base),
     }
 }
 

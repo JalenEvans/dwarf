@@ -15,7 +15,7 @@
 use dwarf_lir::{
     Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, LirUnaryOp, TargetHint,
 };
-use dwarf_syntax::hir::Type;
+use dwarf_syntax::hir::{RefConstraint, Type};
 
 use crate::backend::EmitterBackend;
 use crate::error::EmitterError;
@@ -334,6 +334,14 @@ impl EmitterBackend for DebugBackend {
                     .map(|a| self.emit_type(a))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("{base}<{}>", args_str.join(", ")))
+            }
+            Type::Refined { base, constraint } => {
+                let base_str = self.emit_type(base)?;
+                match constraint {
+                    RefConstraint::Range { min, max } => {
+                        Ok(format!("{base_str}({min}..{max})"))
+                    }
+                }
             }
         }
     }

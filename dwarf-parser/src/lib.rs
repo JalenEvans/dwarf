@@ -340,18 +340,36 @@ impl Parser {
         }
         pos += 1;
 
-        // If the first identifier is immediately followed by `(` or `{`,
+        // If the first identifier is immediately followed by `{`,
         // it is definitely a union variant (even single-variant unions).
+        // If followed by `(`, check whether it could be a refinement type
+        // (Int(0..100)) rather than a variant payload (Some(Int)).
         if pos < self.tokens.len() {
             match &self.tokens[pos].kind {
-                TokenKind::LParen => return true,
+                TokenKind::LParen => {
+                    // Could be a refinement: Type(int..int)
+                    // Check if the tokens inside parens look like a refinement range.
+                    // If so, let parse_type() handle it; otherwise treat as union.
+                    if pos + 4 < self.tokens.len() {
+                        let is_refinement = matches!(&self.tokens[pos + 1].kind, TokenKind::Int(_))
+                            && self.tokens[pos + 2].kind == TokenKind::DotDot
+                            && matches!(&self.tokens[pos + 3].kind, TokenKind::Int(_))
+                            && self.tokens[pos + 4].kind == TokenKind::RParen;
+                        if !is_refinement {
+                            return true;
+                        }
+                        // Looks like a refinement — fall through to check for `|`
+                    } else {
+                        return true;
+                    }
+                }
                 TokenKind::LBrace => return true,
                 _ => {}
             }
         }
 
-        // No paren/brace payload on the first identifier.  Scan forward to
-        // see if there is a `|` (indicating at least a second variant).
+        // No paren/brace payload on the first identifier (or it was a refinement).
+        // Scan forward to see if there is a `|` (indicating at least a second variant).
         // But only treat this as a union definition if the first identifier
         // starts with uppercase — union variant names start uppercase,
         // while bare type names in union type aliases are lowercase.
@@ -1087,6 +1105,15 @@ impl Parser {
         // Simple named type, possibly with generics and/or union suffix.
         let name = self.consume_ident("expected type name")?;
 
+        // Try refinement type: Name(min..max)
+        if let Some(result) = self.try_parse_refinement(name.clone()) {
+            let refined = result?;
+            // Refined types can also have union suffix: Int(0..100) | Null
+            let result = self.parse_union_suffix(refined);
+            self.depth -= 1;
+            return result;
+        }
+
         // Generic args: Type<T>
         if self.match_token(TokenKind::Lt) {
             let mut args = Vec::new();
@@ -1123,6 +1150,57 @@ impl Parser {
             }
         }
         Ok(Type::Union(types))
+    }
+
+    /// Try to parse a refinement type: Name(min..max)
+    /// Returns None if the next tokens don't form a valid refinement,
+    /// allowing the caller to fall through to other type forms.
+    fn try_parse_refinement(&mut self, base_name: String) -> Option<Result<Type, ParseError>> {
+        let save = self.position;
+
+        if !self.check(TokenKind::LParen) {
+            return None;
+        }
+        self.advance(); // consume (
+
+        // Expect int
+        let min = match &self.peek().kind {
+            TokenKind::Int(v) => *v,
+            _ => {
+                self.position = save;
+                return None;
+            }
+        };
+        self.advance();
+
+        // Expect ..
+        if !self.check(TokenKind::DotDot) {
+            self.position = save;
+            return None;
+        }
+        self.advance();
+
+        // Expect int
+        let max = match &self.peek().kind {
+            TokenKind::Int(v) => *v,
+            _ => {
+                self.position = save;
+                return None;
+            }
+        };
+        self.advance();
+
+        // Expect )
+        if !self.check(TokenKind::RParen) {
+            self.position = save;
+            return None;
+        }
+        self.advance();
+
+        Some(Ok(Type::Refined {
+            base: Box::new(Type::Named(base_name)),
+            constraint: RefConstraint::Range { min, max },
+        }))
     }
 
     /// Parse a record type: `{ name: Type, ... }`.
@@ -1601,6 +1679,158 @@ mod tests {
                 }
             }
             other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Refinement type parsing tests (DWARF-38: Edge Case Generator)
+    //
+    // These tests verify that the parser can parse refined types like
+    // Int(0..100). They will fail to compile until TokenKind::DotDot,
+    // Type::Refined, and RefConstraint are implemented, and will fail at
+    // runtime until the lexer and parser are updated to handle `..` and
+    // refinement syntax (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_refined_int_range() {
+        // Parsing a type alias with a refined type:
+        //   type MyInt = Int(0..100)
+        //
+        // The type alias value should be Type::Refined { base: Int, constraint: Range { 0, 100 } }
+        let tokens = tokenize("type MyInt = Int(0..100)");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyInt");
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected TypeDef declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_in_fn() {
+        // Parsing a function with refined param and return types:
+        //   fn test(x: Int(0..100)) -> Int(0..100) { x }
+        //
+        // The param type and return type should both be Type::Refined.
+        let tokens = tokenize("fn test(x: Int(0..100)) -> Int(0..100) { x }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                assert_eq!(name, "test");
+                assert_eq!(params.len(), 1);
+
+                // Check param type
+                let param_type = params[0]
+                    .type_
+                    .as_ref()
+                    .expect("param should have a type annotation");
+                assert_eq!(
+                    *param_type,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+
+                // Check return type
+                let ret = return_type.as_ref().expect("should have return type");
+                assert_eq!(
+                    *ret,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected Function declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_in_record() {
+        // Parsing a record definition with refined field types:
+        //   type Person = { age: Int(0..150), name: String(1..100) }
+        //
+        // Both fields should use refined types.
+        let tokens = tokenize("type Person = { age: Int(0..150), name: String(1..100) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::RecordDef { name, fields, .. } => {
+                assert_eq!(name, "Person");
+                assert_eq!(fields.len(), 2);
+
+                // age field: Int(0..150)
+                assert_eq!(fields[0].name, "age");
+                assert_eq!(
+                    fields[0].type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 150 },
+                    }
+                );
+
+                // name field: String(1..100)
+                assert_eq!(fields[1].name, "name");
+                assert_eq!(
+                    fields[1].type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("String".to_string())),
+                        constraint: RefConstraint::Range { min: 1, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected RecordDef declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_disjoint_from_func_type() {
+        // Verify that (Int, Int) -> Int still parses as a function type,
+        // not a refinement. Function types start with '(' and have '->',
+        // while refinements are TypeIdent(literal..literal). These should
+        // not interfere with each other.
+        let tokens = tokenize("type MyFn = (Int, Int) -> Int");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyFn");
+                match type_ {
+                    Type::Func { params, return_ } => {
+                        assert_eq!(params.len(), 2);
+                        assert_eq!(params[0], Type::Named("Int".to_string()));
+                        assert_eq!(params[1], Type::Named("Int".to_string()));
+                        assert_eq!(*return_.as_ref(), Type::Named("Int".to_string()));
+                    }
+                    other => panic!("Expected Func type, got {other:?}"),
+                }
+            }
+            other => panic!("Expected TypeDef declaration, got {other:?}"),
         }
     }
 }
