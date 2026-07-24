@@ -162,6 +162,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwarf-lib"
+version = "0.1.0"
+dependencies = [
+ "dwarf-emitter",
+ "dwarf-lexer",
+ "dwarf-lir",
+ "dwarf-mir",
+ "dwarf-parser",
+ "dwarf-syntax",
+ "dwarf-typecheck",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dwarf-lir"
 version = "0.1.0"
 dependencies = [
