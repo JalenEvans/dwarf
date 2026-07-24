@@ -42,7 +42,7 @@ impl TypeMapper for JavaMapper {
                     if params_str.len() == 1 {
                         params_str[0].clone()
                     } else {
-                        format!("Object[]")
+                        "Object[]".to_string()
                     },
                     self.map_type(return_)
                 )
