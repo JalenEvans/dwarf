@@ -262,6 +262,7 @@ pub enum LirDecl {
         effect: Effect,
         hint: TargetHint,
         is_pub: bool,
+        is_generator: bool,
         span: Span,
     },
     RecordDef {
@@ -1282,6 +1283,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         if let LirDecl::Function {
@@ -1315,6 +1317,7 @@ mod tests {
             effect: Effect::Async,
             hint: TargetHint::Async,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         if let LirDecl::Function { effect, hint, .. } = &decl {
@@ -1389,6 +1392,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         assert_eq!(decl, decl.clone());
@@ -1408,6 +1412,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         let s = format!("{decl:?}");
@@ -1584,6 +1589,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let json = serde_json::to_string(&original).expect("serialize");

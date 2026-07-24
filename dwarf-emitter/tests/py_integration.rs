@@ -108,6 +108,7 @@ fn test_py_simple_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -126,6 +127,7 @@ fn test_py_private_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -154,6 +156,7 @@ fn test_py_function_with_params() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -173,6 +176,7 @@ fn test_py_function_with_return_type() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -248,6 +252,7 @@ fn test_py_literal_int() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -264,6 +269,7 @@ fn test_py_literal_float() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -280,6 +286,7 @@ fn test_py_literal_str() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -296,6 +303,7 @@ fn test_py_literal_bool() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_true = emit_program(vec![decl_true]);
@@ -309,6 +317,7 @@ fn test_py_literal_bool() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_false = emit_program(vec![decl_false]);
@@ -325,6 +334,7 @@ fn test_py_literal_null() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -341,6 +351,7 @@ fn test_py_variable() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -370,6 +381,7 @@ fn test_py_binary_arithmetic() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -395,6 +407,7 @@ fn test_py_binary_sub() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -417,6 +430,7 @@ fn test_py_binary_mul() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -439,6 +453,7 @@ fn test_py_binary_div() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -461,6 +476,7 @@ fn test_py_binary_eq() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -483,6 +499,7 @@ fn test_py_binary_ne() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -505,6 +522,7 @@ fn test_py_binary_lt_gt() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -524,6 +542,7 @@ fn test_py_binary_lt_gt() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_gt = emit_program(vec![decl_gt]);
@@ -546,6 +565,7 @@ fn test_py_binary_le_ge() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -568,6 +588,7 @@ fn test_py_binary_and_or() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -587,6 +608,7 @@ fn test_py_binary_and_or() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_or = emit_program(vec![decl_or]);
@@ -608,6 +630,7 @@ fn test_py_unary_neg() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -629,6 +652,7 @@ fn test_py_unary_not() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -664,6 +688,7 @@ fn test_py_if_else_ternary() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -686,6 +711,7 @@ fn test_py_call_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -719,6 +745,7 @@ fn test_py_lambda() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -743,6 +770,7 @@ fn test_py_record_expr() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -770,6 +798,7 @@ fn test_py_array_expr() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -805,6 +834,7 @@ fn test_py_block_with_let() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -848,6 +878,7 @@ fn test_py_match_ternary() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -877,6 +908,7 @@ fn test_py_pattern_wildcard() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -902,6 +934,7 @@ fn test_py_pattern_variable() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -925,6 +958,7 @@ fn test_py_async_function() {
         effect: Effect::Async,
         hint: TargetHint::Async,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -954,6 +988,7 @@ fn test_py_module_header() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -989,6 +1024,7 @@ fn test_py_mixed_module() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let union_decl = LirDecl::UnionDef {
@@ -1045,6 +1081,7 @@ fn test_py_member_call() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1089,6 +1126,7 @@ fn test_py_lambda_call() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1116,6 +1154,7 @@ fn test_py_function_no_params() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1135,6 +1174,7 @@ fn test_py_no_trailing_whitespace() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);

@@ -342,6 +342,7 @@ mod tests {
             return_type: None,
             body,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         }
     }

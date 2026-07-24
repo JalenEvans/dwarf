@@ -116,6 +116,7 @@ fn test_java_simple_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -140,6 +141,7 @@ fn test_java_private_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -167,6 +169,7 @@ fn test_java_function_with_params() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -199,6 +202,7 @@ fn test_java_function_with_return_type() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -222,6 +226,7 @@ fn test_java_function_multi_param() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -355,6 +360,7 @@ fn test_java_literal_int() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -371,6 +377,7 @@ fn test_java_literal_float() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -387,6 +394,7 @@ fn test_java_literal_str() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -407,6 +415,7 @@ fn test_java_literal_bool() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_true = emit_program(vec![decl_true]);
@@ -423,6 +432,7 @@ fn test_java_literal_bool() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_false = emit_program(vec![decl_false]);
@@ -442,6 +452,7 @@ fn test_java_literal_null() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -461,6 +472,7 @@ fn test_java_variable() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -494,6 +506,7 @@ fn test_java_binary_arithmetic() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl_add]);
@@ -516,6 +529,7 @@ fn test_java_binary_sub() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -538,6 +552,7 @@ fn test_java_binary_mul() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -560,6 +575,7 @@ fn test_java_binary_div() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -583,6 +599,7 @@ fn test_java_binary_comparison() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl_eq]);
@@ -602,6 +619,7 @@ fn test_java_binary_comparison() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_ne = emit_program(vec![decl_ne]);
@@ -624,6 +642,7 @@ fn test_java_binary_lt_gt() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl_lt]);
@@ -643,6 +662,7 @@ fn test_java_binary_lt_gt() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_gt = emit_program(vec![decl_gt]);
@@ -668,6 +688,7 @@ fn test_java_binary_le_ge() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl_le]);
@@ -693,6 +714,7 @@ fn test_java_binary_and_or() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl_and]);
@@ -712,6 +734,7 @@ fn test_java_binary_and_or() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result_or = emit_program(vec![decl_or]);
@@ -733,6 +756,7 @@ fn test_java_unary_neg() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -757,6 +781,7 @@ fn test_java_unary_not() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -793,6 +818,7 @@ fn test_java_if_else_ternary() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -822,6 +848,7 @@ fn test_java_call_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -856,6 +883,7 @@ fn test_java_lambda() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -878,6 +906,7 @@ fn test_java_record_expr() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -906,6 +935,7 @@ fn test_java_array_expr() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -941,6 +971,7 @@ fn test_java_block_with_let() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -973,6 +1004,7 @@ fn test_java_member_access() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1002,6 +1034,7 @@ fn test_java_member_call() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1042,6 +1075,7 @@ fn test_java_match_ternary() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1071,6 +1105,7 @@ fn test_java_pattern_wildcard() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1098,6 +1133,7 @@ fn test_java_async_function() {
         effect: Effect::Async,
         hint: TargetHint::Async,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1123,6 +1159,7 @@ fn test_java_optional_hint() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1147,6 +1184,7 @@ fn test_java_module_header() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1182,6 +1220,7 @@ fn test_java_mixed_module() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let union_decl = LirDecl::UnionDef {
@@ -1231,6 +1270,7 @@ fn test_java_no_trailing_whitespace() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -1261,6 +1301,7 @@ fn test_java_generic_type() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);

@@ -76,6 +76,7 @@ fn test_forall_int_emits_fc_integer() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -109,6 +110,7 @@ fn test_forall_string_emits_fc_string() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -142,6 +144,7 @@ fn test_forall_bool_emits_fc_boolean() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -178,6 +181,7 @@ fn test_forall_list_int_emits_fc_array_integer() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);

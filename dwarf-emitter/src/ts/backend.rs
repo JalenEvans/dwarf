@@ -1711,6 +1711,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         assert_eq!(
@@ -1740,6 +1741,7 @@ mod tests {
             effect: Effect::Async,
             hint: TargetHint::Async,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -1830,6 +1832,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         assert_eq!(
@@ -1863,6 +1866,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1884,6 +1888,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let record_decl = LirDecl::RecordDef {
@@ -1921,6 +1926,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1946,6 +1952,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1972,6 +1979,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2015,6 +2023,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2071,6 +2080,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2112,6 +2122,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2138,6 +2149,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2262,6 +2274,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let priv_fn = LirDecl::Function {
@@ -2276,6 +2289,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[pub_fn, priv_fn]).unwrap();
@@ -2317,6 +2331,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2343,6 +2358,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2365,6 +2381,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2387,6 +2404,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2427,6 +2445,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();

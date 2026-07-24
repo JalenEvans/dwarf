@@ -33,6 +33,7 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 return_type,
                 body,
                 is_pub,
+                is_generator,
                 span,
             } => Some(LirDecl::Function {
                 name: name.clone(),
@@ -42,6 +43,7 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 effect: Effect::Pure,
                 hint: TargetHint::None,
                 is_pub: *is_pub,
+                is_generator: *is_generator,
                 span: *span,
             }),
             MirDecl::RecordDef {
@@ -328,6 +330,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let result = lower_to_lir(&[mir_fn]);

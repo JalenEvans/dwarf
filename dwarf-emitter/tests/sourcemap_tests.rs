@@ -112,6 +112,7 @@ fn test_emitter_produces_source_map() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: Span::new(0, 0, 16), // The full function
     }];
 

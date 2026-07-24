@@ -83,6 +83,7 @@ fn test_e2e_simple_function() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -115,6 +116,7 @@ fn test_e2e_function_with_params() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -210,6 +212,7 @@ fn test_e2e_match_ternary() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -233,6 +236,7 @@ fn test_e2e_react_component() {
         effect: Effect::Pure,
         hint: TargetHint::ReactComponent,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -271,6 +275,7 @@ fn test_e2e_mixed_module() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let union_decl = LirDecl::UnionDef {
@@ -325,6 +330,7 @@ fn test_e2e_async_function() {
         effect: Effect::Async,
         hint: TargetHint::Async,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -354,6 +360,7 @@ fn test_e2e_call_other_func() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -393,6 +400,7 @@ fn test_e2e_block_stmts() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -438,6 +446,7 @@ fn test_e2e_complex_expr() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -476,6 +485,7 @@ fn test_e2e_array_records() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -523,6 +533,7 @@ fn test_e2e_lambda_call() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -551,6 +562,7 @@ fn test_e2e_assert_eq() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -574,6 +586,7 @@ fn test_e2e_header_present() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -622,6 +635,7 @@ fn test_assert_equal_emits_expect_to_be() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -659,6 +673,7 @@ fn test_assert_ok_emits_expect_to_be_truthy() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -696,6 +711,7 @@ fn test_assert_error_emits_expect_to_throw() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -733,6 +749,7 @@ fn test_assert_struct_emits_expect_to_equal() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -764,6 +781,7 @@ fn test_assert_val_still_works() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -795,6 +813,7 @@ fn test_assert_eq_still_works() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);

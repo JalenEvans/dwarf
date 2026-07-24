@@ -1492,4 +1492,115 @@ mod tests {
             other => panic!("Expected decorator declaration, got {other:?}"),
         }
     }
+
+    // ------------------------------------------------------------------
+    // @gen decorator tests (DWARF-37: custom generator derivation)
+    //
+    // These tests verify that the parser handles `@gen(Type)` decorators
+    // that signal custom generator functions for property-based testing.
+    // The parser already supports `@name(args)` decorator syntax; these
+    // tests confirm that `@gen` specifically parses correctly with both
+    // function targets and forAll expression targets.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_gen_decorator_on_fn() {
+        // @gen(Color) fn gen_color() -> Color { pure_red() }
+        //
+        // A @gen decorator wrapping a function declaration. The decorator
+        // name should be "gen", the args should contain a reference to the
+        // Color type, and the target should be a function named "gen_color"
+        // with return type Color.
+        let tokens = tokenize("@gen(Color) fn gen_color() -> Color { pure_red() }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator {
+                name,
+                args,
+                target,
+                ..
+            } => {
+                assert_eq!(name, "gen", "decorator name should be 'gen'");
+                assert_eq!(args.len(), 1, "should have one type arg");
+                match &args[0] {
+                    Expr::Variable { name: type_name, .. } => {
+                        assert_eq!(type_name, "Color", "type arg should be 'Color'");
+                    }
+                    other => panic!("Expected type reference as Variable expr, got {other:?}"),
+                }
+                match target.as_ref() {
+                    Decl::Function {
+                        name: fn_name,
+                        return_type,
+                        ..
+                    } => {
+                        assert_eq!(fn_name, "gen_color", "function name should be 'gen_color'");
+                        assert!(
+                            return_type.as_ref().is_some_and(|t| *t == Type::Named("Color".to_string())),
+                            "function should return Color"
+                        );
+                    }
+                    other => panic!("Expected function target, got {other:?}"),
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_gen_decorator_on_forall_expr() {
+        // @gen(Int) forAll Int { x -> x > 0 }
+        //
+        // A @gen decorator applied to a forAll expression. The decorator
+        // wraps the synthetic function that wraps the forAll. The decorator
+        // name should be "gen", args should contain Int, and the target
+        // synthetic function should contain a ForAll expression in its body.
+        let tokens = tokenize("@gen(Int) forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator {
+                name,
+                args,
+                target,
+                ..
+            } => {
+                assert_eq!(name, "gen", "decorator name should be 'gen'");
+                assert_eq!(args.len(), 1, "should have one type arg");
+                match &args[0] {
+                    Expr::Variable { name: type_name, .. } => {
+                        assert_eq!(type_name, "Int", "type arg should be 'Int'");
+                    }
+                    other => panic!("Expected type reference as Variable expr, got {other:?}"),
+                }
+                match target.as_ref() {
+                    Decl::Function { body, .. } => {
+                        match body {
+                            Expr::ForAll {
+                                type_,
+                                binding,
+                                property,
+                                ..
+                            } => {
+                                assert_eq!(*type_, Type::Named("Int".to_string()));
+                                assert_eq!(*binding, Pat::Variable("x".to_string()));
+                                assert!(matches!(
+                                    property.as_ref(),
+                                    Expr::Binary { op: BinaryOp::Gt, .. }
+                                ));
+                            }
+                            other => panic!("Expected ForAll expression in target body, got {other:?}"),
+                        }
+                    }
+                    other => panic!("Expected synthetic function target, got {other:?}"),
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
 }

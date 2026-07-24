@@ -76,6 +76,7 @@ fn test_forall_int_emits_st_integers() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -109,6 +110,7 @@ fn test_forall_string_emits_st_text() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);
@@ -142,6 +144,7 @@ fn test_forall_bool_emits_st_booleans() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: s(),
     };
     let result = emit_program(vec![decl]);

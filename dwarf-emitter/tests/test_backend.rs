@@ -398,6 +398,7 @@ fn test_emit_module_single_func() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_module(&[decl]).unwrap();
@@ -429,6 +430,7 @@ fn test_emit_module_two_decls() {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: MockBackend::span(),
         },
     ];
@@ -477,6 +479,7 @@ fn test_emit_decl_func_public_pure() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -501,6 +504,7 @@ fn test_emit_decl_func_async_effect() {
         effect: Effect::Async,
         hint: TargetHint::Async,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -525,6 +529,7 @@ fn test_emit_decl_func_private() {
         effect: Effect::Impure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -1720,6 +1725,7 @@ fn test_always_fail_emit_decl() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl);
@@ -1844,6 +1850,7 @@ fn test_mock_backend_all_methods_return_ok() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     assert!(b.emit_decl(&decl).is_ok());

@@ -232,6 +232,7 @@ pub enum MirDecl {
         return_type: Option<Type>,
         body: MirExpr,
         is_pub: bool,
+        is_generator: bool,
         span: Span,
     },
     TypeDef {
@@ -1055,6 +1056,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         if let MirDecl::Function { name, is_pub, .. } = &decl {
@@ -1142,6 +1144,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         assert_eq!(decl, decl.clone());
@@ -1158,6 +1161,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         let s = format!("{decl:?}");
@@ -1310,6 +1314,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let json = serde_json::to_string(&original).expect("serialize");
