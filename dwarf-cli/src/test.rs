@@ -10,7 +10,6 @@ use dwarf_cli::runner::TsRunner;
 
 /// Run the test subcommand.
 pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
-    // Validate target
     if target != "ts" {
         eprintln!(
             "Error: Unsupported target '{}'. Supported targets: ts",
@@ -25,10 +24,8 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
 
-        // Compile to TypeScript
         match TsRunner::transpile_to_ts(file_path) {
             Ok(ts_code) => {
-                // Write to temp file for Jest
                 let temp_dir = match tempfile::TempDir::new() {
                     Ok(d) => d,
                     Err(e) => {
@@ -53,16 +50,22 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
                     continue;
                 }
 
-                // Create a minimal package.json for Jest
                 let pkg_path = temp_dir.path().join("package.json");
                 let pkg = r#"{"scripts":{"test":"jest"},"jest":{"testMatch":["**/*.test.ts"]}}"#;
-                let _ = std::fs::write(&pkg_path, pkg);
+                if let Err(e) = std::fs::write(&pkg_path, pkg) {
+                    results.push(TestResult {
+                        file: path_str.clone(),
+                        passed: false,
+                        message: format!("Cannot write package.json: {}", e),
+                    });
+                    all_passed = false;
+                    continue;
+                }
 
-                // Run Jest
                 let jest_output = std::process::Command::new("npx")
                     .arg("jest")
                     .arg("--json")
-                    .arg(ts_path.to_str().unwrap())
+                    .arg(ts_path.to_str().expect("temp path is valid UTF-8"))
                     .current_dir(temp_dir.path())
                     .output();
 
@@ -71,7 +74,6 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
                         let stdout = String::from_utf8_lossy(&output.stdout);
                         let stderr = String::from_utf8_lossy(&output.stderr);
 
-                        // Try to parse Jest JSON output
                         if let Ok(jest_json) = serde_json::from_str::<serde_json::Value>(&stdout) {
                             let success = jest_json
                                 .get("success")
@@ -90,7 +92,6 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
                                 all_passed = false;
                             }
                         } else {
-                            // Fallback: no JSON output
                             let passed = output.status.success();
                             results.push(TestResult {
                                 file: path_str,
@@ -127,7 +128,6 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
         }
     }
 
-    // Output results
     if json {
         let output = serde_json::json!({
             "ok": all_passed,
@@ -137,7 +137,10 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool) {
                 "message": r.message,
             })).collect::<Vec<_>>(),
         });
-        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).expect("JSON serialization should not fail")
+        );
     } else {
         for r in &results {
             let status = if r.passed { "PASS" } else { "FAIL" };
