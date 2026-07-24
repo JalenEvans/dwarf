@@ -258,3 +258,78 @@ fn test_compile_with_decorator() {
         result.diagnostics,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 6: @Test decorator compiles to it("name", ...)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_compile_test_decorator() {
+    let compiler = DwarfCompiler::new();
+    let options = default_options();
+
+    let result = expect_ok(compiler.compile(
+        "@Test\nfn my_test() { 42 }",
+        "test_decorator.dwarf",
+        options,
+    ));
+
+    // The emitted output should be non-empty.
+    assert!(!result.output.is_empty(), "output should not be empty");
+
+    // The @Test decorator desugars to `it("my_test", fn() { ... })`.
+    // The emitter should produce: it("my_test", ...)
+    assert!(
+        result.output.contains("it(\"my_test\""),
+        "output should contain it(\"my_test\"), got: {}",
+        result.output,
+    );
+
+    // Output should also contain a function-like wrapper for the test body.
+    assert!(
+        result.output.contains("=> 42") || result.output.contains("42"),
+        "output should contain the test body value '42', got: {}",
+        result.output,
+    );
+
+    // No errors or warnings for valid source.
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for @Test source, got: {:?}",
+        result.diagnostics,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: @Suite decorator compiles to describe("name", ...)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_compile_suite_decorator() {
+    let compiler = DwarfCompiler::new();
+    let options = default_options();
+
+    let result = expect_ok(compiler.compile(
+        "@Suite\nfn math_tests() { 42 }",
+        "suite_decorator.dwarf",
+        options,
+    ));
+
+    // The emitted output should be non-empty.
+    assert!(!result.output.is_empty(), "output should not be empty");
+
+    // The @Suite decorator desugars to `describe("math_tests", fn() { ... })`.
+    // The emitter should produce: describe("math_tests", ...)
+    assert!(
+        result.output.contains("describe(\"math_tests\""),
+        "output should contain describe(\"math_tests\"), got: {}",
+        result.output,
+    );
+
+    // No errors or warnings for valid source.
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for @Suite source, got: {:?}",
+        result.diagnostics,
+    );
+}
