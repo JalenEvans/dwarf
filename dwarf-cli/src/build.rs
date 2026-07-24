@@ -33,7 +33,10 @@ fn validate_output(target: &str, file_path: &Path) -> Result<(), String> {
     match target {
         "py" => {
             let output = process::Command::new("python3")
-                .args(["-c", &format!("import py_compile; py_compile.compile('{}')", path_str)])
+                .args([
+                    "-c",
+                    &format!("import py_compile; py_compile.compile('{}')", path_str),
+                ])
                 .output()
                 .map_err(|e| format!("Cannot run python3: {}", e))?;
 
@@ -333,13 +336,8 @@ mod tests {
     #[test]
     fn test_build_cli_parse_comma_targets() {
         let cmd = crate::Cli::command();
-        let matches = cmd.try_get_matches_from([
-            "dwarf-cli",
-            "build",
-            "file.kzd",
-            "--target",
-            "ts,py,java",
-        ]);
+        let matches =
+            cmd.try_get_matches_from(["dwarf-cli", "build", "file.kzd", "--target", "ts,py,java"]);
         assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
 
         let matches = matches.unwrap();

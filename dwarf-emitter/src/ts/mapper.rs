@@ -2,8 +2,8 @@
 //!
 //! Maps Dwarf types to their TypeScript equivalents.
 
-use dwarf_syntax::hir::Type;
 use crate::types::TypeMapper;
+use dwarf_syntax::hir::Type;
 
 /// Default TypeScript implementation of [`TypeMapper`].
 ///

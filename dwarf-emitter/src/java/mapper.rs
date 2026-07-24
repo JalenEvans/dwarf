@@ -2,8 +2,8 @@
 //!
 //! Maps Dwarf types to their Java equivalents.
 
-use dwarf_syntax::hir::Type;
 use crate::types::TypeMapper;
+use dwarf_syntax::hir::Type;
 
 /// Java implementation of [`TypeMapper`].
 pub struct JavaMapper;
@@ -37,9 +37,15 @@ impl TypeMapper for JavaMapper {
             }
             Type::Func { params, return_ } => {
                 let params_str: Vec<String> = params.iter().map(|p| self.map_type(p)).collect();
-                format!("Function<{}, {}>", 
-                    if params_str.len() == 1 { params_str[0].clone() } else { format!("Object[]") }, 
-                    self.map_type(return_))
+                format!(
+                    "Function<{}, {}>",
+                    if params_str.len() == 1 {
+                        params_str[0].clone()
+                    } else {
+                        format!("Object[]")
+                    },
+                    self.map_type(return_)
+                )
             }
             Type::Generic { base, args } => {
                 let args_str: Vec<String> = args.iter().map(|a| self.map_type(a)).collect();

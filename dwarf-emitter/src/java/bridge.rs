@@ -9,10 +9,10 @@
 //! - **Records**: `Record_{Field1}_{Field2}` — field names are PascalCased
 //! - **Unions**: `Union_{Variant1}_{Variant2}` — variant type strings are PascalCased
 
-use std::collections::HashMap;
-use dwarf_syntax::hir::Type;
 use crate::naming;
 use crate::types::TypeMapper;
+use dwarf_syntax::hir::Type;
+use std::collections::HashMap;
 
 /// A key that uniquely identifies a structural type by its shape.
 ///
@@ -94,16 +94,9 @@ impl StructuralNominalBridge {
     ///
     /// Returns the generated Java sealed-interface name. The same variant
     /// types always return the same name.
-    pub fn register_union(
-        &mut self,
-        variants: &[Type],
-        type_mapper: &dyn TypeMapper,
-    ) -> String {
+    pub fn register_union(&mut self, variants: &[Type], type_mapper: &dyn TypeMapper) -> String {
         // Build the key from mapped variant type strings.
-        let variant_key: Vec<String> = variants
-            .iter()
-            .map(|ty| type_mapper.map_type(ty))
-            .collect();
+        let variant_key: Vec<String> = variants.iter().map(|ty| type_mapper.map_type(ty)).collect();
 
         let key = StructuralTypeKey::Union(variant_key);
 
@@ -167,9 +160,9 @@ impl Default for StructuralNominalBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dwarf_syntax::hir::Type;
     use crate::java::mapper::JavaMapper;
     use crate::types::TypeMapper;
+    use dwarf_syntax::hir::Type;
 
     /// Helper — a mapper that returns the debug representation of a type.
     /// Useful for tests where we want to verify type-string-based naming.
@@ -296,10 +289,7 @@ mod tests {
         assert!(name.contains("Items"));
 
         // Verify the key includes type information by checking the map directly.
-        let key = StructuralTypeKey::Record(vec![(
-            "items".to_string(),
-            "Array<int>".to_string(),
-        )]);
+        let key = StructuralTypeKey::Record(vec![("items".to_string(), "Array<int>".to_string())]);
         assert!(bridge.generated_types().contains_key(&key));
         assert_eq!(bridge.generated_types().get(&key), Some(&name));
     }
@@ -369,7 +359,7 @@ mod tests {
         // Union with type names that need PascalCase
         let mut bridge2 = StructuralNominalBridge::new();
         let variants = vec![
-            Type::Named("int".into()),   // lower-case
+            Type::Named("int".into()),    // lower-case
             Type::Named("string".into()), // lower-case
         ];
         let name2 = bridge2.register_union(&variants, &passthrough_mapper());
@@ -404,10 +394,7 @@ mod tests {
             ("x".to_string(), "int".to_string()),
             ("y".to_string(), "int".to_string()),
         ]);
-        let union_key = StructuralTypeKey::Union(vec![
-            "int".to_string(),
-            "String".to_string(),
-        ]);
+        let union_key = StructuralTypeKey::Union(vec!["int".to_string(), "String".to_string()]);
 
         assert!(map.contains_key(&rec_key));
         assert!(map.contains_key(&union_key));

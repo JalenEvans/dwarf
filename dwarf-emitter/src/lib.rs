@@ -14,5 +14,5 @@ pub mod types;
 
 pub mod ts;
 
-pub mod py;
 pub mod java;
+pub mod py;

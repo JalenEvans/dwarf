@@ -120,7 +120,10 @@ fn test_java_simple_function() {
     };
     let result = emit_program(vec![decl]);
     // Must emit a class wrapper with a static method
-    assert!(result.contains("public class Main"), "should contain class definition");
+    assert!(
+        result.contains("public class Main"),
+        "should contain class definition"
+    );
     assert!(result.contains("public static"), "method should be static");
     assert!(result.contains("main"), "should contain method name");
     assert!(result.contains("42"), "should contain the return value");
@@ -167,10 +170,22 @@ fn test_java_function_with_params() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(result.contains("int a"), "should contain parameter a with int type");
-    assert!(result.contains("int b"), "should contain parameter b with int type");
-    assert!(result.contains("add("), "should contain function name with parens");
-    assert!(result.contains("a + b") || result.contains("a+b"), "should contain add operation");
+    assert!(
+        result.contains("int a"),
+        "should contain parameter a with int type"
+    );
+    assert!(
+        result.contains("int b"),
+        "should contain parameter b with int type"
+    );
+    assert!(
+        result.contains("add("),
+        "should contain function name with parens"
+    );
+    assert!(
+        result.contains("a + b") || result.contains("a+b"),
+        "should contain add operation"
+    );
 }
 
 #[test]
@@ -212,8 +227,14 @@ fn test_java_function_multi_param() {
     let result = emit_program(vec![decl]);
     assert!(result.contains("double x"), "Float should map to double");
     assert!(result.contains("double y"), "Float should map to double");
-    assert!(result.contains("String label"), "String should stay as String");
-    assert!(result.contains("calculate("), "should contain method name with parens");
+    assert!(
+        result.contains("String label"),
+        "String should stay as String"
+    );
+    assert!(
+        result.contains("calculate("),
+        "should contain method name with parens"
+    );
 }
 
 // ==================================================================
@@ -239,10 +260,19 @@ fn test_java_record_def() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(result.contains("record"), "Java should emit `record` keyword");
+    assert!(
+        result.contains("record"),
+        "Java should emit `record` keyword"
+    );
     assert!(result.contains("Point"), "should contain record name");
-    assert!(result.contains("int x"), "should contain field x with int type");
-    assert!(result.contains("int y"), "should contain field y with int type");
+    assert!(
+        result.contains("int x"),
+        "should contain field x with int type"
+    );
+    assert!(
+        result.contains("int y"),
+        "should contain field y with int type"
+    );
 }
 
 #[test]
@@ -265,9 +295,15 @@ fn test_java_union_def() {
     };
     let result = emit_program(vec![decl]);
     assert!(result.contains("sealed"), "Java unions use sealed types");
-    assert!(result.contains("interface") || result.contains("class"), "sealed should be interface or class");
+    assert!(
+        result.contains("interface") || result.contains("class"),
+        "sealed should be interface or class"
+    );
     assert!(result.contains("Option"), "should contain union name");
-    assert!(result.contains("permits") || result.contains("Permits"), "sealed should have permits clause");
+    assert!(
+        result.contains("permits") || result.contains("Permits"),
+        "sealed should have permits clause"
+    );
     assert!(
         result.contains("Some") && (result.contains("None") || result.contains("Empty")),
         "should contain variant names"
@@ -293,12 +329,10 @@ fn test_java_union_single_variant() {
     // A union with a single variant.
     let decl = LirDecl::UnionDef {
         name: "Wrapper".into(),
-        variants: vec![
-            LirVariant {
-                name: "Value".into(),
-                arg: Some(Type::Named("Int".into())),
-            },
-        ],
+        variants: vec![LirVariant {
+            name: "Value".into(),
+            arg: Some(Type::Named("Int".into())),
+        }],
         is_pub: true,
         span: s(),
     };
@@ -376,7 +410,10 @@ fn test_java_literal_bool() {
         span: s(),
     };
     let result_true = emit_program(vec![decl_true]);
-    assert!(result_true.contains("true"), "Java bool true should be lowercase");
+    assert!(
+        result_true.contains("true"),
+        "Java bool true should be lowercase"
+    );
 
     let decl_false = LirDecl::Function {
         name: "main".into(),
@@ -389,7 +426,10 @@ fn test_java_literal_bool() {
         span: s(),
     };
     let result_false = emit_program(vec![decl_false]);
-    assert!(result_false.contains("false"), "Java bool false should be lowercase");
+    assert!(
+        result_false.contains("false"),
+        "Java bool false should be lowercase"
+    );
 }
 
 #[test]
@@ -424,7 +464,10 @@ fn test_java_variable() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(result.contains("x"), "variable reference should emit the name");
+    assert!(
+        result.contains("x"),
+        "variable reference should emit the name"
+    );
 }
 
 // ==================================================================
@@ -603,7 +646,10 @@ fn test_java_binary_lt_gt() {
         span: s(),
     };
     let result_gt = emit_program(vec![decl_gt]);
-    assert!(result_gt.contains("3 > 2"), "Java uses `>` for greater-than");
+    assert!(
+        result_gt.contains("3 > 2"),
+        "Java uses `>` for greater-than"
+    );
 }
 
 #[test]
@@ -625,7 +671,10 @@ fn test_java_binary_le_ge() {
         span: s(),
     };
     let result = emit_program(vec![decl_le]);
-    assert!(result.contains("1 <= 1"), "Java uses `<=` for less-or-equal");
+    assert!(
+        result.contains("1 <= 1"),
+        "Java uses `<=` for less-or-equal"
+    );
 }
 
 #[test]
@@ -711,10 +760,7 @@ fn test_java_unary_not() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(
-        result.contains("!"),
-        "Java uses `!` for logical NOT"
-    );
+    assert!(result.contains("!"), "Java uses `!` for logical NOT");
 }
 
 // ==================================================================
@@ -755,7 +801,10 @@ fn test_java_if_else_ternary() {
         result.contains("?") && result.contains(":"),
         "Java if/else should emit ternary with `?` and `:`"
     );
-    assert!(result.contains("a > b") || result.contains("a>b"), "should contain condition");
+    assert!(
+        result.contains("a > b") || result.contains("a>b"),
+        "should contain condition"
+    );
 }
 
 #[test]
@@ -776,7 +825,10 @@ fn test_java_call_function() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(result.contains("add(1, 2)") || result.contains("add(1,2)"), "should emit function call");
+    assert!(
+        result.contains("add(1, 2)") || result.contains("add(1,2)"),
+        "should emit function call"
+    );
 }
 
 #[test]
@@ -807,14 +859,8 @@ fn test_java_lambda() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(
-        result.contains("->"),
-        "Java lambdas use `->` syntax"
-    );
-    assert!(
-        result.contains("x"),
-        "lambda should reference parameter"
-    );
+    assert!(result.contains("->"), "Java lambdas use `->` syntax");
+    assert!(result.contains("x"), "lambda should reference parameter");
 }
 
 #[test]
@@ -825,10 +871,7 @@ fn test_java_record_expr() {
         params: vec![],
         return_type: None,
         body: LirExpr::Record {
-            fields: vec![
-                ("x".into(), int_lit(1)),
-                ("y".into(), int_lit(2)),
-            ],
+            fields: vec![("x".into(), int_lit(1)), ("y".into(), int_lit(2))],
             hint: no_hint(),
             span: s(),
         },
@@ -966,10 +1009,7 @@ fn test_java_member_call() {
         result.contains("obj.method"),
         "member access should use dot notation"
     );
-    assert!(
-        result.contains("42"),
-        "method call should pass arguments"
-    );
+    assert!(result.contains("42"), "method call should pass arguments");
 }
 
 // ==================================================================
@@ -1065,10 +1105,7 @@ fn test_java_async_function() {
         result.contains("CompletableFuture"),
         "async should use CompletableFuture"
     );
-    assert!(
-        result.contains("fetchData"),
-        "should contain function name"
-    );
+    assert!(result.contains("fetchData"), "should contain function name");
 }
 
 #[test]
@@ -1164,11 +1201,20 @@ fn test_java_mixed_module() {
     };
     let result = emit_program(vec![record_decl, func_decl, union_decl]);
     // Verify header
-    assert!(result.starts_with("// Generated by Dwarf"), "should start with Java header");
+    assert!(
+        result.starts_with("// Generated by Dwarf"),
+        "should start with Java header"
+    );
     // Verify all three declarations appear in order
     assert!(result.contains("Point"), "should contain Point");
-    assert!(result.contains("getOrigin") || result.contains("get_origin"), "should contain getOrigin function");
-    assert!(result.contains("Option") || result.contains("Union"), "should contain Option union type");
+    assert!(
+        result.contains("getOrigin") || result.contains("get_origin"),
+        "should contain getOrigin function"
+    );
+    assert!(
+        result.contains("Option") || result.contains("Union"),
+        "should contain Option union type"
+    );
 }
 
 // ==================================================================
@@ -1200,10 +1246,13 @@ fn test_java_generic_type() {
     // Test that generic types emit correctly
     let decl = LirDecl::Function {
         name: "process".into(),
-        params: vec![param("items", Some(Type::Generic {
-            base: "List".into(),
-            args: vec![Type::Named("String".into())],
-        }))],
+        params: vec![param(
+            "items",
+            Some(Type::Generic {
+                base: "List".into(),
+                args: vec![Type::Named("String".into())],
+            }),
+        )],
         return_type: Some(Type::Generic {
             base: "List".into(),
             args: vec![Type::Named("String".into())],
@@ -1215,14 +1264,8 @@ fn test_java_generic_type() {
         span: s(),
     };
     let result = emit_program(vec![decl]);
-    assert!(
-        result.contains("List<"),
-        "generics should use <> syntax"
-    );
-    assert!(
-        result.contains("String"),
-        "should reference String type"
-    );
+    assert!(result.contains("List<"), "generics should use <> syntax");
+    assert!(result.contains("String"), "should reference String type");
 }
 
 #[test]
