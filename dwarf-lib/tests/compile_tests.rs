@@ -225,3 +225,36 @@ fn multiple_compilations_reuse() {
         result2.diagnostics,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 5: Full-pipeline compilation with decorators (@Suite/@Test)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_compile_with_decorator() {
+    let compiler = DwarfCompiler::new();
+    let options = default_options();
+
+    let result = expect_ok(compiler.compile(
+        "@Test\nfn my_test() { 42 }",
+        "test_decorator.dwarf",
+        options,
+    ));
+
+    // The emitted output should be non-empty.
+    assert!(!result.output.is_empty(), "output should not be empty");
+
+    // Output should contain the function name from compilation.
+    assert!(
+        result.output.contains("my_test"),
+        "output should contain function name 'my_test', got: {}",
+        result.output,
+    );
+
+    // No errors or warnings for valid source.
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for valid decorated source, got: {:?}",
+        result.diagnostics,
+    );
+}
