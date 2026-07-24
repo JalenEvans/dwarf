@@ -101,6 +101,13 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                 name_map.insert(name_str.clone(), id);
                 user_name_map.insert(name_str, id);
             }
+            Decl::Decorator { target, .. } => {
+                // Recursively register types from the decorated target.
+                // This handles nested decorators as well (Decorator wrapping
+                // Decorator wrapping ... wrapping a function).
+                let inner_result = register_decls(registry, std::slice::from_ref(target.as_ref()));
+                user_name_map.extend(inner_result.name_map);
+            }
             _ => {}
         }
     }

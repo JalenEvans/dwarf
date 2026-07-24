@@ -126,6 +126,13 @@ impl TypeCheckPass {
                         ));
                     }
                 }
+            } else if let Decl::Decorator { target, .. } = decl {
+                // Recursively typecheck the decorator's target.
+                // This handles nested decorators (e.g. @A @B fn foo() { ... })
+                // since each Decorator's target is unwrapped and fed back
+                // into the same top-level loop via check().
+                let (_, inner_errors) = self.check(std::slice::from_ref(target.as_ref()));
+                errors.extend(inner_errors);
             }
         }
 
@@ -175,6 +182,148 @@ mod tests {
             errors.is_empty(),
             "Valid function should have no errors: {:?}",
             errors
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Decorator tests (DWARF-6: xUnit testing support)
+    //
+    // The parser produces Decl::Decorator to represent annotations like @Test.
+    // The typechecker must unwrap decorators to reach the inner function and
+    // typecheck its body. Currently the typechecker ignores Decl::Decorator
+    // entirely (falls through to `_ => {}`), so tests 2 and 3 FAIL — they
+    // demonstrate the bug.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    /// A decorator wrapping a valid function should pass typechecking (no errors).
+    /// The typechecker must recursively unwrap Decl::Decorator to reach
+    /// the inner Decl::Function and typecheck its body.
+    fn test_decorator_valid_function() {
+        let pass = TypeCheckPass::new();
+        let decls = vec![Decl::Decorator {
+            name: "Test".to_string(),
+            args: vec![],
+            target: Box::new(Decl::Function {
+                name: "my_test".to_string(),
+                params: vec![],
+                return_type: None,
+                body: Expr::Literal {
+                    value: LiteralValue::Int(42),
+                    span: dummy_span(),
+                },
+                is_pub: false,
+                span: dummy_span(),
+            }),
+            is_pub: false,
+            span: dummy_span(),
+        }];
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "Decorator wrapping a valid function should produce no errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// A decorator wrapping a function with type errors should report those errors.
+    /// Currently the typechecker ignores Decl::Decorator, so this test FAILS:
+    /// the inner function's body is never typechecked, the type error is missed,
+    /// and errors.is_empty() is true — but we assert !errors.is_empty().
+    fn test_decorator_type_error_in_body() {
+        let pass = TypeCheckPass::new();
+
+        // Function body with a type error: 1 + true (Int + Bool is invalid)
+        let body = Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        };
+
+        let decls = vec![Decl::Decorator {
+            name: "Test".to_string(),
+            args: vec![],
+            target: Box::new(Decl::Function {
+                name: "bad_test".to_string(),
+                params: vec![],
+                return_type: None,
+                body,
+                is_pub: false,
+                span: dummy_span(),
+            }),
+            is_pub: false,
+            span: dummy_span(),
+        }];
+
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            !errors.is_empty(),
+            "Decorator wrapping a function with type errors SHOULD report errors, \
+             but got none — the typechecker likely ignored the Decorator"
+        );
+    }
+
+    #[test]
+    /// Stacked (nested) decorators should recursively unwrap to reach the
+    /// innermost function and typecheck it. Currently fails because the
+    /// typechecker ignores all Decorator nodes.
+    fn test_decorator_nested() {
+        let pass = TypeCheckPass::new();
+
+        // Innermost function body with a type error: 1 + true
+        let body = Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        };
+
+        let inner_func = Decl::Function {
+            name: "bad_test".to_string(),
+            params: vec![],
+            return_type: None,
+            body,
+            is_pub: false,
+            span: dummy_span(),
+        };
+
+        // @B wraps the function
+        let decorator_b = Decl::Decorator {
+            name: "B".to_string(),
+            args: vec![],
+            target: Box::new(inner_func),
+            is_pub: false,
+            span: dummy_span(),
+        };
+
+        // @A wraps @B (stacked decorators: @A @B fn bad_test() { 1 + true })
+        let decls = vec![Decl::Decorator {
+            name: "A".to_string(),
+            args: vec![],
+            target: Box::new(decorator_b),
+            is_pub: false,
+            span: dummy_span(),
+        }];
+
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            !errors.is_empty(),
+            "Nested decorators wrapping a function with type errors SHOULD report \
+             errors, but got none — the typechecker likely ignored all Decorator nodes"
         );
     }
 }

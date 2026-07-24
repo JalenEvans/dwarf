@@ -8,6 +8,7 @@ mod check;
 mod dev;
 mod emit;
 mod run;
+mod test;
 
 #[derive(Parser)]
 #[command(
@@ -139,6 +140,21 @@ enum Commands {
         #[arg(long)]
         skip_passes: Option<String>,
     },
+
+    /// Compile and run tests with Jest
+    Test {
+        /// Source files to test (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Target language (e.g., "ts")
+        #[arg(long, short)]
+        target: String,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() {
@@ -204,6 +220,13 @@ fn main() {
                 passes,
                 skip_passes,
             );
+        }
+        Some(Commands::Test {
+            files,
+            target,
+            json,
+        }) => {
+            test::run_test(files, target, json);
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");

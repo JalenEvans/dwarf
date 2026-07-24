@@ -312,6 +312,32 @@ impl EmitterBackend for TypeScriptBackend {
                         }
                         _ => {} // fall through to regular call
                     }
+                } else if let LirExpr::Member { obj, field, .. } = func.as_ref() {
+                    if let LirExpr::Variable { name: obj_name, .. } = obj.as_ref() {
+                        if obj_name == "assert" {
+                            match (field.as_str(), args.len()) {
+                                ("equal", 2) => {
+                                    let a = self.emit_expr(&args[0])?;
+                                    let b = self.emit_expr(&args[1])?;
+                                    return Ok(format!("expect({}).toBe({})", a, b));
+                                }
+                                ("ok", 1) => {
+                                    let val = self.emit_expr(&args[0])?;
+                                    return Ok(format!("expect({}).toBeTruthy()", val));
+                                }
+                                ("error", 1) => {
+                                    let fn_expr = self.emit_expr(&args[0])?;
+                                    return Ok(format!("expect({}).toThrow()", fn_expr));
+                                }
+                                ("struct", 2) => {
+                                    let a = self.emit_expr(&args[0])?;
+                                    let b = self.emit_expr(&args[1])?;
+                                    return Ok(format!("expect({}).toEqual({})", a, b));
+                                }
+                                _ => {} // fall through to regular call
+                            }
+                        }
+                    }
                 }
                 let func_str = self.emit_expr(func)?;
                 let args_str: Vec<String> = args
