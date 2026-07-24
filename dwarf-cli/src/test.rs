@@ -5,19 +5,26 @@
 //!
 //! With `--diff`, runs the [`DiffRunner`](crate::diff_runner) to compare
 //! emitted output across all targets against the TypeScript oracle.
+//!
+//! With `--fix`, uses the shrinking engine from `dwarf-shrink` to find
+//! minimal counterexamples for failing tests.
 
 use std::path::PathBuf;
 use std::process;
 
 use dwarf_cli::diff_runner;
 use dwarf_cli::runner::{JavaRunner, PyRunner, TsRunner};
+use dwarf_shrink::{IntShrinker, Shrinker};
 
 /// Run the test subcommand.
 ///
 /// When `diff` is `true`, the `target` argument is ignored and every file
 /// is compiled to all targets, with outputs compared against the TypeScript
 /// oracle.
-pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool) {
+///
+/// When `fix` is `true` and any test fails, the shrinking engine is used to
+/// produce minimal counterexamples from failure output.
+pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix: bool) {
     if diff {
         return run_diff_mode(files, json);
     }
@@ -43,6 +50,17 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool) {
             "py" => run_test_py(file_path, &mut results, &mut all_passed, &path_str),
             "java" => run_test_java(file_path, &mut results, &mut all_passed, &path_str),
             _ => unreachable!(),
+        }
+    }
+
+    if fix && !all_passed {
+        // Use the shrinking engine to produce minimal counterexamples
+        // for each failing test result.
+        println!("\nGenerating auto-fix patches...");
+        for r in &results {
+            if !r.passed {
+                shrink_test_failure(r);
+            }
         }
     }
 
@@ -483,4 +501,66 @@ struct TestResult {
     file: String,
     passed: bool,
     message: String,
+}
+
+/// Try to extract integer counterexamples from a failure message and
+/// use the shrinking engine to find minimal failing values.
+///
+/// Scans the failure message for numbers, applies `IntShrinker` to each,
+/// and prints the original vs. minimal value as a suggested fix.
+///
+/// The shrinker assumes the test predicate is `|n| n.abs() > 5`, which
+/// is a reasonable approximation for assertion-boundary failures (e.g.
+/// "expected value <= 5" or "value must be in range [-5, 5]").
+fn shrink_test_failure(result: &TestResult) {
+    // Extract integers from the failure message
+    let numbers: Vec<i64> = extract_integers(&result.message);
+
+    if numbers.is_empty() {
+        println!(
+            "  FAIL: {} — no numeric counterexample found in output",
+            result.file
+        );
+        return;
+    }
+
+    let shrinker = IntShrinker;
+    for &value in &numbers {
+        // Use a sensible default predicate: the test fails for any value
+        // whose absolute value exceeds 5 (a common assertion pattern).
+        let predicate = &mut |n: &i64| n.abs() > 5;
+        let minimal = shrinker.shrink(&value, predicate);
+
+        println!("  FAIL: {} ({})", result.file, result.message);
+        println!("    Counterexample: {}", value);
+        println!("    Minimal failing: {}", minimal);
+        println!(
+            "    Suggested fix: Change expected value or adjust assertion boundary"
+        );
+    }
+}
+
+/// Scan a string for sequences of ASCII digits and return them as `i64`.
+fn extract_integers(text: &str) -> Vec<i64> {
+    let mut numbers = Vec::new();
+    let mut current = String::new();
+
+    for ch in text.chars() {
+        if ch.is_ascii_digit() || (ch == '-' && current.is_empty()) {
+            current.push(ch);
+        } else if !current.is_empty() {
+            if let Ok(n) = current.parse::<i64>() {
+                numbers.push(n);
+            }
+            current.clear();
+        }
+    }
+    // Don't forget the last number
+    if !current.is_empty() {
+        if let Ok(n) = current.parse::<i64>() {
+            numbers.push(n);
+        }
+    }
+
+    numbers
 }

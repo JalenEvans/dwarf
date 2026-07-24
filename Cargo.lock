@@ -251,6 +251,7 @@ dependencies = [
  "dwarf-lir",
  "dwarf-mir",
  "dwarf-parser",
+ "dwarf-shrink",
  "dwarf-syntax",
  "dwarf-typecheck",
  "notify",

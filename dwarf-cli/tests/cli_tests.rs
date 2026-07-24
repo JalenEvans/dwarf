@@ -185,6 +185,7 @@ fn test_test_subcommand_help() {
     );
     assert!(stdout.contains("--target"), "Help should mention --target");
     assert!(stdout.contains("--json"), "Help should mention --json");
+    assert!(stdout.contains("--fix"), "Help should mention --fix");
 }
 
 #[test]
@@ -206,6 +207,27 @@ fn test_test_subcommand_requires_file() {
     assert!(
         !output.status.success(),
         "Should fail without file argument"
+    );
+}
+
+#[test]
+fn test_test_subcommand_accepts_fix_flag() {
+    // The --fix flag should be accepted by the parser without error.
+    // Since no file exists, it should fail gracefully (file not found)
+    // rather than with a clap parse error.
+    let output = std::process::Command::new(get_binary_path())
+        .arg("test")
+        .arg("--fix")
+        .arg("--target")
+        .arg("ts")
+        .arg("nonexistent.kzd")
+        .output()
+        .expect("binary should run");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("error: unexpected argument"),
+        "--fix should be a valid flag, got: {}",
+        stderr
     );
 }
 
