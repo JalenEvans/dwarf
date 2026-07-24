@@ -128,6 +128,16 @@ impl Default for TypeScriptBackend {
 impl EmitterBackend for TypeScriptBackend {
     type Output = String;
 
+    fn emit_module_with_source_map(
+        &mut self,
+        decls: &[LirDecl],
+        source_name: &str,
+        source_content: &str,
+    ) -> Result<(Self::Output, Option<serde_json::Value>), EmitterError> {
+        let result = self.emit_module_with_sourcemap(decls, source_name, source_content)?;
+        Ok((result.output, result.source_map))
+    }
+
     fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
         if decls.is_empty() && self.imports.is_empty() {
             return Ok(String::new());

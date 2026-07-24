@@ -50,6 +50,21 @@ pub trait EmitterBackend {
 
     /// Emit an effect annotation.
     fn emit_effect(&mut self, effect: &Effect) -> Result<String, EmitterError>;
+
+    /// Emit a module with optional source map generation.
+    ///
+    /// Returns the emitted output and an optional source map JSON value.
+    /// The default implementation calls `emit_module` and returns no source map.
+    /// Backends that support source maps should override this method.
+    fn emit_module_with_source_map(
+        &mut self,
+        decls: &[LirDecl],
+        _source_name: &str,
+        _source_content: &str,
+    ) -> Result<(Self::Output, Option<serde_json::Value>), EmitterError> {
+        let output = self.emit_module(decls)?;
+        Ok((output, None))
+    }
 }
 
 #[cfg(test)]

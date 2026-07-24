@@ -42,6 +42,7 @@ pub fn run_check(
             .filter(|s| !s.is_empty())
             .map(|s| s.trim().to_string())
             .collect(),
+        source_map: false,
     };
 
     let options = dwarf_cli::config::merge_config_with_cli(cli_options);

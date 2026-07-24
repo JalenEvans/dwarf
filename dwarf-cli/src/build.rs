@@ -13,6 +13,7 @@ pub fn run_build(
     target: String,
     out_dir: Option<PathBuf>,
     pretty: bool,
+    source_map: bool,
     passes: Option<String>,
     skip_passes: Option<String>,
 ) {
@@ -31,6 +32,7 @@ pub fn run_build(
             .filter(|s| !s.is_empty())
             .map(|s| s.trim().to_string())
             .collect(),
+        source_map,
     };
 
     // Merge with config file if present
@@ -86,6 +88,18 @@ pub fn run_build(
                 } else {
                     println!("  Built  {} -> {}", path_str, out_path.display());
                     success_count += 1;
+                }
+
+                // Write source map file if available
+                if let Some(ref sm) = result.source_map {
+                    let map_path = out_path.with_extension(format!("{}.map", ext));
+                    if let Err(e) = write_output(&map_path, sm) {
+                        eprintln!("Error writing source map {}: {}", map_path.display(), e);
+                        error_count += 1;
+                        has_errors = true;
+                    } else {
+                        println!("  Map    {} -> {}", path_str, map_path.display());
+                    }
                 }
 
                 // Print diagnostics

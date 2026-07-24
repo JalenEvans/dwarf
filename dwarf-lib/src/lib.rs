@@ -70,25 +70,25 @@ impl DwarfCompiler {
                     output: String::new(),
                     diagnostics,
                     output_extension: "txt".to_string(),
+                    source_map: None,
                 });
             }
         };
 
-        // Emit
-        let output = match backend.emit_module(&lir) {
-            Ok(out) => out,
-            Err(e) => {
-                diagnostics.push(Diagnostic {
-                    code: "DWARF-E-EMIT-0001".to_string(),
-                    severity: Severity::Error,
-                    message: format!("Emission failed: {}", e),
-                    file: Some(filename.to_string()),
-                    line: None,
-                    col: None,
-                });
-                String::new()
-            }
+        // Emit — with optional source map generation
+        let (output, source_map_json) = if options.source_map {
+            backend
+                .emit_module_with_source_map(&lir, filename, source)
+                .unwrap_or_else(|_| (String::new(), None))
+        } else {
+            backend
+                .emit_module(&lir)
+                .map(|o| (o, None))
+                .unwrap_or_else(|_| (String::new(), None))
         };
+
+        // Also handle emission errors that came through the non-source-map path
+        // (if source_map was false and emit_module failed, we get empty string).
 
         let ext = match options.target.as_str() {
             "ts" => "ts",
@@ -96,10 +96,13 @@ impl DwarfCompiler {
             _ => "txt",
         };
 
+        let source_map = source_map_json.map(|sm| sm.to_string());
+
         Ok(CompileResult {
             output,
             diagnostics,
             output_extension: ext.to_string(),
+            source_map,
         })
     }
 }
@@ -122,6 +125,9 @@ pub struct CompileOptions {
     pub passes: Option<Vec<String>>,
     /// Pass names to skip.
     pub skip_passes: Vec<String>,
+    /// Whether to generate a source map alongside the output.
+    #[serde(default)]
+    pub source_map: bool,
 }
 
 impl Default for CompileOptions {
@@ -131,6 +137,7 @@ impl Default for CompileOptions {
             pretty: false,
             passes: None,
             skip_passes: Vec::new(),
+            source_map: false,
         }
     }
 }
@@ -144,6 +151,8 @@ pub struct CompileResult {
     pub diagnostics: Vec<Diagnostic>,
     /// File extension for the emitted output.
     pub output_extension: String,
+    /// Optional JSON source map (if requested via options.source_map).
+    pub source_map: Option<String>,
 }
 
 /// A diagnostic message produced during compilation.
@@ -238,6 +247,7 @@ impl CompilerConfig {
             } else {
                 self.skip_passes.clone()
             },
+            source_map: options.source_map,
         }
     }
 }

@@ -34,6 +34,7 @@ pub fn compile(source: String, filename: String, options_json: String) -> String
         Ok(result) => serde_json::json!({
             "success": true,
             "output": result.output,
+            "sourceMap": result.source_map,
             "diagnostics": result.diagnostics.iter().map(|d| {
                 serde_json::json!({
                     "code": d.code,

@@ -211,6 +211,7 @@ fn config_merge_with_cli() {
         pretty: true,
         passes: None,
         skip_passes: vec![],
+        source_map: false,
     };
 
     let merged = config.merge_with_cli(&cli_options);
