@@ -95,7 +95,7 @@ impl TsRunner {
     /// This runs the full compiler pipeline (tokenize → parse → typecheck
     /// → MIR → LIR → emit) for the TypeScript target and returns the
     /// emitted string.
-    fn transpile_to_ts(source_path: &Path) -> Result<String, String> {
+    pub fn transpile_to_ts(source_path: &Path) -> Result<String, String> {
         // Read source
         let source =
             std::fs::read_to_string(source_path).map_err(|e| format!("Cannot read file: {}", e))?;
