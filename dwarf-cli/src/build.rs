@@ -67,6 +67,7 @@ fn validate_output(target: &str, file_path: &Path) -> Result<(), String> {
 }
 
 /// Run the build subcommand.
+#[allow(clippy::too_many_arguments)]
 pub fn run_build(
     files: Vec<PathBuf>,
     target: String,

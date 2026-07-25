@@ -569,6 +569,7 @@ mod tests {
     fn test_runner_trait_is_object_safe() {
         // The trait must be usable as a trait object so backends can be
         // selected at runtime (e.g., from --target).
+        #[allow(dead_code)]
         fn takes_runner(_runner: &dyn Runner) {}
         // If this compiles, the trait is object-safe.
     }
