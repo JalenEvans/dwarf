@@ -594,10 +594,7 @@ mod tests {
             header.contains("edit the .kzd source, not this file"),
             "header should contain 'edit the .kzd source, not this file'"
         );
-        assert!(
-            header.starts_with("//"),
-            "header should start with //"
-        );
+        assert!(header.starts_with("//"), "header should start with //");
     }
 
     #[test]
@@ -640,10 +637,7 @@ mod tests {
             header.contains("edit the .kzd source, not this file"),
             "py header should contain 'edit the .kzd source, not this file'"
         );
-        assert!(
-            header.starts_with("#"),
-            "py header should start with #"
-        );
+        assert!(header.starts_with("#"), "py header should start with #");
     }
 
     #[test]

@@ -80,8 +80,7 @@ where
             .stdin
             .as_mut()
             .expect("Child should have a piped stdin");
-        writeln!(writer, "{init_request}")
-            .expect("Failed to write initialize request");
+        writeln!(writer, "{init_request}").expect("Failed to write initialize request");
         writer.flush().expect("Failed to flush stdin");
     }
 
@@ -111,11 +110,8 @@ where
             .stdin
             .as_mut()
             .expect("Child should still have piped stdin");
-        writeln!(
-            writer,
-            r#"{{"jsonrpc":"2.0","method":"initialized"}}"#
-        )
-        .expect("Failed to write initialized notification");
+        writeln!(writer, r#"{{"jsonrpc":"2.0","method":"initialized"}}"#)
+            .expect("Failed to write initialized notification");
         writer.flush().expect("Failed to flush stdin");
     }
 
@@ -129,8 +125,7 @@ where
             .stdin
             .as_mut()
             .expect("Child should still have piped stdin");
-        writeln!(writer, "{request_json}")
-            .expect("Failed to write test request");
+        writeln!(writer, "{request_json}").expect("Failed to write test request");
         writer.flush().expect("Failed to flush stdin");
     }
 
@@ -207,9 +202,7 @@ where
     let response: serde_json::Value = match serde_json::from_str(&response_line) {
         Ok(v) => v,
         Err(e) => {
-            panic!(
-                "Response is not valid JSON.\nError: {e}\nReceived: {response_line:?}"
-            );
+            panic!("Response is not valid JSON.\nError: {e}\nReceived: {response_line:?}");
         }
     };
 
@@ -366,14 +359,16 @@ fn stdio_initialize_handshake() {
 
     let initialize_request = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}"#;
 
-    let initialized_notification =
-        r#"{"jsonrpc":"2.0","id":2,"method":"initialized"}"#;
+    let initialized_notification = r#"{"jsonrpc":"2.0","id":2,"method":"initialized"}"#;
 
     // --  Act  ---------------------------------------------------------------
 
     // Send the initialize request
     {
-        let writer = child.stdin.as_mut().expect("Child should have a piped stdin");
+        let writer = child
+            .stdin
+            .as_mut()
+            .expect("Child should have a piped stdin");
         writeln!(writer, "{initialize_request}").expect("Failed to write initialize request");
         writer.flush().expect("Failed to flush stdin");
     }
@@ -738,11 +733,7 @@ fn tools_list_returns_entries() {
         // Extract all tool names for further assertions.
         let names: Vec<&str> = tools
             .iter()
-            .map(|t| {
-                t["name"]
-                    .as_str()
-                    .expect("tool name should be a string")
-            })
+            .map(|t| t["name"].as_str().expect("tool name should be a string"))
             .collect();
 
         // The four compiler tools must all be present.
@@ -823,8 +814,8 @@ fn tools_call_dwarf_check_valid_source() {
             .expect("first content item text should be a string");
 
         // The text must be valid JSON with a diagnostics field.
-        let parsed: serde_json::Value = serde_json::from_str(text)
-            .expect("content[0].text must be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).expect("content[0].text must be valid JSON");
 
         assert!(
             parsed.get("diagnostics").is_some(),
@@ -863,10 +854,7 @@ fn tools_call_dwarf_check_invalid_source() {
             .expect("content[0].text should be a string");
 
         // The text should contain error information (e.g., parse error, type error).
-        assert!(
-            !text.is_empty(),
-            "content[0].text should not be empty"
-        );
+        assert!(!text.is_empty(), "content[0].text should not be empty");
 
         // Check the text includes diagnostic/error references.
         let text_lower = text.to_lowercase();
@@ -925,16 +913,14 @@ fn tools_call_dwarf_compile() {
             .expect("content[0].text should be a string");
 
         // The text must be valid JSON with an output field.
-        let parsed: serde_json::Value = serde_json::from_str(text)
-            .expect("content[0].text must be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).expect("content[0].text must be valid JSON");
 
         let output = parsed
             .get("output")
             .expect("parsed JSON must contain an 'output' field");
 
-        let output_str = output
-            .as_str()
-            .expect("'output' must be a string");
+        let output_str = output.as_str().expect("'output' must be a string");
 
         assert!(
             !output_str.is_empty(),
@@ -992,10 +978,7 @@ fn tools_call_unknown_tool_returns_error() {
         let text = content[0]["text"]
             .as_str()
             .expect("content[0].text should be a string");
-        assert!(
-            !text.is_empty(),
-            "content[0].text should be non-empty"
-        );
+        assert!(!text.is_empty(), "content[0].text should be non-empty");
     });
 }
 
@@ -1042,16 +1025,14 @@ fn tools_call_dwarf_format() {
             .expect("content[0].text should be a string");
 
         // The text must be valid JSON with a formatted field.
-        let parsed: serde_json::Value = serde_json::from_str(text)
-            .expect("content[0].text must be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).expect("content[0].text must be valid JSON");
 
         let formatted = parsed
             .get("formatted")
             .expect("parsed JSON must contain a 'formatted' field");
 
-        let formatted_str = formatted
-            .as_str()
-            .expect("'formatted' must be a string");
+        let formatted_str = formatted.as_str().expect("'formatted' must be a string");
 
         assert!(
             !formatted_str.is_empty(),
@@ -1118,11 +1099,7 @@ fn prompts_list_returns_entries() {
         // Extract all prompt names for further assertions.
         let names: Vec<&str> = prompts
             .iter()
-            .map(|p| {
-                p["name"]
-                    .as_str()
-                    .expect("prompt name should be a string")
-            })
+            .map(|p| p["name"].as_str().expect("prompt name should be a string"))
             .collect();
 
         // The four prompt templates must all be present.
@@ -1217,7 +1194,8 @@ fn prompts_get_write_dwarf_function() {
 /// **Should fail** — `handle_get_prompt_request` is not implemented.
 #[test]
 fn prompts_get_define_dwarf_type() {
-    let request = r#"{"jsonrpc":"2.0","id":15,"method":"prompts/get","params":{"name":"define-dwarf-type"}}"#;
+    let request =
+        r#"{"jsonrpc":"2.0","id":15,"method":"prompts/get","params":{"name":"define-dwarf-type"}}"#;
     with_initialized_server(request, |response| {
         let result = response
             .get("result")
@@ -1266,7 +1244,8 @@ fn prompts_get_define_dwarf_type() {
 /// **Should fail** — `handle_get_prompt_request` is not implemented.
 #[test]
 fn prompts_get_create_dwarf_test() {
-    let request = r#"{"jsonrpc":"2.0","id":16,"method":"prompts/get","params":{"name":"create-dwarf-test"}}"#;
+    let request =
+        r#"{"jsonrpc":"2.0","id":16,"method":"prompts/get","params":{"name":"create-dwarf-test"}}"#;
     with_initialized_server(request, |response| {
         let result = response
             .get("result")
@@ -1315,7 +1294,8 @@ fn prompts_get_create_dwarf_test() {
 /// **Should fail** — `handle_get_prompt_request` is not implemented.
 #[test]
 fn prompts_get_port_to_dwarf() {
-    let request = r#"{"jsonrpc":"2.0","id":17,"method":"prompts/get","params":{"name":"port-to-dwarf"}}"#;
+    let request =
+        r#"{"jsonrpc":"2.0","id":17,"method":"prompts/get","params":{"name":"port-to-dwarf"}}"#;
     with_initialized_server(request, |response| {
         let result = response
             .get("result")

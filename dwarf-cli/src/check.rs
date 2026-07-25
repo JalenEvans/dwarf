@@ -1,7 +1,8 @@
 //! Implementation of the `dwarf check` subcommand.
 
 use crate::output::{
-    format_output, CheckPayload, FileCheckResult, OutputEnvelope, OutputFormat, StructuredDiagnostic,
+    format_output, CheckPayload, FileCheckResult, OutputEnvelope, OutputFormat,
+    StructuredDiagnostic,
 };
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 use dwarf_syntax::diagnostic::format_diagnostic;
@@ -137,9 +138,7 @@ pub fn run_check(
     }
 
     if json {
-        let payload = CheckPayload {
-            files: all_results,
-        };
+        let payload = CheckPayload { files: all_results };
         let envelope = OutputEnvelope::from_start("check", payload, start);
         let output = format_output(OutputFormat::Json, &envelope);
         println!("{}", output);

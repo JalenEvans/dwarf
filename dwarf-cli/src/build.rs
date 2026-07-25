@@ -1,7 +1,8 @@
 //! Implementation of the `dwarf build` subcommand.
 
 use crate::output::{
-    format_output, BuildPayload, FileBuildResult, OutputEnvelope, OutputFormat, StructuredDiagnostic,
+    format_output, BuildPayload, FileBuildResult, OutputEnvelope, OutputFormat,
+    StructuredDiagnostic,
 };
 use std::fs;
 use std::io::Write;
@@ -266,9 +267,7 @@ pub fn run_build(
     }
 
     if json {
-        let payload = BuildPayload {
-            files: all_results,
-        };
+        let payload = BuildPayload { files: all_results };
         let envelope = OutputEnvelope::from_start("build", payload, start);
         let output = format_output(OutputFormat::Json, &envelope);
         println!("{}", output);

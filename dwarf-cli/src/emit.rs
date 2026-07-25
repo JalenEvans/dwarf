@@ -143,9 +143,7 @@ pub fn run_emit(
     }
 
     if json {
-        let payload = EmitPayload {
-            files: all_results,
-        };
+        let payload = EmitPayload { files: all_results };
         let envelope = OutputEnvelope::from_start("emit", payload, start);
         let output = format_output(OutputFormat::Json, &envelope);
         println!("{}", output);
