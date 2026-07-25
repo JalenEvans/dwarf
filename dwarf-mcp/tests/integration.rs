@@ -6,6 +6,7 @@
 //! 3. The binary performs a correct MCP initialize/initialized handshake over stdio
 //! 4. The binary exposes MCP resources via `resources/list` and `resources/read`
 //! 5. The binary exposes MCP tools via `tools/list` and `tools/call`
+//! 6. The binary exposes MCP prompts via `prompts/list` and `prompts/get`
 //!
 //! # Red phase
 //!
@@ -1056,5 +1057,364 @@ fn tools_call_dwarf_format() {
             !formatted_str.is_empty(),
             "'formatted' must be a non-empty string"
         );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Prompts tests
+// ---------------------------------------------------------------------------
+
+/// Verify that `prompts/list` returns prompt entries after the initialize
+/// handshake.
+///
+/// A compliant MCP server must return a non-empty array of `Prompt` objects,
+/// each with `name` and `description` fields.  At least 4 prompts are expected
+/// when all prompt templates are registered.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 13,
+///   "result": {
+///     "prompts": [
+///       { "name": "write-dwarf-function", "description": "..." },
+///       ...
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_list_prompts_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn prompts_list_returns_entries() {
+    let request = r#"{"jsonrpc":"2.0","id":13,"method":"prompts/list"}"#;
+    with_initialized_server(request, |response| {
+        let prompts = response["result"]["prompts"]
+            .as_array()
+            .expect("result.prompts should be a non-empty array");
+
+        assert!(
+            !prompts.is_empty(),
+            "result.prompts should contain at least one prompt"
+        );
+
+        for (i, prompt) in prompts.iter().enumerate() {
+            let obj = prompt
+                .as_object()
+                .unwrap_or_else(|| panic!("prompts[{i}] should be an object, got {prompt}"));
+            assert!(
+                obj.contains_key("name"),
+                "prompts[{i}] must have a 'name' field.\nGot: {prompt}"
+            );
+            assert!(
+                obj.contains_key("description"),
+                "prompts[{i}] must have a 'description' field.\nGot: {prompt}"
+            );
+        }
+
+        // Extract all prompt names for further assertions.
+        let names: Vec<&str> = prompts
+            .iter()
+            .map(|p| {
+                p["name"]
+                    .as_str()
+                    .expect("prompt name should be a string")
+            })
+            .collect();
+
+        // The four prompt templates must all be present.
+        let expected_prompts = [
+            "write-dwarf-function",
+            "define-dwarf-type",
+            "create-dwarf-test",
+            "port-to-dwarf",
+        ];
+        for expected in &expected_prompts {
+            assert!(
+                names.contains(expected),
+                "prompt list must include '{expected}'.\nFound names: {names:?}"
+            );
+        }
+
+        assert!(
+            names.len() >= 4,
+            "expected at least 4 prompts, got {}",
+            names.len()
+        );
+    });
+}
+
+/// Verify that `prompts/get` returns the `write-dwarf-function` prompt template.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 14,
+///   "result": {
+///     "description": "...",
+///     "messages": [
+///       { "role": "user", "content": { "type": "text", "text": "..." } }
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_get_prompt_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn prompts_get_write_dwarf_function() {
+    let request = r#"{"jsonrpc":"2.0","id":14,"method":"prompts/get","params":{"name":"write-dwarf-function"}}"#;
+    with_initialized_server(request, |response| {
+        let result = response
+            .get("result")
+            .expect("response should contain a 'result' object");
+
+        let description = result
+            .get("description")
+            .expect("result should contain a 'description' field");
+        assert!(
+            description.as_str().is_some(),
+            "result.description should be a string.\nGot: {description}"
+        );
+
+        let messages = result["messages"]
+            .as_array()
+            .expect("result.messages should be a non-empty array");
+
+        assert!(
+            !messages.is_empty(),
+            "result.messages should contain at least one message"
+        );
+
+        for (i, msg) in messages.iter().enumerate() {
+            let obj = msg
+                .as_object()
+                .unwrap_or_else(|| panic!("messages[{i}] should be an object, got {msg}"));
+            assert!(
+                obj.contains_key("role"),
+                "messages[{i}] must have a 'role' field.\nGot: {msg}"
+            );
+            assert!(
+                obj.contains_key("content"),
+                "messages[{i}] must have a 'content' field.\nGot: {msg}"
+            );
+        }
+    });
+}
+
+/// Verify that `prompts/get` returns the `define-dwarf-type` prompt template.
+///
+/// ## Expected (Green phase)
+/// The response contains `result.description` and `result.messages` with
+/// proper structure.
+///
+/// ## Red phase
+/// **Should fail** — `handle_get_prompt_request` is not implemented.
+#[test]
+fn prompts_get_define_dwarf_type() {
+    let request = r#"{"jsonrpc":"2.0","id":15,"method":"prompts/get","params":{"name":"define-dwarf-type"}}"#;
+    with_initialized_server(request, |response| {
+        let result = response
+            .get("result")
+            .expect("response should contain a 'result' object");
+
+        let description = result
+            .get("description")
+            .expect("result should contain a 'description' field");
+        assert!(
+            description.as_str().is_some(),
+            "result.description should be a string.\nGot: {description}"
+        );
+
+        let messages = result["messages"]
+            .as_array()
+            .expect("result.messages should be a non-empty array");
+
+        assert!(
+            !messages.is_empty(),
+            "result.messages should contain at least one message"
+        );
+
+        for (i, msg) in messages.iter().enumerate() {
+            let obj = msg
+                .as_object()
+                .unwrap_or_else(|| panic!("messages[{i}] should be an object, got {msg}"));
+            assert!(
+                obj.contains_key("role"),
+                "messages[{i}] must have a 'role' field.\nGot: {msg}"
+            );
+            assert!(
+                obj.contains_key("content"),
+                "messages[{i}] must have a 'content' field.\nGot: {msg}"
+            );
+        }
+    });
+}
+
+/// Verify that `prompts/get` returns the `create-dwarf-test` prompt template.
+///
+/// ## Expected (Green phase)
+/// The response contains `result.description` and `result.messages` with
+/// proper structure.
+///
+/// ## Red phase
+/// **Should fail** — `handle_get_prompt_request` is not implemented.
+#[test]
+fn prompts_get_create_dwarf_test() {
+    let request = r#"{"jsonrpc":"2.0","id":16,"method":"prompts/get","params":{"name":"create-dwarf-test"}}"#;
+    with_initialized_server(request, |response| {
+        let result = response
+            .get("result")
+            .expect("response should contain a 'result' object");
+
+        let description = result
+            .get("description")
+            .expect("result should contain a 'description' field");
+        assert!(
+            description.as_str().is_some(),
+            "result.description should be a string.\nGot: {description}"
+        );
+
+        let messages = result["messages"]
+            .as_array()
+            .expect("result.messages should be a non-empty array");
+
+        assert!(
+            !messages.is_empty(),
+            "result.messages should contain at least one message"
+        );
+
+        for (i, msg) in messages.iter().enumerate() {
+            let obj = msg
+                .as_object()
+                .unwrap_or_else(|| panic!("messages[{i}] should be an object, got {msg}"));
+            assert!(
+                obj.contains_key("role"),
+                "messages[{i}] must have a 'role' field.\nGot: {msg}"
+            );
+            assert!(
+                obj.contains_key("content"),
+                "messages[{i}] must have a 'content' field.\nGot: {msg}"
+            );
+        }
+    });
+}
+
+/// Verify that `prompts/get` returns the `port-to-dwarf` prompt template.
+///
+/// ## Expected (Green phase)
+/// The response contains `result.description` and `result.messages` with
+/// proper structure.
+///
+/// ## Red phase
+/// **Should fail** — `handle_get_prompt_request` is not implemented.
+#[test]
+fn prompts_get_port_to_dwarf() {
+    let request = r#"{"jsonrpc":"2.0","id":17,"method":"prompts/get","params":{"name":"port-to-dwarf"}}"#;
+    with_initialized_server(request, |response| {
+        let result = response
+            .get("result")
+            .expect("response should contain a 'result' object");
+
+        let description = result
+            .get("description")
+            .expect("result should contain a 'description' field");
+        assert!(
+            description.as_str().is_some(),
+            "result.description should be a string.\nGot: {description}"
+        );
+
+        let messages = result["messages"]
+            .as_array()
+            .expect("result.messages should be a non-empty array");
+
+        assert!(
+            !messages.is_empty(),
+            "result.messages should contain at least one message"
+        );
+
+        for (i, msg) in messages.iter().enumerate() {
+            let obj = msg
+                .as_object()
+                .unwrap_or_else(|| panic!("messages[{i}] should be an object, got {msg}"));
+            assert!(
+                obj.contains_key("role"),
+                "messages[{i}] must have a 'role' field.\nGot: {msg}"
+            );
+            assert!(
+                obj.contains_key("content"),
+                "messages[{i}] must have a 'content' field.\nGot: {msg}"
+            );
+        }
+    });
+}
+
+/// Verify that `prompts/get` returns an error for an unknown prompt name.
+///
+/// When the prompt name does not match any known prompt template, the server
+/// must return an error response rather than a success response.
+///
+/// ## Expected (Green phase)
+/// Either a JSON-RPC error response:
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 18,
+///   "error": { "code": -32602, "message": "..." }
+/// }
+/// ```
+/// Or an MCP-level error via `isError`:
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 18,
+///   "result": {
+///     "isError": true,
+///     "content": [...]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — the default handler returns `-32601` (Method not found),
+/// but we assert the code is NOT `-32601`, ensuring we detect the difference
+/// between "method not recognised" and "method recognised but prompt unknown".
+#[test]
+fn prompts_get_unknown_prompt_returns_error() {
+    let request = r#"{"jsonrpc":"2.0","id":18,"method":"prompts/get","params":{"name":"nonexistent-prompt"}}"#;
+    with_initialized_server(request, |response| {
+        // The response may indicate an error either via a top-level JSON-RPC
+        // `error` field or via `result.isError` (MCP-level error). Accept both.
+        let has_error = response.get("error").is_some()
+            || response
+                .get("result")
+                .and_then(|r| r.get("isError"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+        assert!(
+            has_error,
+            "response must indicate an error for an unknown prompt name.\nGot: {response}"
+        );
+
+        // If it's a JSON-RPC error, the code must NOT be -32601 (Method not
+        // found), because the Green-phase handler will recognise prompts/get
+        // and return a prompt-specific error.
+        if let Some(error) = response.get("error") {
+            let code = error["code"]
+                .as_i64()
+                .expect("error.code should be an integer");
+            assert_ne!(
+                code, -32601,
+                "error code must not be -32601 (Method not found) — the handler must \
+                 recognise the prompts/get method and return a prompt-specific error.\n\
+                 Got response: {response}"
+            );
+        }
     });
 }

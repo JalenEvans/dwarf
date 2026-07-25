@@ -179,6 +179,299 @@ fn resource_content(uri: &str) -> Option<&'static str> {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt definitions
+// ---------------------------------------------------------------------------
+
+/// Build the list of all known Dwarf prompt templates.
+fn all_prompts() -> Vec<Prompt> {
+    vec![
+        Prompt {
+            arguments: vec![
+                PromptArgument {
+                    description: Some("The name of the function".to_string()),
+                    name: "function_name".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+                PromptArgument {
+                    description: Some("The parameters of the function".to_string()),
+                    name: "parameters".to_string(),
+                    required: Some(false),
+                    title: None,
+                },
+                PromptArgument {
+                    description: Some("The return type of the function".to_string()),
+                    name: "return_type".to_string(),
+                    required: Some(false),
+                    title: None,
+                },
+            ],
+            description: Some(
+                "Template for writing a Dwarf function with proper syntax, effects, and error handling"
+                    .to_string(),
+            ),
+            icons: vec![],
+            meta: None,
+            name: "write-dwarf-function".to_string(),
+            title: None,
+        },
+        Prompt {
+            arguments: vec![
+                PromptArgument {
+                    description: Some("The type name".to_string()),
+                    name: "type_name".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+                PromptArgument {
+                    description: Some("The kind of type: record, union, generic, or alias".to_string()),
+                    name: "kind".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+            ],
+            description: Some(
+                "Template for defining Dwarf types including records, unions, generics, and type aliases"
+                    .to_string(),
+            ),
+            icons: vec![],
+            meta: None,
+            name: "define-dwarf-type".to_string(),
+            title: None,
+        },
+        Prompt {
+            arguments: vec![
+                PromptArgument {
+                    description: Some("The name of the test".to_string()),
+                    name: "test_name".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+                PromptArgument {
+                    description: Some("What to test".to_string()),
+                    name: "scenario".to_string(),
+                    required: Some(false),
+                    title: None,
+                },
+            ],
+            description: Some(
+                "Template for writing Dwarf @test functions with assertions and property-based testing"
+                    .to_string(),
+            ),
+            icons: vec![],
+            meta: None,
+            name: "create-dwarf-test".to_string(),
+            title: None,
+        },
+        Prompt {
+            arguments: vec![
+                PromptArgument {
+                    description: Some("The source language: typescript or python".to_string()),
+                    name: "source_language".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+                PromptArgument {
+                    description: Some("The source code to port".to_string()),
+                    name: "source_code".to_string(),
+                    required: Some(true),
+                    title: None,
+                },
+            ],
+            description: Some(
+                "Guide for porting TypeScript or Python code to idiomatic Dwarf".to_string(),
+            ),
+            icons: vec![],
+            meta: None,
+            name: "port-to-dwarf".to_string(),
+            title: None,
+        },
+    ]
+}
+
+/// Helper to create a `ContentBlock` from a text string.
+fn text_content(text: &str) -> ContentBlock {
+    ContentBlock::TextContent(TextContent::new(text.to_string(), None, None))
+}
+
+/// Return the prompt content for a known prompt name, or `None` if unknown.
+fn get_prompt_content(name: &str) -> Option<GetPromptResult> {
+    match name {
+        "write-dwarf-function" => Some(GetPromptResult {
+            description: Some(
+                "Write a Dwarf function following idiomatic patterns with effects and error handling"
+                    .to_string(),
+            ),
+            messages: vec![PromptMessage {
+                content: text_content(
+                    r#"You are writing a Dwarf function. Follow this template:
+
+// Function declaration
+fn function_name(param1: Type1, param2: Type2) -> ReturnType {
+    // body (everything is an expression)
+    expr
+}
+
+Key rules:
+- All code paths return a value (everything is an expression)
+- Use 'pure' effect for deterministic functions: pure fn add(a: Int, b: Int) -> Int
+- Use pipe operator |> for chaining
+- Use ? for error propagation
+- Use 'io' effect for I/O operations: io fn read_file(path: Str) -> Str
+- Use 'async' effect for async operations: async fn fetch(url: Str) -> Response"#,
+                ),
+                role: Role::User,
+            }],
+            meta: None,
+        }),
+        "define-dwarf-type" => Some(GetPromptResult {
+            description: Some(
+                "Define a Dwarf type using records, unions, generics, or type aliases"
+                    .to_string(),
+            ),
+            messages: vec![PromptMessage {
+                content: text_content(
+                    r#"You are defining a Dwarf type. Follow these patterns:
+
+// Record type (product type)
+record User {
+    name: Str,
+    age: Int,
+    email: Str
+}
+
+// Union type (sum type)
+union Status {
+    Active,
+    Inactive,
+    Banned(reason: Str),
+    Pending(since: Timestamp)
+}
+
+// Generic type
+record Pair<A, B> {
+    first: A,
+    second: B
+}
+
+// Type alias
+type UserId = Int
+
+// Refinement type (constrained values)
+type Age = Int(0..150)
+
+Key rules:
+- Records group fields with named access
+- Unions represent variants, optionally with payloads
+- Generics use angle bracket syntax <A, B, ...>
+- Type aliases use the 'type' keyword
+- Refinement types constrain values with ranges or predicates"#,
+                ),
+                role: Role::User,
+            }],
+            meta: None,
+        }),
+        "create-dwarf-test" => Some(GetPromptResult {
+            description: Some(
+                "Write a Dwarf @test function with assertions and property-based testing"
+                    .to_string(),
+            ),
+            messages: vec![PromptMessage {
+                content: text_content(
+                    r#"You are writing a Dwarf test. Follow this template:
+
+// Unit test with assertions
+@test
+fn test_addition() {
+    assert_eq(add(2, 3), 5)
+    assert_ne(add(0, 0), 1)
+    assert(add(1, 1) > 0)
+}
+
+// Property-based testing with forAll
+@test
+fn test_addition_commutative() {
+    forAll((a: Int, b: Int) => {
+        assert_eq(add(a, b), add(b, a))
+    })
+}
+
+// Testing with custom generators
+@test
+fn test_with_generator() {
+    forAll(gen = int_range(0, 100), (n: Int) => {
+        assert(double(n) >= 0)
+    })
+}
+
+Key rules:
+- Use @test decorator above test functions
+- Use assert, assert_eq, assert_ne for assertions
+- Use forAll for property-based testing
+- Test functions must be pure (no side effects)
+- Name tests descriptively with snake_case"#,
+                ),
+                role: Role::User,
+            }],
+            meta: None,
+        }),
+        "port-to-dwarf" => Some(GetPromptResult {
+            description: Some(
+                "Port TypeScript or Python code to idiomatic Dwarf".to_string(),
+            ),
+            messages: vec![
+                PromptMessage {
+                    content: text_content(
+                        r#"I will help you port code to Dwarf. Here are the key mappings:
+
+## TypeScript → Dwarf
+
+| TypeScript       | Dwarf              |
+|-----------------|--------------------|
+| let x: number   | let x: Float       |
+| let x: string   | let x: Str         |
+| let x: boolean  | let x: Bool        |
+| const f = () => | fn f() =           |
+| if/else         | if/else (expr)     |
+| try/catch       | match with Result  |
+| async/await     | async fn / await   |
+| interface/type  | record / type      |
+| Array<T>        | [T]                |
+| T | undefined   | Maybe<T>           |
+
+## Python → Dwarf
+
+| Python          | Dwarf              |
+|----------------|--------------------|
+| def f():        | fn f()             |
+| int             | Int                |
+| str             | Str                |
+| float           | Float              |
+| bool            | Bool               |
+| list[T]         | [T]                |
+| dict[K, V]      | Map<K, V>          |
+| None            | Nothing / Maybe    |
+| raise           | Err / ?            |
+| class           | record             |
+
+Tell me what code you'd like to port and from which language!"#,
+                    ),
+                    role: Role::User,
+                },
+                PromptMessage {
+                    content: text_content(
+                        "Please share the source code you want to port, and I'll provide the idiomatic Dwarf equivalent.",
+                    ),
+                    role: Role::Assistant,
+                },
+            ],
+            meta: None,
+        }),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
 
@@ -768,6 +1061,37 @@ impl ServerHandler for DwarfMcpHandler {
             None => Err(RpcError {
                 code: -32602,
                 message: format!("Resource not found: {}", params.uri),
+                data: None,
+            }),
+        }
+    }
+
+    /// Handle `prompts/list` — return all known Dwarf prompt templates.
+    async fn handle_list_prompts_request(
+        &self,
+        _params: Option<PaginatedRequestParams>,
+        _runtime: Arc<dyn rust_mcp_sdk::McpServer>,
+    ) -> std::result::Result<ListPromptsResult, RpcError> {
+        Ok(ListPromptsResult {
+            prompts: all_prompts(),
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    /// Handle `prompts/get` — return the content for a prompt template.
+    ///
+    /// Returns a JSON-RPC error with code `-32602` when the prompt name is unknown.
+    async fn handle_get_prompt_request(
+        &self,
+        params: GetPromptRequestParams,
+        _runtime: Arc<dyn rust_mcp_sdk::McpServer>,
+    ) -> std::result::Result<GetPromptResult, RpcError> {
+        match get_prompt_content(&params.name) {
+            Some(result) => Ok(result),
+            None => Err(RpcError {
+                code: -32602,
+                message: format!("Prompt not found: {}", params.name),
                 data: None,
             }),
         }
