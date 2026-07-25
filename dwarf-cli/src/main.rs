@@ -7,6 +7,7 @@ mod build;
 mod check;
 mod dev;
 mod emit;
+mod output;
 mod run;
 mod test;
 
@@ -111,35 +112,39 @@ enum Commands {
         skip_passes: Option<String>,
     },
 
-    /// Build Dwarf source files into target language
-    Build {
-        /// Source files to compile (.kzd)
-        files: Vec<PathBuf>,
+        /// Build Dwarf source files into target language
+        Build {
+            /// Source files to compile (.kzd)
+            files: Vec<PathBuf>,
 
-        /// Target language (e.g., "ts", "py", "java")
-        #[arg(long, short)]
-        target: String,
+            /// Target language (e.g., "ts", "py", "java")
+            #[arg(long, short)]
+            target: String,
 
-        /// Output directory (default: dist/{target})
-        #[arg(long)]
-        out_dir: Option<PathBuf>,
+            /// Output directory (default: dist/{target})
+            #[arg(long)]
+            out_dir: Option<PathBuf>,
 
-        /// Apply pretty formatting to output
-        #[arg(long)]
-        pretty: bool,
+            /// Apply pretty formatting to output
+            #[arg(long)]
+            pretty: bool,
 
-        /// Generate source maps (.map files) alongside output
-        #[arg(long)]
-        source_map: bool,
+            /// Generate source maps (.map files) alongside output
+            #[arg(long)]
+            source_map: bool,
 
-        /// Comma-separated list of passes to run
-        #[arg(long)]
-        passes: Option<String>,
+            /// Output build results as JSON
+            #[arg(long)]
+            json: bool,
 
-        /// Comma-separated list of passes to skip
-        #[arg(long)]
-        skip_passes: Option<String>,
-    },
+            /// Comma-separated list of passes to run
+            #[arg(long)]
+            passes: Option<String>,
+
+            /// Comma-separated list of passes to skip
+            #[arg(long)]
+            skip_passes: Option<String>,
+        },
 
     /// Compile and run tests with Jest
     Test {
@@ -218,6 +223,7 @@ fn main() {
             source_map,
             passes,
             skip_passes,
+            ..
         }) => {
             build::run_build(
                 files,
