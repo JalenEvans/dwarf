@@ -251,6 +251,7 @@ dependencies = [
  "dwarf-lir",
  "dwarf-mir",
  "dwarf-parser",
+ "dwarf-shrink",
  "dwarf-syntax",
  "dwarf-typecheck",
  "notify",
@@ -267,6 +268,13 @@ dependencies = [
  "dwarf-syntax",
  "serde_json",
  "sourcemap",
+]
+
+[[package]]
+name = "dwarf-gen"
+version = "0.1.0"
+dependencies = [
+ "dwarf-syntax",
 ]
 
 [[package]]
@@ -332,6 +340,10 @@ dependencies = [
  "dwarf-syntax",
  "insta",
 ]
+
+[[package]]
+name = "dwarf-shrink"
+version = "0.1.0"
 
 [[package]]
 name = "dwarf-syntax"

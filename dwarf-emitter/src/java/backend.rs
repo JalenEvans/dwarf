@@ -27,6 +27,8 @@ pub struct JavaBackend {
     version: String,
     needs_completable_future: bool,
     needs_optional: bool,
+    needs_jqwik: bool,
+    has_forall: bool,
 }
 
 impl JavaBackend {
@@ -39,6 +41,8 @@ impl JavaBackend {
             version: version.to_string(),
             needs_completable_future: false,
             needs_optional: false,
+            needs_jqwik: false,
+            has_forall: false,
         }
     }
 
@@ -68,12 +72,21 @@ impl EmitterBackend for JavaBackend {
         // Reset import flags and scan all decls
         self.needs_completable_future = false;
         self.needs_optional = false;
+        self.needs_jqwik = false;
+        self.has_forall = false;
         for decl in decls {
             Self::scan_decl_for_imports(
                 decl,
                 &mut self.needs_completable_future,
                 &mut self.needs_optional,
             );
+            // Detect ForAll declarations for jqwik import and class name
+            if let LirDecl::Function { body, .. } = decl {
+                if matches!(*body, LirExpr::ForAll { .. }) {
+                    self.needs_jqwik = true;
+                    self.has_forall = true;
+                }
+            }
         }
 
         let mut buf = CodeBuffer::new();
@@ -93,12 +106,20 @@ impl EmitterBackend for JavaBackend {
         if self.needs_optional {
             buf.push_line("import java.util.Optional;");
         }
-        if self.needs_completable_future || self.needs_optional {
+        if self.needs_jqwik {
+            buf.push_line("import net.jqwik.api.*;");
+        }
+        if self.needs_completable_future || self.needs_optional || self.needs_jqwik {
             buf.push_empty();
         }
 
-        // Class declaration
-        buf.push_line("public class Main {");
+        // Class declaration — use PropertyTests when ForAll declarations are present
+        let class_name = if self.has_forall {
+            "PropertyTests"
+        } else {
+            "Main"
+        };
+        buf.push_line(format!("public class {} {{", class_name));
         buf.indent();
 
         // Emit each declaration
@@ -171,6 +192,31 @@ impl EmitterBackend for JavaBackend {
                     name = method_name,
                     params = params_str.join(", ")
                 );
+
+                // Check for ForAll (property-based testing) body — emit @Property + @ForAll
+                if let LirExpr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } = body
+                {
+                    let (java_type, annotation) = self.type_to_jqwik_info(type_)?;
+                    let binding_str = self.emit_pat(binding)?;
+                    let prop_str = self.emit_expr(property)?;
+                    let access = if *is_pub { "public " } else { "" };
+                    let mut body_buf = CodeBuffer::new();
+                    body_buf.push_line("@Property");
+                    body_buf.push_line(format!(
+                        "{}boolean {}({} {} {}) {{",
+                        access, method_name, annotation, java_type, binding_str
+                    ));
+                    body_buf.indent();
+                    body_buf.push_line(format!("return {};", prop_str));
+                    body_buf.dedent();
+                    body_buf.push_line("}");
+                    return Ok(body_buf.into_string().trim_end().to_string());
+                }
 
                 // Body handling
                 match body {
@@ -438,6 +484,22 @@ impl EmitterBackend for JavaBackend {
                 Ok(format!("{}{}", op_str, expr_str))
             }
             LirExpr::Wildcard { .. } => Ok("_".to_string()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                // ForAll is a property-based testing construct; emit as a comment
+                // with the sub-expression for now.
+                Ok(format!(
+                    "/* forAll<{ty_str}>({binding_str} -> {property_str}) */"
+                ))
+            }
+            LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
         }
     }
 
@@ -529,6 +591,26 @@ impl EmitterBackend for JavaBackend {
 // ------------------------------------------------------------------
 
 impl JavaBackend {
+    /// Map a Dwarf type to a (Java type, jqwik annotations) pair for
+    /// property-based testing with `@ForAll`.
+    ///
+    /// | Dwarf Type | Java type | jqwik annotation |
+    /// |---|---|---|
+    /// | `Int` | `int` | `@ForAll @IntGenerator("int")` |
+    /// | `String` | `String` | `@ForAll @StringGenerator` |
+    /// | `Bool` | `boolean` | `@ForAll` |
+    /// | other | `Object` | `@ForAll` |
+    fn type_to_jqwik_info(&self, ty: &Type) -> Result<(String, String), EmitterError> {
+        match ty {
+            Type::Named(name) => match name.as_str() {
+                "Int" => Ok(("int".into(), "@ForAll".into())),
+                "String" => Ok(("String".into(), "@ForAll".into())),
+                "Bool" => Ok(("boolean".into(), "@ForAll".into())),
+                _ => Ok(("Object".into(), "@ForAll".into())),
+            },
+            _ => Ok(("Object".into(), "@ForAll".into())),
+        }
+    }
     /// Emit a block body (stmts) as a single-line `{ ... }` string.
     ///
     /// For Let statements we produce `pat = value` (Java has no `let` keyword).
@@ -654,6 +736,12 @@ impl JavaBackend {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
             LirExpr::Wildcard { .. } => {}
+            LirExpr::ForAll { property, .. } => {
+                Self::scan_expr_for_imports(property, needs_cf, needs_opt);
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
+            }
         }
     }
 }
@@ -1069,6 +1157,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -1109,6 +1198,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -1133,6 +1223,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: dwarf_syntax::span::Span::new(0, 0, 0),
         };
         let result = backend.emit_decl(&decl).unwrap();

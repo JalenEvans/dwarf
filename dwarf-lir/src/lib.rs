@@ -157,6 +157,20 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    /// Property-based testing: forAll Type { binding -> property }
+    ForAll {
+        type_: Type,
+        binding: LirPat,
+        property: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
+    /// Assert consistent evaluation across targets.
+    AssertConsistent {
+        expr: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
 }
 
 impl LirExpr {
@@ -177,7 +191,9 @@ impl LirExpr {
             | LirExpr::Array { span, .. }
             | LirExpr::Binary { span, .. }
             | LirExpr::Unary { span, .. }
-            | LirExpr::Wildcard { span, .. } => *span,
+            | LirExpr::Wildcard { span, .. }
+            | LirExpr::ForAll { span, .. }
+            | LirExpr::AssertConsistent { span, .. } => *span,
         }
     }
 
@@ -198,7 +214,9 @@ impl LirExpr {
             | LirExpr::Array { hint, .. }
             | LirExpr::Binary { hint, .. }
             | LirExpr::Unary { hint, .. }
-            | LirExpr::Wildcard { hint, .. } => hint.clone(),
+            | LirExpr::Wildcard { hint, .. }
+            | LirExpr::ForAll { hint, .. }
+            | LirExpr::AssertConsistent { hint, .. } => hint.clone(),
         }
     }
 }
@@ -252,6 +270,7 @@ pub enum LirDecl {
         effect: Effect,
         hint: TargetHint,
         is_pub: bool,
+        is_generator: bool,
         span: Span,
     },
     RecordDef {
@@ -1272,6 +1291,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         if let LirDecl::Function {
@@ -1305,6 +1325,7 @@ mod tests {
             effect: Effect::Async,
             hint: TargetHint::Async,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         if let LirDecl::Function { effect, hint, .. } = &decl {
@@ -1379,6 +1400,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         assert_eq!(decl, decl.clone());
@@ -1398,6 +1420,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         let s = format!("{decl:?}");
@@ -1574,6 +1597,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let json = serde_json::to_string(&original).expect("serialize");
@@ -1628,5 +1652,41 @@ mod tests {
         };
         // If LirExpr had For/Pipe/Propagate, this test would still compile —
         // but those variants must not be part of the LIR enum.
+    }
+
+    // ------------------------------------------------------------------
+    // LirExpr::AssertConsistent — cross-target consistency marking
+    //
+    // These tests verify that LirExpr::AssertConsistent exists as a
+    // pass-through wrapper that preserves the inner expression across
+    // the LIR boundary. They will fail to compile until the variant
+    // is added (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_lir_expr_assert_consistent() {
+        let e = LirExpr::AssertConsistent {
+            expr: Box::new(LirExpr::Literal {
+                value: LirLiteral::Int(42),
+                hint: TargetHint::None,
+                span: span1(),
+            }),
+            hint: TargetHint::None,
+            span: span1(),
+        };
+        assert_eq!(e.span(), span1());
+        assert_eq!(e.hint(), TargetHint::None);
+        if let LirExpr::AssertConsistent { expr, hint, .. } = &e {
+            assert!(matches!(
+                expr.as_ref(),
+                LirExpr::Literal {
+                    value: LirLiteral::Int(42),
+                    ..
+                }
+            ));
+            assert_eq!(*hint, TargetHint::None);
+        } else {
+            panic!("expected AssertConsistent variant");
+        }
     }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// The kind of a token — categorizes what the token represents.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TokenKind {
-    // ---- Keywords (12 reserved words + true/false/null) ----
+    // ---- Keywords (13 reserved words + true/false/null) ----
     Fn,
     Type,
     Let,
@@ -14,6 +14,7 @@ pub enum TokenKind {
     If,
     Else,
     For,
+    ForAll,
     Import,
     From,
     Module,
@@ -51,6 +52,7 @@ pub enum TokenKind {
     PipeGt,     // |>
     Question,   // ?
     Underscore, // _
+    DotDot,     // ..
     Dot,        // .
     Comma,      // ,
     At,         // @
@@ -89,6 +91,7 @@ impl TokenKind {
             Self::If => "'if'",
             Self::Else => "'else'",
             Self::For => "'for'",
+            Self::ForAll => "'forAll'",
             Self::Import => "'import'",
             Self::From => "'from'",
             Self::Module => "'module'",
@@ -126,6 +129,7 @@ impl TokenKind {
             Self::PipeGt => "'|>'",
             Self::Question => "'?'",
             Self::Underscore => "'_'",
+            Self::DotDot => "'..'",
             Self::Dot => "'.'",
             Self::Comma => "','",
             Self::At => "'@'",
@@ -163,5 +167,28 @@ pub struct Token {
 impl Token {
     pub fn new(kind: TokenKind, span: Span) -> Self {
         Self { kind, span }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_token_dotdot_description() {
+        assert_eq!(TokenKind::DotDot.description(), "'..'");
+    }
+
+    #[test]
+    fn test_token_dotdot_equality() {
+        assert_eq!(TokenKind::DotDot, TokenKind::DotDot);
+        assert_ne!(TokenKind::DotDot, TokenKind::Dot);
+        assert_ne!(TokenKind::DotDot, TokenKind::Arrow);
+    }
+
+    #[test]
+    fn test_token_dotdot_debug() {
+        let s = format!("{:?}", TokenKind::DotDot);
+        assert!(!s.is_empty(), "Debug output should not be empty");
     }
 }

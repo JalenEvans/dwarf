@@ -387,6 +387,13 @@ impl<'a> Lexer<'a> {
                 ))
             }
             b'.' => {
+                if self.next_byte() == Some(b'.') {
+                    self.position += 2;
+                    return Ok(Token::new(
+                        TokenKind::DotDot,
+                        Span::new(self.file_id, start, self.position),
+                    ));
+                }
                 if self.next_byte().is_some_and(|b| b.is_ascii_digit()) {
                     self.lex_number(start)
                 } else {
@@ -756,6 +763,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "for" => TokenKind::For,
+            "forAll" => TokenKind::ForAll,
             "import" => TokenKind::Import,
             "from" => TokenKind::From,
             "module" => TokenKind::Module,

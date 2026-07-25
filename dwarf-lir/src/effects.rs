@@ -222,6 +222,12 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
             extract_calls_inner(target, calls);
             extract_calls_inner(value, calls);
         }
+        MirExpr::ForAll { property, .. } => {
+            extract_calls_inner(property, calls);
+        }
+        MirExpr::AssertConsistent { expr, .. } => {
+            extract_calls_inner(expr, calls);
+        }
     }
 }
 
@@ -339,6 +345,7 @@ mod tests {
             return_type: None,
             body,
             is_pub: true,
+            is_generator: false,
             span: span1(),
         }
     }

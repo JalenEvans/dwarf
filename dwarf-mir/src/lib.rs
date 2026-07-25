@@ -135,6 +135,18 @@ pub enum MirExpr {
     Wildcard {
         span: Span,
     },
+    /// Property-based testing: forAll Type { binding -> property }
+    ForAll {
+        type_: Type,
+        binding: MirPat,
+        property: Box<MirExpr>,
+        span: Span,
+    },
+    /// Assert consistent evaluation across targets.
+    AssertConsistent {
+        expr: Box<MirExpr>,
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -156,7 +168,9 @@ impl MirExpr {
             | MirExpr::Array { span, .. }
             | MirExpr::Binary { span, .. }
             | MirExpr::Unary { span, .. }
-            | MirExpr::Wildcard { span } => *span,
+            | MirExpr::Wildcard { span }
+            | MirExpr::ForAll { span, .. }
+            | MirExpr::AssertConsistent { span, .. } => *span,
         }
     }
 }
@@ -224,6 +238,7 @@ pub enum MirDecl {
         return_type: Option<Type>,
         body: MirExpr,
         is_pub: bool,
+        is_generator: bool,
         span: Span,
     },
     TypeDef {
@@ -263,6 +278,7 @@ pub struct MirVariant {
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use dwarf_syntax::hir::RefConstraint;
     use dwarf_syntax::hir::Type;
     use dwarf_syntax::span::Span;
 
@@ -1047,6 +1063,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         if let MirDecl::Function { name, is_pub, .. } = &decl {
@@ -1134,6 +1151,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         assert_eq!(decl, decl.clone());
@@ -1150,6 +1168,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: false,
+            is_generator: false,
             span: span1(),
         };
         let s = format!("{decl:?}");
@@ -1302,6 +1321,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let json = serde_json::to_string(&original).expect("serialize");
@@ -1336,5 +1356,135 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize");
         let deserialized: MirArm = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, deserialized);
+    }
+
+    // ------------------------------------------------------------------
+    // Refinement type through MIR (DWARF-38: Edge Case Generator)
+    //
+    // These tests verify that Type::Refined and RefConstraint are
+    // accessible in the MIR crate (which reuses dwarf_syntax::hir::Type).
+    // They will fail to compile until the HIR types are added.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_refined_type_flows_through_mir() {
+        // Verify that a Type::Refined can be used in a MirDecl::TypeDef.
+        // This validates that refined types survive the MIR boundary.
+        let decl = MirDecl::TypeDef {
+            name: "MyInt".into(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 100 },
+            },
+            is_pub: true,
+            span: span1(),
+        };
+        match &decl {
+            MirDecl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyInt");
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected TypeDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_refined_type_in_mir_forall() {
+        // Verify that a refined type can appear in a forAll expression's
+        // type position in the MIR. This exercises the Type::Refined
+        // variant in MIR expression nodes.
+        let expr = MirExpr::ForAll {
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 100 },
+            },
+            binding: MirPat::Variable("x".into()),
+            property: Box::new(MirExpr::Binary {
+                op: MirBinaryOp::Gt,
+                lhs: Box::new(MirExpr::Variable {
+                    name: "x".into(),
+                    span: span1(),
+                }),
+                rhs: Box::new(MirExpr::Literal {
+                    value: MirLiteral::Int(0),
+                    span: span1(),
+                }),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        match &expr {
+            MirExpr::ForAll { type_, binding, .. } => {
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+                assert_eq!(*binding, MirPat::Variable("x".into()));
+            }
+            other => panic!("Expected ForAll expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_refined_type_in_mir_field() {
+        // Verify that a refined type can appear in a record field type
+        // within the MIR. Refined types should not be lost when lowering
+        // records from HIR to MIR.
+        let field = MirField {
+            name: "age".into(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 150 },
+            },
+        };
+        assert_eq!(field.name, "age");
+        assert_eq!(
+            field.type_,
+            Type::Refined {
+                base: Box::new(Type::Named("Int".to_string())),
+                constraint: RefConstraint::Range { min: 0, max: 150 },
+            }
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // MirExpr::AssertConsistent — cross-target consistency marking
+    //
+    // These tests verify that MirExpr::AssertConsistent exists as a
+    // pass-through wrapper that preserves the inner expression across
+    // the MIR boundary. They will fail to compile until the variant
+    // is added (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_mir_expr_assert_consistent() {
+        let e = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        assert_eq!(e.span(), span1());
+        if let MirExpr::AssertConsistent { expr, .. } = &e {
+            assert!(matches!(
+                expr.as_ref(),
+                MirExpr::Literal {
+                    value: MirLiteral::Int(42),
+                    ..
+                }
+            ));
+        } else {
+            panic!("expected AssertConsistent variant");
+        }
     }
 }

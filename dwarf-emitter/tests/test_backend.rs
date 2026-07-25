@@ -11,7 +11,7 @@ use dwarf_lir::{
     Effect, LirArm, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
     LirUnaryOp, LirVariant, TargetHint,
 };
-use dwarf_syntax::hir::Type;
+use dwarf_syntax::hir::{RefConstraint, Type};
 use dwarf_syntax::span::Span;
 
 // ------------------------------------------------------------------
@@ -243,6 +243,21 @@ impl EmitterBackend for MockBackend {
                 Ok(format!("unary({op_str}, {e_str})"))
             }
             LirExpr::Wildcard { .. } => Ok("wildcard".into()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                Ok(format!("forAll({ty_str}, {binding_str} => {property_str})"))
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("assert.consistent({})", inner))
+            }
         }
     }
 
@@ -302,6 +317,12 @@ impl EmitterBackend for MockBackend {
                 let args_str: Vec<String> =
                     args.iter().map(|a| self.emit_type(a).unwrap()).collect();
                 Ok(format!("{base}<{}>", args_str.join(", ")))
+            }
+            Type::Refined { base, constraint } => {
+                let base_str = self.emit_type(base)?;
+                match constraint {
+                    RefConstraint::Range { min, max } => Ok(format!("{base_str}({min}..{max})")),
+                }
             }
         }
     }
@@ -385,6 +406,7 @@ fn test_emit_module_single_func() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_module(&[decl]).unwrap();
@@ -416,6 +438,7 @@ fn test_emit_module_two_decls() {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: MockBackend::span(),
         },
     ];
@@ -464,6 +487,7 @@ fn test_emit_decl_func_public_pure() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -488,6 +512,7 @@ fn test_emit_decl_func_async_effect() {
         effect: Effect::Async,
         hint: TargetHint::Async,
         is_pub: true,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -512,6 +537,7 @@ fn test_emit_decl_func_private() {
         effect: Effect::Impure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl).unwrap();
@@ -1707,6 +1733,7 @@ fn test_always_fail_emit_decl() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     let result = backend.emit_decl(&decl);
@@ -1831,6 +1858,7 @@ fn test_mock_backend_all_methods_return_ok() {
         effect: Effect::Pure,
         hint: TargetHint::None,
         is_pub: false,
+        is_generator: false,
         span: MockBackend::span(),
     };
     assert!(b.emit_decl(&decl).is_ok());

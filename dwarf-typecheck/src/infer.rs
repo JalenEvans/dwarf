@@ -88,6 +88,7 @@ fn resolve_hir_type_param(hir_type: &HirType) -> Result<TypeId, String> {
         HirType::Func { .. } => {
             Err("function types are not supported in parameter annotations".to_string())
         }
+        HirType::Refined { base, .. } => resolve_hir_type_param(base),
     }
 }
 
@@ -145,10 +146,12 @@ pub fn infer_expr(
         Expr::Pipe { .. }
         | Expr::Propagate { .. }
         | Expr::For { .. }
+        | Expr::ForAll { .. }
         | Expr::Assign { .. }
         | Expr::Array { .. }
         | Expr::Wildcard { .. }
-        | Expr::Variant { .. } => Ok(0),
+        | Expr::Variant { .. }
+        | Expr::AssertConsistent { .. } => Ok(0),
     }
 }
 

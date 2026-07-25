@@ -181,5 +181,6 @@ fn resolve_hir_type(
             }
             None => 4,
         },
+        HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
     }
 }

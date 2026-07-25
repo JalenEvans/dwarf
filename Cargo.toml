@@ -12,4 +12,6 @@ members = [
     "dwarf-lib",
     "dwarf-wasm",
     "dwarf-napi",
+    "dwarf-gen",
+    "dwarf-shrink",
 ]

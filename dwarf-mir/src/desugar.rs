@@ -317,6 +317,23 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
                 span: *span,
             }
         }
+
+        Expr::ForAll {
+            type_,
+            binding,
+            property,
+            span,
+        } => MirExpr::ForAll {
+            type_: type_.clone(),
+            binding: convert_pat(binding.clone()),
+            property: Box::new(desugar_pipe(property)),
+            span: *span,
+        },
+
+        Expr::AssertConsistent { expr, span } => MirExpr::AssertConsistent {
+            expr: Box::new(desugar_pipe(expr)),
+            span: *span,
+        },
     }
 }
 
@@ -537,6 +554,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 return_type: return_type.clone(),
                 body: desugar_for_loop(body),
                 is_pub: *is_pub,
+                is_generator: false,
                 span: *span,
             }),
 
@@ -680,6 +698,28 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                                     span: *span,
                                 },
                                 is_pub: func_is_pub,
+                                is_generator: false,
+                                span: func_span,
+                            });
+                        }
+                        "gen" => {
+                            // @gen decorator — generator function.
+                            // The function IS the generator; preserve the body as-is.
+                            // The type argument from @gen(Type) becomes the return type.
+                            let gen_type = mir_args.first().and_then(|arg| match arg {
+                                MirExpr::Variable { name, .. } => {
+                                    Some(dwarf_syntax::hir::Type::Named(name.clone()))
+                                }
+                                _ => None,
+                            });
+
+                            result.push(MirDecl::Function {
+                                name: func_name,
+                                params: mir_params,
+                                return_type: gen_type.or(return_type),
+                                body: desugar_for_loop(&body),
+                                is_pub: func_is_pub,
+                                is_generator: true,
                                 span: func_span,
                             });
                         }
@@ -701,6 +741,7 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                                     span: *span,
                                 },
                                 is_pub: func_is_pub,
+                                is_generator: false,
                                 span: func_span,
                             });
                         }
@@ -724,7 +765,9 @@ mod tests {
         desugar_decorators, desugar_for_loop, desugar_pipe, desugar_propagate, expand_type_aliases,
     };
     use crate::*;
-    use dwarf_syntax::hir::{Decl, Expr, Field, LiteralValue, Param, Pat, Stmt, Type, Variant};
+    use dwarf_syntax::hir::{
+        BinaryOp, Decl, Expr, Field, LiteralValue, Param, Pat, Stmt, Type, Variant,
+    };
     use dwarf_syntax::span::Span;
 
     /// Shared zero-length synthetic span for test expressions.
@@ -1606,6 +1649,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -1666,6 +1710,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -1779,6 +1824,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -1907,6 +1953,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -1967,6 +2014,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -2027,6 +2075,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -2087,6 +2136,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -2147,6 +2197,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
         assert_eq!(result, expected);
@@ -2209,8 +2260,202 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            is_generator: false,
             span: s,
         }];
+        assert_eq!(result, expected);
+    }
+
+    // ------------------------------------------------------------------
+    // @gen decorator recognition tests
+    //
+    // These tests verify that @gen-decorated functions are recognized as
+    // custom generators and are NOT desugared into generic decorator calls.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_desugar_gen_decorator_preserves_body() {
+        let s = span();
+        // @gen(Color) fn gen_color() -> Color { pure_red() }
+        //
+        // The @gen decorator signals a custom generator. The function body
+        // should be preserved as-is (the function IS the generator), NOT
+        // wrapped in a call to `gen(...)`.
+        let inner = Decl::Function {
+            name: "gen_color".into(),
+            params: vec![],
+            return_type: Some(Type::Named("Color".to_string())),
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "pure_red".into(),
+                    span: s,
+                }),
+                args: vec![],
+                span: s,
+            },
+            is_pub: true,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "gen".into(),
+            args: vec![Expr::Variable {
+                name: "Color".into(),
+                span: s,
+            }],
+            target: Box::new(inner),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        assert_eq!(result.len(), 1, "should produce exactly one declaration");
+        match &result[0] {
+            MirDecl::Function {
+                name,
+                return_type,
+                body,
+                ..
+            } => {
+                assert_eq!(name, "gen_color", "function name should be preserved");
+                assert_eq!(
+                    *return_type,
+                    Some(Type::Named("Color".to_string())),
+                    "return type should be Color"
+                );
+                // The body should NOT be wrapped in a gen() call.
+                let body_is_wrapped_in_gen = matches!(
+                    body,
+                    MirExpr::Call { func, .. }
+                        if matches!(func.as_ref(), MirExpr::Variable { name, .. } if name == "gen")
+                );
+                assert!(
+                    !body_is_wrapped_in_gen,
+                    "body should NOT be wrapped in gen() call"
+                );
+                // The body should contain the original `pure_red()` call
+                match body {
+                    MirExpr::Call { func, args, .. } => {
+                        match func.as_ref() {
+                            MirExpr::Variable { name: fn_name, .. } => {
+                                assert_eq!(
+                                    fn_name, "pure_red",
+                                    "the original function body should be preserved"
+                                );
+                            }
+                            other => {
+                                panic!("Expected body to call 'pure_red' directly, got {other:?}")
+                            }
+                        }
+                        assert!(args.is_empty(), "pure_red() should have no arguments");
+                    }
+                    other => panic!("Expected body to be the original Call expr, got {other:?}"),
+                }
+            }
+            other => panic!("Expected MirDecl::Function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_desugar_gen_decorator_forall_preserves_body() {
+        let s = span();
+        // @gen(Int) forAll Int { x -> x > 0 }
+        //
+        // When @gen wraps a forAll expression, the forAll body should also
+        // be preserved.
+        let inner = Expr::ForAll {
+            type_: Type::Named("Int".to_string()),
+            binding: Pat::Variable("x".to_string()),
+            property: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Variable {
+                    name: "x".into(),
+                    span: s,
+                }),
+                rhs: Box::new(Expr::Literal {
+                    value: LiteralValue::Int(0),
+                    span: s,
+                }),
+                span: s,
+            }),
+            span: s,
+        };
+
+        let inner_fn = Decl::Function {
+            name: String::new(),
+            params: vec![],
+            return_type: None,
+            body: inner,
+            is_pub: false,
+            span: s,
+        };
+        let input = vec![Decl::Decorator {
+            name: "gen".into(),
+            args: vec![Expr::Variable {
+                name: "Int".into(),
+                span: s,
+            }],
+            target: Box::new(inner_fn),
+            is_pub: true,
+            span: s,
+        }];
+
+        let result = desugar_decorators(&input);
+
+        // The @gen(Int) should wrap the synthetic function containing
+        // the forAll expression. The forAll should be preserved inside
+        // the resulting function body, not wrapped in a gen() call.
+        assert_eq!(result.len(), 1, "should produce exactly one declaration");
+        match &result[0] {
+            MirDecl::Function { body, .. } => {
+                // The body should NOT be a call to `gen`
+                let body_is_wrapped_in_gen = matches!(
+                    body,
+                    MirExpr::Call { func, .. }
+                        if matches!(func.as_ref(), MirExpr::Variable { name, .. } if name == "gen")
+                );
+                assert!(
+                    !body_is_wrapped_in_gen,
+                    "body should NOT be wrapped in gen() call"
+                );
+                // The body should contain the ForAll expression directly
+                assert!(
+                    matches!(body, MirExpr::ForAll { .. }),
+                    "expected ForAll expression to be preserved directly in body"
+                );
+            }
+            other => panic!("Expected MirDecl::Function, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // assert.consistent desugaring tests (DWARF-41)
+    //
+    // These tests verify that desugar_pipe correctly handles
+    // Expr::AssertConsistent by wrapping the desugared inner expression
+    // in MirExpr::AssertConsistent. They will fail to compile until
+    // both Expr::AssertConsistent and MirExpr::AssertConsistent are
+    // implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_desugar_assert_consistent_passthrough() {
+        let s = span();
+        let input = Expr::AssertConsistent {
+            expr: Box::new(Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: s,
+            }),
+            span: s,
+        };
+        let result = desugar_pipe(&input);
+        let expected = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: s,
+            }),
+            span: s,
+        };
         assert_eq!(result, expected);
     }
 }

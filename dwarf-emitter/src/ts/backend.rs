@@ -140,6 +140,15 @@ impl EmitterBackend for TypeScriptBackend {
     }
 
     fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
+        // First pass: scan for ForAll declarations to add fast-check import
+        for decl in decls {
+            if let LirDecl::Function { body, .. } = decl {
+                if matches!(*body, LirExpr::ForAll { .. }) {
+                    self.imports.add_import("fast-check", "*", Some("fc"));
+                }
+            }
+        }
+
         if decls.is_empty() && self.imports.is_empty() {
             return Ok(String::new());
         }
@@ -176,6 +185,13 @@ impl EmitterBackend for TypeScriptBackend {
 
     fn emit_decl(&mut self, decl: &LirDecl) -> Result<String, EmitterError> {
         match decl {
+            // ForAll property-based test — emit as Jest test() wrapper
+            LirDecl::Function { name, body, .. } if matches!(*body, LirExpr::ForAll { .. }) => {
+                let inner = self.emit_expr(body)?;
+                Ok(format!(
+                    "test('{name}', () => {{\n  fc.assert(\n    {inner}\n  );\n}});"
+                ))
+            }
             LirDecl::Function {
                 name,
                 params,
@@ -464,6 +480,21 @@ impl EmitterBackend for TypeScriptBackend {
                 Ok(format!("{}{}", op_str, expr_str))
             }
             LirExpr::Wildcard { .. } => Ok("_".to_string()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let gen_str = self.type_to_fc_generator(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                Ok(format!(
+                    "fc.property({}, ({}) => {{\n        return {};\n      }})",
+                    gen_str, binding_str, property_str
+                ))
+            }
+            LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
         }
     }
 
@@ -688,6 +719,45 @@ impl TypeScriptBackend {
                     export, name, props_type, params_jsx, body_str
                 ))
             }
+        }
+    }
+
+    /// Map a Dwarf type to a fast-check generator expression.
+    ///
+    /// | Dwarf Type | fast-check generator |
+    /// |---|---|
+    /// | `Int` | `fc.integer()` |
+    /// | `String` | `fc.string()` |
+    /// | `Bool` | `fc.boolean()` |
+    /// | `List<X>` | `fc.array(<X_gen>)` |
+    /// | `Option<X>` | `fc.option(<X_gen>)` |
+    /// | `Result<O, E>` | `fc.oneof(<O_gen>, <E_gen>)` |
+    /// | other | `fc.anything()` |
+    fn type_to_fc_generator(&mut self, ty: &Type) -> Result<String, EmitterError> {
+        match ty {
+            Type::Named(name) => match name.as_str() {
+                "Int" => Ok("fc.integer()".to_string()),
+                "String" => Ok("fc.string()".to_string()),
+                "Bool" => Ok("fc.boolean()".to_string()),
+                _ => Ok("fc.anything()".to_string()),
+            },
+            Type::Generic { base, args } => match base.as_str() {
+                "List" if args.len() == 1 => {
+                    let elem_gen = self.type_to_fc_generator(&args[0])?;
+                    Ok(format!("fc.array({})", elem_gen))
+                }
+                "Option" if args.len() == 1 => {
+                    let elem_gen = self.type_to_fc_generator(&args[0])?;
+                    Ok(format!("fc.option({})", elem_gen))
+                }
+                "Result" if args.len() == 2 => {
+                    let ok_gen = self.type_to_fc_generator(&args[0])?;
+                    let err_gen = self.type_to_fc_generator(&args[1])?;
+                    Ok(format!("fc.oneof({}, {})", ok_gen, err_gen))
+                }
+                _ => Ok("fc.anything()".to_string()),
+            },
+            _ => Ok("fc.anything()".to_string()),
         }
     }
 }
@@ -1658,6 +1728,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         assert_eq!(
@@ -1687,6 +1758,7 @@ mod tests {
             effect: Effect::Async,
             hint: TargetHint::Async,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -1777,6 +1849,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         assert_eq!(
@@ -1810,6 +1883,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1831,6 +1905,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let record_decl = LirDecl::RecordDef {
@@ -1868,6 +1943,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1893,6 +1969,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1919,6 +1996,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -1962,6 +2040,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2018,6 +2097,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2059,6 +2139,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -2085,6 +2166,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2209,6 +2291,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let priv_fn = LirDecl::Function {
@@ -2223,6 +2306,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[pub_fn, priv_fn]).unwrap();
@@ -2264,6 +2348,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2290,6 +2375,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2312,6 +2398,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2334,6 +2421,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -2374,6 +2462,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::ReactComponent,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();

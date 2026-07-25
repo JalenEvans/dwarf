@@ -340,18 +340,36 @@ impl Parser {
         }
         pos += 1;
 
-        // If the first identifier is immediately followed by `(` or `{`,
+        // If the first identifier is immediately followed by `{`,
         // it is definitely a union variant (even single-variant unions).
+        // If followed by `(`, check whether it could be a refinement type
+        // (Int(0..100)) rather than a variant payload (Some(Int)).
         if pos < self.tokens.len() {
             match &self.tokens[pos].kind {
-                TokenKind::LParen => return true,
+                TokenKind::LParen => {
+                    // Could be a refinement: Type(int..int)
+                    // Check if the tokens inside parens look like a refinement range.
+                    // If so, let parse_type() handle it; otherwise treat as union.
+                    if pos + 4 < self.tokens.len() {
+                        let is_refinement = matches!(&self.tokens[pos + 1].kind, TokenKind::Int(_))
+                            && self.tokens[pos + 2].kind == TokenKind::DotDot
+                            && matches!(&self.tokens[pos + 3].kind, TokenKind::Int(_))
+                            && self.tokens[pos + 4].kind == TokenKind::RParen;
+                        if !is_refinement {
+                            return true;
+                        }
+                        // Looks like a refinement — fall through to check for `|`
+                    } else {
+                        return true;
+                    }
+                }
                 TokenKind::LBrace => return true,
                 _ => {}
             }
         }
 
-        // No paren/brace payload on the first identifier.  Scan forward to
-        // see if there is a `|` (indicating at least a second variant).
+        // No paren/brace payload on the first identifier (or it was a refinement).
+        // Scan forward to see if there is a `|` (indicating at least a second variant).
         // But only treat this as a union definition if the first identifier
         // starts with uppercase — union variant names start uppercase,
         // while bare type names in union type aliases are lowercase.
@@ -762,6 +780,36 @@ impl Parser {
                     span,
                 })
             }
+            TokenKind::Ident(name) if name == "assert" => {
+                let name = name.clone();
+                let start = self.peek().span;
+                let saved = self.position;
+                // Check for assert.consistent(expr) special form via lookahead.
+                // Use self.tokens directly to avoid borrowing through self.peek()
+                if saved + 3 < self.tokens.len()
+                    && self.tokens[saved + 1].kind == TokenKind::Dot
+                    && self.tokens[saved + 2].kind == TokenKind::Ident("consistent".to_string())
+                    && self.tokens[saved + 3].kind == TokenKind::LParen
+                {
+                    self.advance(); // consume 'assert'
+                    self.advance(); // consume '.'
+                    self.advance(); // consume 'consistent'
+                    self.advance(); // consume '('
+                    let expr = self.parse_expression()?;
+                    self.consume(
+                        TokenKind::RParen,
+                        "expected ')' after assert.consistent expr",
+                    )?;
+                    let end = self.previous().span.end;
+                    return Ok(Expr::AssertConsistent {
+                        expr: Box::new(expr),
+                        span: Span::new(start.file_id, start.start, end),
+                    });
+                }
+                // Not assert.consistent( — fall through to normal variable.
+                let span = self.advance().span;
+                Ok(Expr::Variable { name, span })
+            }
             TokenKind::Ident(name) => {
                 let name = name.clone();
                 let span = self.advance().span;
@@ -774,6 +822,7 @@ impl Parser {
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
             TokenKind::For => self.parse_for_expr(),
+            TokenKind::ForAll => self.parse_forall_expr(),
             TokenKind::Pipe => self.parse_lambda(),
             TokenKind::LBrace => self.parse_block(),
             TokenKind::LBracket => self.parse_array_literal(),
@@ -863,6 +912,22 @@ impl Parser {
             binding,
             iterable: Box::new(iterable),
             body: Box::new(body),
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    fn parse_forall_expr(&mut self) -> Result<Expr, ParseError> {
+        let start = self.advance().span; // consume 'forAll'
+        let type_ = self.parse_type()?;
+        self.consume(TokenKind::LBrace, "expected '{' after forAll type")?;
+        let binding = self.parse_pattern()?;
+        self.consume(TokenKind::Arrow, "expected '->' after forAll binding")?;
+        let property = self.parse_expression()?;
+        self.consume(TokenKind::RBrace, "expected '}' after forAll property")?;
+        Ok(Expr::ForAll {
+            type_,
+            binding,
+            property: Box::new(property),
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -1070,6 +1135,15 @@ impl Parser {
         // Simple named type, possibly with generics and/or union suffix.
         let name = self.consume_ident("expected type name")?;
 
+        // Try refinement type: Name(min..max)
+        if let Some(result) = self.try_parse_refinement(name.clone()) {
+            let refined = result?;
+            // Refined types can also have union suffix: Int(0..100) | Null
+            let result = self.parse_union_suffix(refined);
+            self.depth -= 1;
+            return result;
+        }
+
         // Generic args: Type<T>
         if self.match_token(TokenKind::Lt) {
             let mut args = Vec::new();
@@ -1106,6 +1180,57 @@ impl Parser {
             }
         }
         Ok(Type::Union(types))
+    }
+
+    /// Try to parse a refinement type: Name(min..max)
+    /// Returns None if the next tokens don't form a valid refinement,
+    /// allowing the caller to fall through to other type forms.
+    fn try_parse_refinement(&mut self, base_name: String) -> Option<Result<Type, ParseError>> {
+        let save = self.position;
+
+        if !self.check(TokenKind::LParen) {
+            return None;
+        }
+        self.advance(); // consume (
+
+        // Expect int
+        let min = match &self.peek().kind {
+            TokenKind::Int(v) => *v,
+            _ => {
+                self.position = save;
+                return None;
+            }
+        };
+        self.advance();
+
+        // Expect ..
+        if !self.check(TokenKind::DotDot) {
+            self.position = save;
+            return None;
+        }
+        self.advance();
+
+        // Expect int
+        let max = match &self.peek().kind {
+            TokenKind::Int(v) => *v,
+            _ => {
+                self.position = save;
+                return None;
+            }
+        };
+        self.advance();
+
+        // Expect )
+        if !self.check(TokenKind::RParen) {
+            self.position = save;
+            return None;
+        }
+        self.advance();
+
+        Some(Ok(Type::Refined {
+            base: Box::new(Type::Named(base_name)),
+            constraint: RefConstraint::Range { min, max },
+        }))
     }
 
     /// Parse a record type: `{ name: Type, ... }`.
@@ -1332,5 +1457,545 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let (program, _errors) = parser.parse();
         assert_eq!(program.len(), 2);
+    }
+
+    // ------------------------------------------------------------------
+    // forAll property-test expression tests (DWARF-37)
+    //
+    // These tests specify the expected shape of the forAll HIR node once
+    // the lexer, HIR, and parser have been extended.  They will fail to
+    // compile until Expr::ForAll, TokenKind::ForAll, and the parser branch
+    // are implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_forall_expr_basic() {
+        // forAll Int { x -> x > 0 }
+        //
+        // At top level, a bare forAll is wrapped in a synthetic function
+        // declaration.  The body should be Expr::ForAll { type_: Int,
+        // binding: x, property: x > 0 }.
+        let tokens = tokenize("forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { body, .. } => match body {
+                Expr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } => {
+                    assert_eq!(*type_, Type::Named("Int".to_string()));
+                    assert_eq!(*binding, Pat::Variable("x".to_string()));
+                    assert!(matches!(
+                        property.as_ref(),
+                        Expr::Binary {
+                            op: BinaryOp::Gt,
+                            ..
+                        }
+                    ));
+                }
+                other => panic!("Expected ForAll expression, got {other:?}"),
+            },
+            other => panic!("Expected synthetic function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_expr_string() {
+        // forAll String { s -> s.length() >= 0 }
+        //
+        // Verify that string types and member-access properties work.
+        let tokens = tokenize("forAll String { s -> s.length() >= 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { body, .. } => match body {
+                Expr::ForAll {
+                    type_,
+                    binding,
+                    property,
+                    ..
+                } => {
+                    assert_eq!(*type_, Type::Named("String".to_string()));
+                    assert_eq!(*binding, Pat::Variable("s".to_string()));
+                    assert!(matches!(
+                        property.as_ref(),
+                        Expr::Binary {
+                            op: BinaryOp::Ge,
+                            ..
+                        }
+                    ));
+                }
+                other => panic!("Expected ForAll expression, got {other:?}"),
+            },
+            other => panic!("Expected synthetic function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_expr_in_block() {
+        // fn test() { forAll Int { x -> x + 1 > x } }
+        //
+        // When forAll appears inside a function body, it should parse as
+        // an expression statement inside the block.
+        let tokens = tokenize("fn test() { forAll Int { x -> x + 1 > x } }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::ForAll { type_, binding, .. }) => {
+                                assert_eq!(*type_, Type::Named("Int".to_string()));
+                                assert_eq!(*binding, Pat::Variable("x".to_string()));
+                            }
+                            other => {
+                                panic!("Expected ForAll statement, got {other:?}")
+                            }
+                        }
+                    }
+                    other => panic!("Expected block body, got {other:?}"),
+                }
+            }
+            other => panic!("Expected function declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_forall_with_decorator() {
+        // @QuickCheck forAll Int { x -> x > 0 }
+        //
+        // A decorator applied to a forAll expression — the decorator wraps
+        // the synthetic function that contains the forAll.
+        let tokens = tokenize("@QuickCheck forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator { name, target, .. } => {
+                assert_eq!(name, "QuickCheck");
+                match target.as_ref() {
+                    Decl::Function { body, .. } => {
+                        assert!(matches!(body, Expr::ForAll { .. }));
+                    }
+                    other => {
+                        panic!("Expected synthetic function, got {other:?}")
+                    }
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // @gen decorator tests (DWARF-37: custom generator derivation)
+    //
+    // These tests verify that the parser handles `@gen(Type)` decorators
+    // that signal custom generator functions for property-based testing.
+    // The parser already supports `@name(args)` decorator syntax; these
+    // tests confirm that `@gen` specifically parses correctly with both
+    // function targets and forAll expression targets.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_gen_decorator_on_fn() {
+        // @gen(Color) fn gen_color() -> Color { pure_red() }
+        //
+        // A @gen decorator wrapping a function declaration. The decorator
+        // name should be "gen", the args should contain a reference to the
+        // Color type, and the target should be a function named "gen_color"
+        // with return type Color.
+        let tokens = tokenize("@gen(Color) fn gen_color() -> Color { pure_red() }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator {
+                name, args, target, ..
+            } => {
+                assert_eq!(name, "gen", "decorator name should be 'gen'");
+                assert_eq!(args.len(), 1, "should have one type arg");
+                match &args[0] {
+                    Expr::Variable {
+                        name: type_name, ..
+                    } => {
+                        assert_eq!(type_name, "Color", "type arg should be 'Color'");
+                    }
+                    other => panic!("Expected type reference as Variable expr, got {other:?}"),
+                }
+                match target.as_ref() {
+                    Decl::Function {
+                        name: fn_name,
+                        return_type,
+                        ..
+                    } => {
+                        assert_eq!(fn_name, "gen_color", "function name should be 'gen_color'");
+                        assert!(
+                            return_type
+                                .as_ref()
+                                .is_some_and(|t| *t == Type::Named("Color".to_string())),
+                            "function should return Color"
+                        );
+                    }
+                    other => panic!("Expected function target, got {other:?}"),
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_gen_decorator_on_forall_expr() {
+        // @gen(Int) forAll Int { x -> x > 0 }
+        //
+        // A @gen decorator applied to a forAll expression. The decorator
+        // wraps the synthetic function that wraps the forAll. The decorator
+        // name should be "gen", args should contain Int, and the target
+        // synthetic function should contain a ForAll expression in its body.
+        let tokens = tokenize("@gen(Int) forAll Int { x -> x > 0 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Decorator {
+                name, args, target, ..
+            } => {
+                assert_eq!(name, "gen", "decorator name should be 'gen'");
+                assert_eq!(args.len(), 1, "should have one type arg");
+                match &args[0] {
+                    Expr::Variable {
+                        name: type_name, ..
+                    } => {
+                        assert_eq!(type_name, "Int", "type arg should be 'Int'");
+                    }
+                    other => panic!("Expected type reference as Variable expr, got {other:?}"),
+                }
+                match target.as_ref() {
+                    Decl::Function { body, .. } => match body {
+                        Expr::ForAll {
+                            type_,
+                            binding,
+                            property,
+                            ..
+                        } => {
+                            assert_eq!(*type_, Type::Named("Int".to_string()));
+                            assert_eq!(*binding, Pat::Variable("x".to_string()));
+                            assert!(matches!(
+                                property.as_ref(),
+                                Expr::Binary {
+                                    op: BinaryOp::Gt,
+                                    ..
+                                }
+                            ));
+                        }
+                        other => panic!("Expected ForAll expression in target body, got {other:?}"),
+                    },
+                    other => panic!("Expected synthetic function target, got {other:?}"),
+                }
+            }
+            other => panic!("Expected decorator declaration, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Refinement type parsing tests (DWARF-38: Edge Case Generator)
+    //
+    // These tests verify that the parser can parse refined types like
+    // Int(0..100). They will fail to compile until TokenKind::DotDot,
+    // Type::Refined, and RefConstraint are implemented, and will fail at
+    // runtime until the lexer and parser are updated to handle `..` and
+    // refinement syntax (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_refined_int_range() {
+        // Parsing a type alias with a refined type:
+        //   type MyInt = Int(0..100)
+        //
+        // The type alias value should be Type::Refined { base: Int, constraint: Range { 0, 100 } }
+        let tokens = tokenize("type MyInt = Int(0..100)");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyInt");
+                assert_eq!(
+                    *type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected TypeDef declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_in_fn() {
+        // Parsing a function with refined param and return types:
+        //   fn test(x: Int(0..100)) -> Int(0..100) { x }
+        //
+        // The param type and return type should both be Type::Refined.
+        let tokens = tokenize("fn test(x: Int(0..100)) -> Int(0..100) { x }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                assert_eq!(name, "test");
+                assert_eq!(params.len(), 1);
+
+                // Check param type
+                let param_type = params[0]
+                    .type_
+                    .as_ref()
+                    .expect("param should have a type annotation");
+                assert_eq!(
+                    *param_type,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+
+                // Check return type
+                let ret = return_type.as_ref().expect("should have return type");
+                assert_eq!(
+                    *ret,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected Function declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_in_record() {
+        // Parsing a record definition with refined field types:
+        //   type Person = { age: Int(0..150), name: String(1..100) }
+        //
+        // Both fields should use refined types.
+        let tokens = tokenize("type Person = { age: Int(0..150), name: String(1..100) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::RecordDef { name, fields, .. } => {
+                assert_eq!(name, "Person");
+                assert_eq!(fields.len(), 2);
+
+                // age field: Int(0..150)
+                assert_eq!(fields[0].name, "age");
+                assert_eq!(
+                    fields[0].type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("Int".to_string())),
+                        constraint: RefConstraint::Range { min: 0, max: 150 },
+                    }
+                );
+
+                // name field: String(1..100)
+                assert_eq!(fields[1].name, "name");
+                assert_eq!(
+                    fields[1].type_,
+                    Type::Refined {
+                        base: Box::new(Type::Named("String".to_string())),
+                        constraint: RefConstraint::Range { min: 1, max: 100 },
+                    }
+                );
+            }
+            other => panic!("Expected RecordDef declaration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refined_type_disjoint_from_func_type() {
+        // Verify that (Int, Int) -> Int still parses as a function type,
+        // not a refinement. Function types start with '(' and have '->',
+        // while refinements are TypeIdent(literal..literal). These should
+        // not interfere with each other.
+        let tokens = tokenize("type MyFn = (Int, Int) -> Int");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::TypeDef { name, type_, .. } => {
+                assert_eq!(name, "MyFn");
+                match type_ {
+                    Type::Func { params, return_ } => {
+                        assert_eq!(params.len(), 2);
+                        assert_eq!(params[0], Type::Named("Int".to_string()));
+                        assert_eq!(params[1], Type::Named("Int".to_string()));
+                        assert_eq!(*return_.as_ref(), Type::Named("Int".to_string()));
+                    }
+                    other => panic!("Expected Func type, got {other:?}"),
+                }
+            }
+            other => panic!("Expected TypeDef declaration, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // assert.consistent expression tests (DWARF-41)
+    //
+    // These tests verify that the parser can handle the
+    // `assert.consistent(expr)` construct, which marks an expression
+    // for cross-target consistency checking. They will fail to compile
+    // until Expr::AssertConsistent and the parser branch are implemented
+    // (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_assert_consistent() {
+        let tokens = tokenize("fn test() { assert.consistent(42) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                match expr.as_ref() {
+                                    Expr::Literal { value, .. } => {
+                                        assert_eq!(*value, LiteralValue::Int(42));
+                                    }
+                                    _ => panic!("Expected literal inside assert.consistent"),
+                                }
+                            }
+                            _ => panic!("Expected AssertConsistent expression"),
+                        }
+                    }
+                    _ => panic!("Expected block body"),
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_assert_consistent_with_expr() {
+        let tokens = tokenize("fn test() { assert.consistent(x + 1) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        match &program[0] {
+            Decl::Function { name, body, .. } => {
+                assert_eq!(name, "test");
+                match body {
+                    Expr::Block { stmts, .. } => {
+                        assert_eq!(stmts.len(), 1);
+                        match &stmts[0] {
+                            Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                // The inner expression should be x + 1 (a Binary Add)
+                                match expr.as_ref() {
+                                    Expr::Binary {
+                                        op: BinaryOp::Add,
+                                        lhs,
+                                        rhs,
+                                        ..
+                                    } => {
+                                        match lhs.as_ref() {
+                                            Expr::Variable { name, .. } => {
+                                                assert_eq!(name, "x");
+                                            }
+                                            _ => panic!("Expected variable 'x' on LHS"),
+                                        }
+                                        match rhs.as_ref() {
+                                            Expr::Literal { value, .. } => {
+                                                assert_eq!(*value, LiteralValue::Int(1));
+                                            }
+                                            _ => panic!("Expected literal 1 on RHS"),
+                                        }
+                                    }
+                                    _ => panic!(
+                                        "Expected binary expression inside assert.consistent"
+                                    ),
+                                }
+                            }
+                            _ => panic!("Expected AssertConsistent expression"),
+                        }
+                    }
+                    _ => panic!("Expected block body"),
+                }
+            }
+            _ => panic!("Expected function"),
+        }
+    }
+
+    #[test]
+    fn test_parse_assert_consistent_in_diff_suite() {
+        let tokens = tokenize("@Diff(\"ts\") fn test() { assert.consistent(result) }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty());
+        assert_eq!(program.len(), 1);
+        // The @Diff decorator wraps the function declaration
+        match &program[0] {
+            Decl::Decorator { name, target, .. } => {
+                assert_eq!(name, "Diff");
+                match target.as_ref() {
+                    Decl::Function {
+                        name: fn_name,
+                        body,
+                        ..
+                    } => {
+                        assert_eq!(fn_name, "test");
+                        match body {
+                            Expr::Block { stmts, .. } => {
+                                assert_eq!(stmts.len(), 1);
+                                match &stmts[0] {
+                                    Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
+                                        match expr.as_ref() {
+                                            Expr::Variable { name, .. } => {
+                                                assert_eq!(name, "result");
+                                            }
+                                            _ => panic!("Expected variable reference inside assert.consistent"),
+                                        }
+                                    }
+                                    _ => panic!("Expected AssertConsistent expression"),
+                                }
+                            }
+                            _ => panic!("Expected block body"),
+                        }
+                    }
+                    _ => panic!("Expected function target"),
+                }
+            }
+            _ => panic!("Expected decorator declaration"),
+        }
     }
 }

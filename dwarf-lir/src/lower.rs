@@ -33,6 +33,7 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 return_type,
                 body,
                 is_pub,
+                is_generator,
                 span,
             } => Some(LirDecl::Function {
                 name: name.clone(),
@@ -42,6 +43,7 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 effect: Effect::Pure,
                 hint: TargetHint::None,
                 is_pub: *is_pub,
+                is_generator: *is_generator,
                 span: *span,
             }),
             MirDecl::RecordDef {
@@ -192,6 +194,23 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::ForAll {
+            type_,
+            binding,
+            property,
+            span,
+        } => LirExpr::ForAll {
+            type_: type_.clone(),
+            binding: lower_pat(binding),
+            property: Box::new(lower_expr(property)),
+            hint: TargetHint::None,
+            span: *span,
+        },
+        MirExpr::AssertConsistent { expr, span } => LirExpr::AssertConsistent {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
     }
 }
 
@@ -316,6 +335,7 @@ mod tests {
                 span: span1(),
             },
             is_pub: true,
+            is_generator: false,
             span: span1(),
         };
         let result = lower_to_lir(&[mir_fn]);
@@ -547,5 +567,43 @@ mod tests {
         };
         let result = lower_expr(&mir_expr);
         assert_eq!(result.span(), span2(), "span should be preserved from MIR");
+    }
+
+    // ------------------------------------------------------------------
+    // AssertConsistent lowering tests (DWARF-41)
+    //
+    // These tests verify that lower_expr correctly handles
+    // MirExpr::AssertConsistent by wrapping the lowered inner expression
+    // in LirExpr::AssertConsistent. They will fail to compile until
+    // both MirExpr::AssertConsistent and LirExpr::AssertConsistent are
+    // implemented (Red phase).
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_lower_assert_consistent_expr() {
+        let mir_expr = MirExpr::AssertConsistent {
+            expr: Box::new(MirExpr::Literal {
+                value: MirLiteral::Int(42),
+                span: span1(),
+            }),
+            span: span1(),
+        };
+        let result = lower_expr(&mir_expr);
+        match &result {
+            LirExpr::AssertConsistent { expr, hint, .. } => {
+                assert!(
+                    matches!(
+                        expr.as_ref(),
+                        LirExpr::Literal {
+                            value: LirLiteral::Int(42),
+                            ..
+                        }
+                    ),
+                    "inner expression should be preserved as literal 42"
+                );
+                assert_eq!(*hint, TargetHint::None);
+            }
+            other => panic!("expected AssertConsistent variant, got {other:?}"),
+        }
     }
 }

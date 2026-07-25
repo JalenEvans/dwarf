@@ -15,7 +15,7 @@
 use dwarf_lir::{
     Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, LirUnaryOp, TargetHint,
 };
-use dwarf_syntax::hir::Type;
+use dwarf_syntax::hir::{RefConstraint, Type};
 
 use crate::backend::EmitterBackend;
 use crate::error::EmitterError;
@@ -258,6 +258,21 @@ impl EmitterBackend for DebugBackend {
                 Ok(format!("unary({op_str}, {e_str})"))
             }
             LirExpr::Wildcard { .. } => Ok("wildcard".into()),
+            LirExpr::ForAll {
+                type_,
+                binding,
+                property,
+                ..
+            } => {
+                let ty_str = self.emit_type(type_)?;
+                let binding_str = self.emit_pat(binding)?;
+                let property_str = self.emit_expr(property)?;
+                Ok(format!("forAll({ty_str}, {binding_str} => {property_str})"))
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("assert.consistent({})", inner))
+            }
         }
     }
 
@@ -321,6 +336,12 @@ impl EmitterBackend for DebugBackend {
                     .map(|a| self.emit_type(a))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(format!("{base}<{}>", args_str.join(", ")))
+            }
+            Type::Refined { base, constraint } => {
+                let base_str = self.emit_type(base)?;
+                match constraint {
+                    RefConstraint::Range { min, max } => Ok(format!("{base_str}({min}..{max})")),
+                }
             }
         }
     }

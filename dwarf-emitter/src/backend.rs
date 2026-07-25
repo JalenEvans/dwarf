@@ -177,6 +177,7 @@ mod tests {
             effect: Effect::Pure,
             hint: TargetHint::None,
             is_pub: true,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_module(&[decl]).unwrap();
@@ -207,6 +208,7 @@ mod tests {
             effect: Effect::Impure,
             hint: TargetHint::None,
             is_pub: false,
+            is_generator: false,
             span: s(),
         };
         let result = backend.emit_decl(&decl).unwrap();
@@ -958,6 +960,7 @@ mod tests {
                 effect: Effect::Pure,
                 hint: TargetHint::None,
                 is_pub: true,
+                is_generator: false,
                 span: s(),
             },
         ];
