@@ -5,12 +5,13 @@
 //! 2. The binary accepts `--help` and `--transport stdio` arguments
 //! 3. The binary performs a correct MCP initialize/initialized handshake over stdio
 //! 4. The binary exposes MCP resources via `resources/list` and `resources/read`
+//! 5. The binary exposes MCP tools via `tools/list` and `tools/call`
 //!
 //! # Red phase
 //!
 //! All tests except `binary_compiles_and_runs` are expected to **fail**
 //! until the Green phase implements CLI argument parsing, the MCP
-//! server transport, and resource handlers.
+//! server transport, and resource/tool handlers.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -670,6 +671,390 @@ fn resources_read_examples_testing() {
             text.to_lowercase().contains("test"),
             "contents[0].text should contain testing-related content.\nGot (first 300 chars): {}",
             &text[..text.len().min(300)]
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Tools tests
+// ---------------------------------------------------------------------------
+
+/// Verify that `tools/list` returns tool entries after the initialize
+/// handshake.
+///
+/// A compliant MCP server must return a non-empty array of `Tool` objects,
+/// each with `name`, `description`, and `inputSchema` fields.  At least
+/// 4 tools are expected when all compiler tools are registered.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 7,
+///   "result": {
+///     "tools": [
+///       { "name": "dwarf_check", "description": "...", "inputSchema": {...} },
+///       ...
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_list_tools_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn tools_list_returns_entries() {
+    let request = r#"{"jsonrpc":"2.0","id":7,"method":"tools/list"}"#;
+    with_initialized_server(request, |response| {
+        let tools = response["result"]["tools"]
+            .as_array()
+            .expect("result.tools should be a non-empty array");
+
+        assert!(
+            !tools.is_empty(),
+            "result.tools should contain at least one tool"
+        );
+
+        for (i, tool) in tools.iter().enumerate() {
+            let obj = tool
+                .as_object()
+                .unwrap_or_else(|| panic!("tools[{i}] should be an object, got {tool}"));
+            assert!(
+                obj.contains_key("name"),
+                "tools[{i}] must have a 'name' field.\nGot: {tool}"
+            );
+            assert!(
+                obj.contains_key("description"),
+                "tools[{i}] must have a 'description' field.\nGot: {tool}"
+            );
+            assert!(
+                obj.contains_key("inputSchema"),
+                "tools[{i}] must have an 'inputSchema' field.\nGot: {tool}"
+            );
+        }
+
+        // Extract all tool names for further assertions.
+        let names: Vec<&str> = tools
+            .iter()
+            .map(|t| {
+                t["name"]
+                    .as_str()
+                    .expect("tool name should be a string")
+            })
+            .collect();
+
+        // The four compiler tools must all be present.
+        let expected_tools = [
+            "dwarf_check",
+            "dwarf_compile",
+            "dwarf_format",
+            "dwarf_generate_tests",
+        ];
+        for expected in &expected_tools {
+            assert!(
+                names.contains(expected),
+                "tool list must include '{expected}'.\nFound names: {names:?}"
+            );
+        }
+
+        assert!(
+            names.len() >= 4,
+            "expected at least 4 tools, got {}",
+            names.len()
+        );
+    });
+}
+
+/// Verify that `tools/call` with `dwarf_check` and valid source returns
+/// diagnostic information.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 8,
+///   "result": {
+///     "content": [
+///       { "type": "text", "text": "{ \"diagnostics\": [...] }" }
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_call_tool_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn tools_call_dwarf_check_valid_source() {
+    let request = r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"dwarf_check","arguments":{"source":"let x = 42"}}}"#;
+    with_initialized_server(request, |response| {
+        let content = response["result"]["content"]
+            .as_array()
+            .expect("result.content should be a non-empty array");
+
+        assert!(
+            !content.is_empty(),
+            "result.content should contain at least one content item"
+        );
+
+        // Each content item should have a type field.
+        for (i, item) in content.iter().enumerate() {
+            let obj = item
+                .as_object()
+                .unwrap_or_else(|| panic!("content[{i}] should be an object, got {item}"));
+            assert!(
+                obj.contains_key("type"),
+                "content[{i}] must have a 'type' field.\nGot: {item}"
+            );
+        }
+
+        // First content item should be text and contain parseable JSON.
+        let first = &content[0];
+        assert_eq!(
+            first["type"], "text",
+            "first content item type should be 'text'.\nGot: {}",
+            first["type"]
+        );
+
+        let text = first["text"]
+            .as_str()
+            .expect("first content item text should be a string");
+
+        // The text must be valid JSON with a diagnostics field.
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .expect("content[0].text must be valid JSON");
+
+        assert!(
+            parsed.get("diagnostics").is_some(),
+            "parsed JSON must contain a 'diagnostics' field.\nGot: {}",
+            parsed
+        );
+    });
+}
+
+/// Verify that `tools/call` with `dwarf_check` and invalid source returns
+/// diagnostic information that includes error-related content.
+///
+/// ## Expected (Green phase)
+/// The response contains `result.content` with text that includes error
+/// information about the malformed `let = 42` assignment.
+///
+/// ## Red phase
+/// **Should fail** — `handle_call_tool_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn tools_call_dwarf_check_invalid_source() {
+    let request = r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"dwarf_check","arguments":{"source":"let = 42"}}}"#;
+    with_initialized_server(request, |response| {
+        let content = response["result"]["content"]
+            .as_array()
+            .expect("result.content should be a non-empty array");
+
+        assert!(
+            !content.is_empty(),
+            "result.content should contain at least one content item"
+        );
+
+        let first = &content[0];
+        let text = first["text"]
+            .as_str()
+            .expect("content[0].text should be a string");
+
+        // The text should contain error information (e.g., parse error, type error).
+        assert!(
+            !text.is_empty(),
+            "content[0].text should not be empty"
+        );
+
+        // Check the text includes diagnostic/error references.
+        let text_lower = text.to_lowercase();
+        assert!(
+            text_lower.contains("error")
+                || text_lower.contains("diagnostic")
+                || text_lower.contains("invalid")
+                || text_lower.contains("unexpected")
+                || text_lower.contains("parse"),
+            "content[0].text should contain error-related content.\nGot (first 300 chars): {}",
+            &text[..text.len().min(300)]
+        );
+    });
+}
+
+/// Verify that `tools/call` with `dwarf_compile` returns compiled output.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 10,
+///   "result": {
+///     "content": [
+///       { "type": "text", "text": "{ \"output\": \"...\" }" }
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_call_tool_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn tools_call_dwarf_compile() {
+    let request = r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"dwarf_compile","arguments":{"source":"let x: Int = 42","target":"ts"}}}"#;
+    with_initialized_server(request, |response| {
+        let content = response["result"]["content"]
+            .as_array()
+            .expect("result.content should be a non-empty array");
+
+        assert!(
+            !content.is_empty(),
+            "result.content should contain at least one content item"
+        );
+
+        let first = &content[0];
+        assert_eq!(
+            first["type"], "text",
+            "first content item type should be 'text'.\nGot: {}",
+            first["type"]
+        );
+
+        let text = first["text"]
+            .as_str()
+            .expect("content[0].text should be a string");
+
+        // The text must be valid JSON with an output field.
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .expect("content[0].text must be valid JSON");
+
+        let output = parsed
+            .get("output")
+            .expect("parsed JSON must contain an 'output' field");
+
+        let output_str = output
+            .as_str()
+            .expect("'output' must be a string");
+
+        assert!(
+            !output_str.is_empty(),
+            "'output' must be a non-empty string"
+        );
+    });
+}
+
+/// Verify that `tools/call` with an unknown tool name returns an error
+/// result rather than a success result.
+///
+/// When the tool name does not match any known tool, the server must return
+/// a `CallToolResult` with `isError` set to `true`.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 11,
+///   "result": {
+///     "content": [...],
+///     "isError": true
+///   }
+/// }
+/// ```
+#[test]
+fn tools_call_unknown_tool_returns_error() {
+    let request = r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}"#;
+    with_initialized_server(request, |response| {
+        // The MCP SDK always wraps tool call results in a JSON-RPC success
+        // response, even when the tool returned an error.  We therefore check
+        // `result.isError` rather than a top-level `error` field.
+        let result = response
+            .get("result")
+            .expect("response should contain a 'result' object");
+
+        let is_error = result
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(
+            is_error,
+            "result.isError should be true for an unknown tool.\nGot response: {response}"
+        );
+
+        let content = result["content"]
+            .as_array()
+            .expect("result.content should be an array");
+
+        assert!(
+            !content.is_empty(),
+            "result.content should contain at least one content item"
+        );
+
+        let text = content[0]["text"]
+            .as_str()
+            .expect("content[0].text should be a string");
+        assert!(
+            !text.is_empty(),
+            "content[0].text should be non-empty"
+        );
+    });
+}
+
+/// Verify that `tools/call` with `dwarf_format` returns formatted source.
+///
+/// ## Expected (Green phase)
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": 12,
+///   "result": {
+///     "content": [
+///       { "type": "text", "text": "{ \"formatted\": \"let x = 42\" }" }
+///     ]
+///   }
+/// }
+/// ```
+///
+/// ## Red phase
+/// **Should fail** — `handle_call_tool_request` is not implemented, so
+/// the default handler returns `-32601` (Method not found).
+#[test]
+fn tools_call_dwarf_format() {
+    let request = r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"dwarf_format","arguments":{"source":"let   x   =   42"}}}"#;
+    with_initialized_server(request, |response| {
+        let content = response["result"]["content"]
+            .as_array()
+            .expect("result.content should be a non-empty array");
+
+        assert!(
+            !content.is_empty(),
+            "result.content should contain at least one content item"
+        );
+
+        let first = &content[0];
+        assert_eq!(
+            first["type"], "text",
+            "first content item type should be 'text'.\nGot: {}",
+            first["type"]
+        );
+
+        let text = first["text"]
+            .as_str()
+            .expect("content[0].text should be a string");
+
+        // The text must be valid JSON with a formatted field.
+        let parsed: serde_json::Value = serde_json::from_str(text)
+            .expect("content[0].text must be valid JSON");
+
+        let formatted = parsed
+            .get("formatted")
+            .expect("parsed JSON must contain a 'formatted' field");
+
+        let formatted_str = formatted
+            .as_str()
+            .expect("'formatted' must be a string");
+
+        assert!(
+            !formatted_str.is_empty(),
+            "'formatted' must be a non-empty string"
         );
     });
 }

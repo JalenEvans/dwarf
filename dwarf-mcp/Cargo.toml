@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 dwarf-lib = { path = "../dwarf-lib" }
 dwarf-gen = { path = "../dwarf-gen" }
+dwarf-parser = { path = "../dwarf-parser" }
+dwarf-syntax = { path = "../dwarf-syntax" }
 rust-mcp-sdk = "0.10"
 rust-mcp-schema = "0.10"
 tokio = { version = "1", features = ["full"] }

@@ -486,6 +486,8 @@ dependencies = [
  "clap",
  "dwarf-gen",
  "dwarf-lib",
+ "dwarf-parser",
+ "dwarf-syntax",
  "rust-mcp-schema",
  "rust-mcp-sdk",
  "serde",
