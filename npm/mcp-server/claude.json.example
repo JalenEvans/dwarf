@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dwarf": {
+      "command": "npx",
+      "args": ["@dwarf/mcp-server"]
+    }
+  }
+}
