@@ -221,9 +221,9 @@ fn main() {
             out_dir,
             pretty,
             source_map,
+            json,
             passes,
             skip_passes,
-            ..
         }) => {
             build::run_build(
                 files,
@@ -231,6 +231,7 @@ fn main() {
                 out_dir,
                 pretty,
                 source_map,
+                json,
                 passes,
                 skip_passes,
             );

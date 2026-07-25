@@ -120,11 +120,29 @@ fn test_cli_json_output() {
 
     assert!(output.status.success(), "JSON output should succeed");
 
-    // Should be valid JSON
+    // Should be valid JSON with envelope structure
     let json: serde_json::Value =
         serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
-    assert_eq!(json["ok"], true, "JSON should have ok: true");
+    assert_eq!(json["version"], "1.0.0", "Should have version field");
+    assert_eq!(json["command"], "check", "Should have command field");
+    assert!(
+        json["duration_ms"].as_u64().is_some(),
+        "Should have duration_ms"
+    );
+    assert!(json["payload"].is_object(), "Should have payload object");
+    assert!(
+        json["payload"]["files"].is_array(),
+        "Should have files array"
+    );
+    assert!(
+        !json["payload"]["files"].as_array().unwrap().is_empty(),
+        "Files array should not be empty"
+    );
+    assert!(
+        json["payload"]["files"][0]["success"].as_bool().unwrap(),
+        "File should have success: true"
+    );
 
     // Cleanup
     std::fs::remove_file(&file_path).ok();
@@ -144,11 +162,28 @@ fn test_cli_json_output_with_errors() {
     let json: serde_json::Value =
         serde_json::from_str(&stdout).expect("Output should be valid JSON even with errors");
 
-    assert_eq!(json["ok"], false, "JSON should have ok: false for errors");
-    assert!(json["results"].is_array(), "JSON should have results array");
+    assert_eq!(json["version"], "1.0.0", "Should have version field");
+    assert_eq!(json["command"], "check", "Should have command field");
+    assert!(json["payload"].is_object(), "Should have payload object");
     assert!(
-        json["results"].as_array().is_some_and(|e| !e.is_empty()),
-        "JSON results array should not be empty"
+        json["payload"]["files"].is_array(),
+        "Should have files array"
+    );
+    assert!(
+        !json["payload"]["files"].as_array().unwrap().is_empty(),
+        "Files array should not be empty"
+    );
+    assert!(
+        !json["payload"]["files"][0]["success"]
+            .as_bool()
+            .unwrap(),
+        "File should have success: false for errors"
+    );
+    assert!(
+        json["payload"]["files"][0]["errors"]
+            .as_array()
+            .is_some_and(|e| !e.is_empty()),
+        "Errors array should not be empty"
     );
 
     // Cleanup

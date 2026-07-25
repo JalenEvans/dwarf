@@ -11,7 +11,11 @@
 
 use std::path::PathBuf;
 use std::process;
+use std::time::Instant;
 
+use crate::output::{
+    format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem,
+};
 use dwarf_cli::diff_runner;
 use dwarf_cli::runner::{JavaRunner, PyRunner, TsRunner};
 use dwarf_shrink::{IntShrinker, Shrinker};
@@ -40,7 +44,8 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix
     }
 
     let mut all_passed = true;
-    let mut results = Vec::new();
+    let mut results: Vec<TestResultItem> = Vec::new();
+    let start = Instant::now();
 
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
@@ -65,18 +70,13 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix
     }
 
     if json {
-        let output = serde_json::json!({
-            "ok": all_passed,
-            "results": results.iter().map(|r| serde_json::json!({
-                "file": r.file,
-                "passed": r.passed,
-                "message": r.message,
-            })).collect::<Vec<_>>(),
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).expect("JSON serialization should not fail")
-        );
+        let payload = TestPayload {
+            ok: all_passed,
+            results,
+        };
+        let envelope = OutputEnvelope::from_start("test", payload, start);
+        let output = format_output(OutputFormat::Json, &envelope);
+        println!("{}", output);
     } else {
         for r in &results {
             let status = if r.passed { "PASS" } else { "FAIL" };
@@ -100,6 +100,7 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix
 fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
     let mut all_match = true;
     let mut diff_results = Vec::new();
+    let start = Instant::now();
 
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
@@ -119,20 +120,31 @@ fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
     }
 
     if json {
-        let output = serde_json::json!({
-            "ok": all_match,
-            "diff_results": diff_results.iter().map(|(file, result)| serde_json::json!({
-                "file": file,
-                "oracle": result.oracle,
-                "others": result.others,
-                "all_match": result.all_match,
-                "mismatches": result.mismatches,
-            })).collect::<Vec<_>>(),
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).expect("JSON serialization should not fail")
-        );
+        let results: Vec<TestResultItem> = diff_results
+            .iter()
+            .map(|(file, result)| {
+                let n_mismatches = result.mismatches.len();
+                TestResultItem {
+                    file: file.clone(),
+                    passed: result.all_match,
+                    message: if result.all_match {
+                        format!("All {} targets match oracle", result.others.len())
+                    } else {
+                        format!(
+                            "{} target(s) differ from oracle",
+                            n_mismatches
+                        )
+                    },
+                }
+            })
+            .collect();
+        let payload = TestPayload {
+            ok: all_match,
+            results,
+        };
+        let envelope = OutputEnvelope::from_start("test", payload, start);
+        let output = format_output(OutputFormat::Json, &envelope);
+        println!("{}", output);
     } else {
         for (file, result) in &diff_results {
             println!("--- Diff: {} ---", file);
@@ -181,7 +193,7 @@ fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
 /// Run tests with TypeScript/Jest target.
 fn run_test_ts(
     file_path: &std::path::Path,
-    results: &mut Vec<TestResult>,
+    results: &mut Vec<TestResultItem>,
     all_passed: &mut bool,
     path_str: &str,
 ) {
@@ -190,7 +202,7 @@ fn run_test_ts(
             let temp_dir = match tempfile::TempDir::new() {
                 Ok(d) => d,
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Cannot create temp dir: {}", e),
@@ -202,7 +214,7 @@ fn run_test_ts(
 
             let ts_path = temp_dir.path().join("output.test.ts");
             if let Err(e) = std::fs::write(&ts_path, &ts_code) {
-                results.push(TestResult {
+                results.push(TestResultItem {
                     file: path_str.to_string(),
                     passed: false,
                     message: format!("Cannot write temp file: {}", e),
@@ -214,7 +226,7 @@ fn run_test_ts(
             let pkg_path = temp_dir.path().join("package.json");
             let pkg = r#"{"scripts":{"test":"jest"},"jest":{"testMatch":["**/*.test.ts"]}}"#;
             if let Err(e) = std::fs::write(&pkg_path, pkg) {
-                results.push(TestResult {
+                results.push(TestResultItem {
                     file: path_str.to_string(),
                     passed: false,
                     message: format!("Cannot write package.json: {}", e),
@@ -240,7 +252,7 @@ fn run_test_ts(
                             .get("success")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false);
-                        results.push(TestResult {
+                        results.push(TestResultItem {
                             file: path_str.to_string(),
                             passed: success,
                             message: if success {
@@ -254,7 +266,7 @@ fn run_test_ts(
                         }
                     } else {
                         let passed = output.status.success();
-                        results.push(TestResult {
+                        results.push(TestResultItem {
                             file: path_str.to_string(),
                             passed,
                             message: if passed {
@@ -269,7 +281,7 @@ fn run_test_ts(
                     }
                 }
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Failed to run Jest: {}", e),
@@ -279,7 +291,7 @@ fn run_test_ts(
             }
         }
         Err(e) => {
-            results.push(TestResult {
+            results.push(TestResultItem {
                 file: path_str.to_string(),
                 passed: false,
                 message: format!("Compilation failed: {}", e),
@@ -292,7 +304,7 @@ fn run_test_ts(
 /// Run tests with Python/pytest target.
 fn run_test_py(
     file_path: &std::path::Path,
-    results: &mut Vec<TestResult>,
+    results: &mut Vec<TestResultItem>,
     all_passed: &mut bool,
     path_str: &str,
 ) {
@@ -301,7 +313,7 @@ fn run_test_py(
             let temp_dir = match tempfile::TempDir::new() {
                 Ok(d) => d,
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Cannot create temp dir: {}", e),
@@ -313,7 +325,7 @@ fn run_test_py(
 
             let py_path = temp_dir.path().join("test_output.py");
             if let Err(e) = std::fs::write(&py_path, &py_code) {
-                results.push(TestResult {
+                results.push(TestResultItem {
                     file: path_str.to_string(),
                     passed: false,
                     message: format!("Cannot write temp file: {}", e),
@@ -342,7 +354,7 @@ fn run_test_py(
                             .get("success")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(passed);
-                        results.push(TestResult {
+                        results.push(TestResultItem {
                             file: path_str.to_string(),
                             passed: success,
                             message: if success {
@@ -355,7 +367,7 @@ fn run_test_py(
                             *all_passed = false;
                         }
                     } else {
-                        results.push(TestResult {
+                        results.push(TestResultItem {
                             file: path_str.to_string(),
                             passed,
                             message: if passed {
@@ -370,7 +382,7 @@ fn run_test_py(
                     }
                 }
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Failed to run pytest: {}", e),
@@ -380,7 +392,7 @@ fn run_test_py(
             }
         }
         Err(e) => {
-            results.push(TestResult {
+            results.push(TestResultItem {
                 file: path_str.to_string(),
                 passed: false,
                 message: format!("Compilation failed: {}", e),
@@ -393,7 +405,7 @@ fn run_test_py(
 /// Run tests with Java/JUnit target.
 fn run_test_java(
     file_path: &std::path::Path,
-    results: &mut Vec<TestResult>,
+    results: &mut Vec<TestResultItem>,
     all_passed: &mut bool,
     path_str: &str,
 ) {
@@ -402,7 +414,7 @@ fn run_test_java(
             let temp_dir = match tempfile::TempDir::new() {
                 Ok(d) => d,
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Cannot create temp dir: {}", e),
@@ -414,7 +426,7 @@ fn run_test_java(
 
             let java_path = temp_dir.path().join("DwarfTestGen.java");
             if let Err(e) = std::fs::write(&java_path, &java_code) {
-                results.push(TestResult {
+                results.push(TestResultItem {
                     file: path_str.to_string(),
                     passed: false,
                     message: format!("Cannot write temp file: {}", e),
@@ -448,7 +460,7 @@ fn run_test_java(
                             let _stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             let passed = output.status.success();
-                            results.push(TestResult {
+                            results.push(TestResultItem {
                                 file: path_str.to_string(),
                                 passed,
                                 message: if passed {
@@ -462,7 +474,7 @@ fn run_test_java(
                             }
                         }
                         Err(e) => {
-                            results.push(TestResult {
+                            results.push(TestResultItem {
                                 file: path_str.to_string(),
                                 passed: false,
                                 message: format!("Failed to run JUnit: {}", e),
@@ -473,7 +485,7 @@ fn run_test_java(
                 }
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("javac compilation failed:\n{}", stderr),
@@ -481,7 +493,7 @@ fn run_test_java(
                     *all_passed = false;
                 }
                 Err(e) => {
-                    results.push(TestResult {
+                    results.push(TestResultItem {
                         file: path_str.to_string(),
                         passed: false,
                         message: format!("Failed to run javac: {}", e),
@@ -491,7 +503,7 @@ fn run_test_java(
             }
         }
         Err(e) => {
-            results.push(TestResult {
+            results.push(TestResultItem {
                 file: path_str.to_string(),
                 passed: false,
                 message: format!("Compilation failed: {}", e),
@@ -499,13 +511,6 @@ fn run_test_java(
             *all_passed = false;
         }
     }
-}
-
-#[derive(Debug)]
-struct TestResult {
-    file: String,
-    passed: bool,
-    message: String,
 }
 
 /// Try to extract integer counterexamples from a failure message and
@@ -517,7 +522,7 @@ struct TestResult {
 /// The shrinker assumes the test predicate is `|n| n.abs() > 5`, which
 /// is a reasonable approximation for assertion-boundary failures (e.g.
 /// "expected value <= 5" or "value must be in range [-5, 5]").
-fn shrink_test_failure(result: &TestResult) {
+fn shrink_test_failure(result: &TestResultItem) {
     // Extract integers from the failure message
     let numbers: Vec<i64> = extract_integers(&result.message);
 

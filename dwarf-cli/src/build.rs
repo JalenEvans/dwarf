@@ -1,9 +1,13 @@
 //! Implementation of the `dwarf build` subcommand.
 
+use crate::output::{
+    format_output, BuildPayload, FileBuildResult, OutputEnvelope, OutputFormat, StructuredDiagnostic,
+};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time::Instant;
 
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 
@@ -69,6 +73,7 @@ pub fn run_build(
     out_dir: Option<PathBuf>,
     pretty: bool,
     source_map: bool,
+    json: bool,
     passes: Option<String>,
     skip_passes: Option<String>,
 ) {
@@ -113,6 +118,8 @@ pub fn run_build(
     let mut has_errors = false;
     let mut success_count = 0u32;
     let mut error_count = 0u32;
+    let mut all_results: Vec<FileBuildResult> = Vec::new();
+    let start = Instant::now();
 
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
@@ -157,22 +164,28 @@ pub fn run_build(
                             .unwrap_or_else(|| format!("output.{}", ext)),
                     );
 
+                    let out_path_str = out_path.to_string_lossy().to_string();
+
                     if let Err(e) = write_output(&out_path, &result.output) {
                         eprintln!("Error writing {}: {}", out_path.display(), e);
                         error_count += 1;
                         has_errors = true;
                     } else {
-                        println!("  Built  {} -> {}", path_str, out_path.display());
+                        if !json {
+                            println!("  Built  {} -> {}", path_str, out_path.display());
+                        }
                         success_count += 1;
 
-                        // Optional: validate output syntax
-                        match validate_output(tgt, &out_path) {
-                            Ok(()) => {
-                                println!("    {}: syntax OK", tgt);
-                            }
-                            Err(msg) => {
-                                eprintln!("    {}: validation warning: {}", tgt, msg);
-                                // Non-fatal: warn but don't mark as error
+                        if !json {
+                            // Optional: validate output syntax
+                            match validate_output(tgt, &out_path) {
+                                Ok(()) => {
+                                    println!("    {}: syntax OK", tgt);
+                                }
+                                Err(msg) => {
+                                    eprintln!("    {}: validation warning: {}", tgt, msg);
+                                    // Non-fatal: warn but don't mark as error
+                                }
                             }
                         }
                     }
@@ -184,20 +197,65 @@ pub fn run_build(
                             eprintln!("Error writing source map {}: {}", map_path.display(), e);
                             error_count += 1;
                             has_errors = true;
-                        } else {
+                        } else if !json {
                             println!("  Map    {} -> {}", path_str, map_path.display());
                         }
                     }
 
-                    // Print diagnostics
-                    for diag in &result.diagnostics {
-                        eprintln!("  {}: {}", diag.code, diag.message);
+                    if json {
+                        all_results.push(FileBuildResult {
+                            file: path_str.clone(),
+                            target: tgt.clone(),
+                            success: true,
+                            output_path: out_path_str,
+                            errors: result
+                                .diagnostics
+                                .iter()
+                                .map(|d| StructuredDiagnostic {
+                                    code: d.code.clone(),
+                                    severity: format!("{}", d.severity),
+                                    message: d.message.clone(),
+                                    file: d.file.clone().unwrap_or_default(),
+                                    line: d.line.unwrap_or(0),
+                                    col: d.col.unwrap_or(0),
+                                    related: vec![],
+                                    fix: None,
+                                })
+                                .collect(),
+                        });
+                    } else {
+                        // Print diagnostics
+                        for diag in &result.diagnostics {
+                            eprintln!("  {}: {}", diag.code, diag.message);
+                        }
                     }
                 }
                 Err(errors) => {
-                    eprintln!("Error compiling {} for target '{}':", path_str, tgt);
-                    for err in &errors {
-                        eprintln!("  {}", err);
+                    if json {
+                        all_results.push(FileBuildResult {
+                            file: path_str.clone(),
+                            target: tgt.clone(),
+                            success: false,
+                            output_path: String::new(),
+                            errors: errors
+                                .iter()
+                                .map(|e| StructuredDiagnostic {
+                                    code: "COMPILE_ERR".to_string(),
+                                    severity: "error".to_string(),
+                                    message: e.to_string(),
+                                    file: path_str.clone(),
+                                    line: 0,
+                                    col: 0,
+                                    related: vec![],
+                                    fix: None,
+                                })
+                                .collect(),
+                        });
+                    } else {
+                        eprintln!("Error compiling {} for target '{}':", path_str, tgt);
+                        for err in &errors {
+                            eprintln!("  {}", err);
+                        }
                     }
                     error_count += 1;
                     has_errors = true;
@@ -206,15 +264,24 @@ pub fn run_build(
         }
     }
 
-    let total_target_builds = files.len() * targets.len();
-    println!(
-        "\nBuild summary: {} file(s) across {} target(s) — {} success(es), {} error(s), {} total build(s)",
-        files.len(),
-        targets.len(),
-        success_count,
-        error_count,
-        total_target_builds,
-    );
+    if json {
+        let payload = BuildPayload {
+            files: all_results,
+        };
+        let envelope = OutputEnvelope::from_start("build", payload, start);
+        let output = format_output(OutputFormat::Json, &envelope);
+        println!("{}", output);
+    } else {
+        let total_target_builds = files.len() * targets.len();
+        println!(
+            "\nBuild summary: {} file(s) across {} target(s) — {} success(es), {} error(s), {} total build(s)",
+            files.len(),
+            targets.len(),
+            success_count,
+            error_count,
+            total_target_builds,
+        );
+    }
 
     if has_errors {
         process::exit(1);

@@ -1,9 +1,13 @@
 //! Implementation of the `dwarf emit` subcommand.
 
+use crate::output::{
+    format_output, EmitPayload, FileEmitResult, OutputEnvelope, OutputFormat, StructuredDiagnostic,
+};
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 use std::fs;
 use std::path::PathBuf;
 use std::process;
+use std::time::Instant;
 
 /// Map a target name to its file extension.
 fn target_ext(target: &str) -> &str {
@@ -40,7 +44,8 @@ pub fn run_emit(
 
     let compiler = DwarfCompiler::new();
     let mut has_errors = false;
-    let mut all_results = Vec::new();
+    let mut all_results: Vec<FileEmitResult> = Vec::new();
+    let start = Instant::now();
 
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
@@ -75,23 +80,27 @@ pub fn run_emit(
             match compiler.compile(&source, &path_str, options.clone()) {
                 Ok(result) => {
                     if json {
-                        all_results.push(serde_json::json!({
-                            "target": tgt,
-                            "file": path_str,
-                            "success": true,
-                            "output": result.output,
-                            "extension": target_ext(tgt),
-                            "errors": result.diagnostics.iter().map(|d| {
-                                serde_json::json!({
-                                    "code": d.code,
-                                    "severity": format!("{}", d.severity),
-                                    "message": d.message,
-                                    "file": d.file,
-                                    "line": d.line,
-                                    "col": d.col,
+                        all_results.push(FileEmitResult {
+                            file: path_str.clone(),
+                            target: tgt.clone(),
+                            success: true,
+                            output: result.output.clone(),
+                            extension: target_ext(tgt).to_string(),
+                            errors: result
+                                .diagnostics
+                                .iter()
+                                .map(|d| StructuredDiagnostic {
+                                    code: d.code.clone(),
+                                    severity: format!("{}", d.severity),
+                                    message: d.message.clone(),
+                                    file: d.file.clone().unwrap_or_default(),
+                                    line: d.line.unwrap_or(0),
+                                    col: d.col.unwrap_or(0),
+                                    related: vec![],
+                                    fix: None,
                                 })
-                            }).collect::<Vec<_>>(),
-                        }));
+                                .collect(),
+                        });
                     } else {
                         println!("// {} [{}]:\n{}", path_str, tgt, result.output);
                         for diag in &result.diagnostics {
@@ -102,12 +111,26 @@ pub fn run_emit(
                 Err(errors) => {
                     has_errors = true;
                     if json {
-                        all_results.push(serde_json::json!({
-                            "target": tgt,
-                            "file": path_str,
-                            "success": false,
-                            "errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-                        }));
+                        all_results.push(FileEmitResult {
+                            file: path_str.clone(),
+                            target: tgt.clone(),
+                            success: false,
+                            output: String::new(),
+                            extension: String::new(),
+                            errors: errors
+                                .iter()
+                                .map(|e| StructuredDiagnostic {
+                                    code: "COMPILE_ERR".to_string(),
+                                    severity: "error".to_string(),
+                                    message: e.to_string(),
+                                    file: path_str.clone(),
+                                    line: 0,
+                                    col: 0,
+                                    related: vec![],
+                                    fix: None,
+                                })
+                                .collect(),
+                        });
                     } else {
                         eprintln!("Error compiling {} for target '{}':", path_str, tgt);
                         for err in &errors {
@@ -120,15 +143,12 @@ pub fn run_emit(
     }
 
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "ok": !has_errors,
-                "targets": targets,
-                "results": all_results,
-            }))
-            .unwrap()
-        );
+        let payload = EmitPayload {
+            files: all_results,
+        };
+        let envelope = OutputEnvelope::from_start("emit", payload, start);
+        let output = format_output(OutputFormat::Json, &envelope);
+        println!("{}", output);
     }
 
     if has_errors {
