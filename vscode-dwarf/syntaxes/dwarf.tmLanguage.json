@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Dwarf",
+  "scopeName": "source.dwarf",
+  "fileTypes": ["kzd"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#decorators" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "begin": "/\\*", "end": "\\*/", "name": "comment.block.dwarf" },
+        { "begin": "//", "end": "$", "name": "comment.line.double-slash.dwarf" }
+      ]
+    },
+    "decorators": {
+      "match": "@\\w+",
+      "name": "entity.other.attribute-name.dwarf"
+    },
+    "keywords": {
+      "match": "\\b(let|fn|import|if|else|match|for|while|return|true|false|null|pure|io|async)\\b",
+      "name": "keyword.control.dwarf"
+    },
+    "types": {
+      "match": "\\b(Int|String|Bool|Float|Null|Option|List|Result)\\b",
+      "name": "storage.type.dwarf"
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.dwarf",
+      "patterns": [{ "match": "\\\\(n|t|r|\\\\|\"|0)", "name": "constant.character.escape.dwarf" }]
+    },
+    "numbers": {
+      "match": "\\b-?\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.dwarf"
+    },
+    "operators": {
+      "match": "(->|=>|\\|>|\\?|::|\\+|\\-|\\*|\\/|==|!=|<|>|<=|>=|&&|\\|\\||!)",
+      "name": "keyword.operator.dwarf"
+    }
+  }
+}

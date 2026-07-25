@@ -1,0 +1,28 @@
+{
+  "name": "dwarf",
+  "displayName": "Dwarf Language Support",
+  "description": "Syntax highlighting and snippets for Dwarf (.kzd) files",
+  "version": "0.0.1",
+  "publisher": "JalenEvans",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [{
+      "id": "dwarf",
+      "aliases": ["Dwarf", "dwarf"],
+      "extensions": [".kzd"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "dwarf",
+      "scopeName": "source.dwarf",
+      "path": "./syntaxes/dwarf.tmLanguage.json"
+    }],
+    "snippets": [{
+      "language": "dwarf",
+      "path": "./snippets/dwarf.json"
+    }]
+  }
+}
