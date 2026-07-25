@@ -55,6 +55,7 @@ impl<T: Serialize> OutputEnvelope<T> {
     /// Create a new output envelope.
     ///
     // **Stub:** version is set to `OUTPUT_VERSION` (wrong), `duration_ms` is 0.
+    #[allow(dead_code)]
     pub fn new(command: &str, payload: T) -> Self {
         Self {
             version: OUTPUT_VERSION.to_string(),
@@ -197,6 +198,7 @@ pub struct RelatedLocation {
 /// Controls whether output is human-readable TTY text or structured JSON.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputFormat {
+    #[allow(dead_code)]
     Tty,
     Json,
 }
