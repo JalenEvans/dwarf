@@ -7,6 +7,7 @@ mod build;
 mod check;
 mod dev;
 mod emit;
+mod fmt;
 mod output;
 mod run;
 mod test;
@@ -146,6 +147,21 @@ enum Commands {
             skip_passes: Option<String>,
         },
 
+    /// Format Dwarf source files
+    Fmt {
+        /// Source files to format (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Check mode: exit with code 1 if files would be reformatted
+        #[arg(long)]
+        check: bool,
+
+        /// Write formatted output to stdout
+        #[arg(long)]
+        stdout: bool,
+    },
+
     /// Compile and run tests with Jest
     Test {
         /// Source files to test (.kzd)
@@ -235,6 +251,13 @@ fn main() {
                 passes,
                 skip_passes,
             );
+        }
+        Some(Commands::Fmt {
+            files,
+            check,
+            stdout,
+        }) => {
+            fmt::run_fmt(files, check, stdout);
         }
         Some(Commands::Test {
             files,
