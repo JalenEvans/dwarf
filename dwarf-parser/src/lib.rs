@@ -796,7 +796,10 @@ impl Parser {
                     self.advance(); // consume 'consistent'
                     self.advance(); // consume '('
                     let expr = self.parse_expression()?;
-                    self.consume(TokenKind::RParen, "expected ')' after assert.consistent expr")?;
+                    self.consume(
+                        TokenKind::RParen,
+                        "expected ')' after assert.consistent expr",
+                    )?;
                     let end = self.previous().span.end;
                     return Ok(Expr::AssertConsistent {
                         expr: Box::new(expr),
@@ -1489,7 +1492,10 @@ mod tests {
                     assert_eq!(*binding, Pat::Variable("x".to_string()));
                     assert!(matches!(
                         property.as_ref(),
-                        Expr::Binary { op: BinaryOp::Gt, .. }
+                        Expr::Binary {
+                            op: BinaryOp::Gt,
+                            ..
+                        }
                     ));
                 }
                 other => panic!("Expected ForAll expression, got {other:?}"),
@@ -1520,7 +1526,10 @@ mod tests {
                     assert_eq!(*binding, Pat::Variable("s".to_string()));
                     assert!(matches!(
                         property.as_ref(),
-                        Expr::Binary { op: BinaryOp::Ge, .. }
+                        Expr::Binary {
+                            op: BinaryOp::Ge,
+                            ..
+                        }
                     ));
                 }
                 other => panic!("Expected ForAll expression, got {other:?}"),
@@ -1547,11 +1556,7 @@ mod tests {
                     Expr::Block { stmts, .. } => {
                         assert_eq!(stmts.len(), 1);
                         match &stmts[0] {
-                            Stmt::Expr(Expr::ForAll {
-                                type_,
-                                binding,
-                                ..
-                            }) => {
+                            Stmt::Expr(Expr::ForAll { type_, binding, .. }) => {
                                 assert_eq!(*type_, Type::Named("Int".to_string()));
                                 assert_eq!(*binding, Pat::Variable("x".to_string()));
                             }
@@ -1579,11 +1584,7 @@ mod tests {
         assert!(errors.is_empty());
         assert_eq!(program.len(), 1);
         match &program[0] {
-            Decl::Decorator {
-                name,
-                target,
-                ..
-            } => {
+            Decl::Decorator { name, target, .. } => {
                 assert_eq!(name, "QuickCheck");
                 match target.as_ref() {
                     Decl::Function { body, .. } => {
@@ -1623,15 +1624,14 @@ mod tests {
         assert_eq!(program.len(), 1);
         match &program[0] {
             Decl::Decorator {
-                name,
-                args,
-                target,
-                ..
+                name, args, target, ..
             } => {
                 assert_eq!(name, "gen", "decorator name should be 'gen'");
                 assert_eq!(args.len(), 1, "should have one type arg");
                 match &args[0] {
-                    Expr::Variable { name: type_name, .. } => {
+                    Expr::Variable {
+                        name: type_name, ..
+                    } => {
                         assert_eq!(type_name, "Color", "type arg should be 'Color'");
                     }
                     other => panic!("Expected type reference as Variable expr, got {other:?}"),
@@ -1644,7 +1644,9 @@ mod tests {
                     } => {
                         assert_eq!(fn_name, "gen_color", "function name should be 'gen_color'");
                         assert!(
-                            return_type.as_ref().is_some_and(|t| *t == Type::Named("Color".to_string())),
+                            return_type
+                                .as_ref()
+                                .is_some_and(|t| *t == Type::Named("Color".to_string())),
                             "function should return Color"
                         );
                     }
@@ -1670,38 +1672,38 @@ mod tests {
         assert_eq!(program.len(), 1);
         match &program[0] {
             Decl::Decorator {
-                name,
-                args,
-                target,
-                ..
+                name, args, target, ..
             } => {
                 assert_eq!(name, "gen", "decorator name should be 'gen'");
                 assert_eq!(args.len(), 1, "should have one type arg");
                 match &args[0] {
-                    Expr::Variable { name: type_name, .. } => {
+                    Expr::Variable {
+                        name: type_name, ..
+                    } => {
                         assert_eq!(type_name, "Int", "type arg should be 'Int'");
                     }
                     other => panic!("Expected type reference as Variable expr, got {other:?}"),
                 }
                 match target.as_ref() {
-                    Decl::Function { body, .. } => {
-                        match body {
-                            Expr::ForAll {
-                                type_,
-                                binding,
-                                property,
-                                ..
-                            } => {
-                                assert_eq!(*type_, Type::Named("Int".to_string()));
-                                assert_eq!(*binding, Pat::Variable("x".to_string()));
-                                assert!(matches!(
-                                    property.as_ref(),
-                                    Expr::Binary { op: BinaryOp::Gt, .. }
-                                ));
-                            }
-                            other => panic!("Expected ForAll expression in target body, got {other:?}"),
+                    Decl::Function { body, .. } => match body {
+                        Expr::ForAll {
+                            type_,
+                            binding,
+                            property,
+                            ..
+                        } => {
+                            assert_eq!(*type_, Type::Named("Int".to_string()));
+                            assert_eq!(*binding, Pat::Variable("x".to_string()));
+                            assert!(matches!(
+                                property.as_ref(),
+                                Expr::Binary {
+                                    op: BinaryOp::Gt,
+                                    ..
+                                }
+                            ));
                         }
-                    }
+                        other => panic!("Expected ForAll expression in target body, got {other:?}"),
+                    },
                     other => panic!("Expected synthetic function target, got {other:?}"),
                 }
             }
@@ -1920,7 +1922,12 @@ mod tests {
                             Stmt::Expr(Expr::AssertConsistent { expr, .. }) => {
                                 // The inner expression should be x + 1 (a Binary Add)
                                 match expr.as_ref() {
-                                    Expr::Binary { op: BinaryOp::Add, lhs, rhs, .. } => {
+                                    Expr::Binary {
+                                        op: BinaryOp::Add,
+                                        lhs,
+                                        rhs,
+                                        ..
+                                    } => {
                                         match lhs.as_ref() {
                                             Expr::Variable { name, .. } => {
                                                 assert_eq!(name, "x");
@@ -1934,7 +1941,9 @@ mod tests {
                                             _ => panic!("Expected literal 1 on RHS"),
                                         }
                                     }
-                                    _ => panic!("Expected binary expression inside assert.consistent"),
+                                    _ => panic!(
+                                        "Expected binary expression inside assert.consistent"
+                                    ),
                                 }
                             }
                             _ => panic!("Expected AssertConsistent expression"),
@@ -1959,7 +1968,11 @@ mod tests {
             Decl::Decorator { name, target, .. } => {
                 assert_eq!(name, "Diff");
                 match target.as_ref() {
-                    Decl::Function { name: fn_name, body, .. } => {
+                    Decl::Function {
+                        name: fn_name,
+                        body,
+                        ..
+                    } => {
                         assert_eq!(fn_name, "test");
                         match body {
                             Expr::Block { stmts, .. } => {

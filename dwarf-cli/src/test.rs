@@ -147,7 +147,12 @@ fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
 
             for other in &result.others {
                 let status = if other.success { "OK" } else { "FAIL" };
-                println!("  Target ({}): {} ({} bytes)", other.target, status, other.stdout.len());
+                println!(
+                    "  Target ({}): {} ({} bytes)",
+                    other.target,
+                    status,
+                    other.stdout.len()
+                );
             }
 
             if result.all_match {
@@ -534,9 +539,7 @@ fn shrink_test_failure(result: &TestResult) {
         println!("  FAIL: {} ({})", result.file, result.message);
         println!("    Counterexample: {}", value);
         println!("    Minimal failing: {}", minimal);
-        println!(
-            "    Suggested fix: Change expected value or adjust assertion boundary"
-        );
+        println!("    Suggested fix: Change expected value or adjust assertion boundary");
     }
 }
 

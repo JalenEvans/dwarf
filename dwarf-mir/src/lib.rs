@@ -1478,7 +1478,10 @@ mod tests {
         if let MirExpr::AssertConsistent { expr, .. } = &e {
             assert!(matches!(
                 expr.as_ref(),
-                MirExpr::Literal { value: MirLiteral::Int(42), .. }
+                MirExpr::Literal {
+                    value: MirLiteral::Int(42),
+                    ..
+                }
             ));
         } else {
             panic!("expected AssertConsistent variant");

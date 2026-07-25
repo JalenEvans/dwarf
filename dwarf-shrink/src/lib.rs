@@ -66,7 +66,9 @@ impl Shrinker<i64> for IntShrinker {
         let mut current = failing;
         loop {
             let next = current / 2;
-            if next == current { break; }
+            if next == current {
+                break;
+            }
             if !is_failing(&next) {
                 return if failing > 0 {
                     between(next, current, is_failing)
@@ -76,7 +78,9 @@ impl Shrinker<i64> for IntShrinker {
                 };
             }
             current = next;
-            if current == 0 { break; }
+            if current == 0 {
+                break;
+            }
         }
         current
     }
@@ -96,7 +100,9 @@ impl Shrinker<String> for StringShrinker {
         loop {
             let chars: Vec<char> = current.chars().collect();
             let len = chars.len();
-            if len <= 1 { break; }
+            if len <= 1 {
+                break;
+            }
             let mid = len / 2;
 
             let first_half: String = chars.iter().take(mid).collect();
@@ -117,11 +123,14 @@ impl Shrinker<String> for StringShrinker {
         loop {
             let chars: Vec<char> = current.chars().collect();
             let len = chars.len();
-            if len <= 1 { break; }
+            if len <= 1 {
+                break;
+            }
 
             let mut found = false;
             for i in 0..len {
-                let candidate: String = chars.iter()
+                let candidate: String = chars
+                    .iter()
                     .enumerate()
                     .filter(|(j, _)| *j != i)
                     .map(|(_, c)| c)
@@ -132,7 +141,9 @@ impl Shrinker<String> for StringShrinker {
                     break;
                 }
             }
-            if !found { break; }
+            if !found {
+                break;
+            }
         }
 
         current
@@ -152,7 +163,9 @@ impl<T: Clone + PartialEq> Shrinker<Vec<T>> for ListShrinker {
         // Phase 1: Remove halves
         loop {
             let len = current.len();
-            if len <= 1 { break; }
+            if len <= 1 {
+                break;
+            }
             let mid = len / 2;
 
             let first_half: Vec<T> = current.iter().take(mid).cloned().collect();
@@ -172,11 +185,14 @@ impl<T: Clone + PartialEq> Shrinker<Vec<T>> for ListShrinker {
         // Phase 2: Remove individual elements
         loop {
             let len = current.len();
-            if len <= 1 { break; }
+            if len <= 1 {
+                break;
+            }
 
             let mut found = false;
             for i in 0..len {
-                let candidate: Vec<T> = current.iter()
+                let candidate: Vec<T> = current
+                    .iter()
                     .enumerate()
                     .filter(|(j, _)| *j != i)
                     .map(|(_, v)| v.clone())
@@ -187,7 +203,9 @@ impl<T: Clone + PartialEq> Shrinker<Vec<T>> for ListShrinker {
                     break;
                 }
             }
-            if !found { break; }
+            if !found {
+                break;
+            }
         }
 
         current

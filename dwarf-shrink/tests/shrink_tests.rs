@@ -76,10 +76,7 @@ fn test_shrink_string_remove_extra_chars() {
     // Predicate: s.len() > 3 (fails when length > 3)
     // "hello world" should shrink to "hell" (first 4 chars that still fail)
     let shrinker = StringShrinker;
-    let result = shrinker.shrink(
-        &"hello world".to_string(),
-        &mut |s: &String| s.len() > 3,
-    );
+    let result = shrinker.shrink(&"hello world".to_string(), &mut |s: &String| s.len() > 3);
     assert!(
         result.len() == 4,
         "should shrink to minimal 4-char string, got '{}' (len={})",
@@ -93,14 +90,10 @@ fn test_shrink_string_contains_substring() {
     // Predicate: s.contains("fail")
     // "this is a failing test" should shrink to "fail" (minimal)
     let shrinker = StringShrinker;
-    let result = shrinker.shrink(
-        &"this is a failing test".to_string(),
-        &mut |s: &String| s.contains("fail"),
-    );
-    assert_eq!(
-        result, "fail",
-        "should shrink to minimal failing substring"
-    );
+    let result = shrinker.shrink(&"this is a failing test".to_string(), &mut |s: &String| {
+        s.contains("fail")
+    });
+    assert_eq!(result, "fail", "should shrink to minimal failing substring");
 }
 
 #[test]
@@ -126,10 +119,9 @@ fn test_shrink_string_prefix_preserved() {
     // Predicate: s.starts_with("needle")
     // "needle in a haystack" should shrink to "needle"
     let shrinker = StringShrinker;
-    let result = shrinker.shrink(
-        &"needle in a haystack".to_string(),
-        &mut |s: &String| s.starts_with("needle"),
-    );
+    let result = shrinker.shrink(&"needle in a haystack".to_string(), &mut |s: &String| {
+        s.starts_with("needle")
+    });
     assert_eq!(
         result, "needle",
         "should shrink to minimal prefix string 'needle'"
@@ -141,10 +133,7 @@ fn test_shrink_string_suffix_preserved() {
     // Predicate: s.ends_with("end")
     // "the end" should shrink to "end"
     let shrinker = StringShrinker;
-    let result = shrinker.shrink(
-        &"the end".to_string(),
-        &mut |s: &String| s.ends_with("end"),
-    );
+    let result = shrinker.shrink(&"the end".to_string(), &mut |s: &String| s.ends_with("end"));
     assert_eq!(
         result, "end",
         "should shrink to minimal suffix string 'end'"
@@ -159,10 +148,7 @@ fn test_shrink_string_suffix_preserved() {
 fn test_shrink_list_remove_elements() {
     // Predicate: list.len() > 2 (fails when length > 2)
     let shrinker = ListShrinker;
-    let result = shrinker.shrink(
-        &vec![1, 2, 3, 4, 5],
-        &mut |list: &Vec<i32>| list.len() > 2,
-    );
+    let result = shrinker.shrink(&vec![1, 2, 3, 4, 5], &mut |list: &Vec<i32>| list.len() > 2);
     assert_eq!(result.len(), 3, "should shrink to 3-element list");
 }
 
@@ -171,10 +157,9 @@ fn test_shrink_list_precise_elements() {
     // Predicate: list contains 42
     // Only elements matter, not length
     let shrinker = ListShrinker;
-    let result = shrinker.shrink(
-        &vec![10, 20, 30, 42, 50, 60],
-        &mut |list: &Vec<i32>| list.contains(&42),
-    );
+    let result = shrinker.shrink(&vec![10, 20, 30, 42, 50, 60], &mut |list: &Vec<i32>| {
+        list.contains(&42)
+    });
     assert_eq!(result, vec![42], "should shrink to just [42]");
 }
 
@@ -191,8 +176,7 @@ fn test_shrink_list_single_element() {
 fn test_shrink_list_empty() {
     // Predicate: list.is_empty() — empty list always fails
     let shrinker = ListShrinker;
-    let result: Vec<i32> =
-        shrinker.shrink(&vec![], &mut |list: &Vec<i32>| list.is_empty());
+    let result: Vec<i32> = shrinker.shrink(&vec![], &mut |list: &Vec<i32>| list.is_empty());
     assert!(result.is_empty(), "empty list should stay empty");
 }
 
@@ -201,10 +185,9 @@ fn test_shrink_list_first_element_preserved() {
     // Predicate: list.first() == Some(&99)
     // vec![99, 1, 2, 3, 4] should shrink to vec![99]
     let shrinker = ListShrinker;
-    let result = shrinker.shrink(
-        &vec![99, 1, 2, 3, 4],
-        &mut |list: &Vec<i32>| list.first() == Some(&99),
-    );
+    let result = shrinker.shrink(&vec![99, 1, 2, 3, 4], &mut |list: &Vec<i32>| {
+        list.first() == Some(&99)
+    });
     assert_eq!(result, vec![99], "should shrink to just [99]");
 }
 
@@ -213,10 +196,9 @@ fn test_shrink_list_last_element_preserved() {
     // Predicate: list.last() == Some(&77)
     // vec![1, 2, 3, 4, 77] should shrink to vec![77]
     let shrinker = ListShrinker;
-    let result = shrinker.shrink(
-        &vec![1, 2, 3, 4, 77],
-        &mut |list: &Vec<i32>| list.last() == Some(&77),
-    );
+    let result = shrinker.shrink(&vec![1, 2, 3, 4, 77], &mut |list: &Vec<i32>| {
+        list.last() == Some(&77)
+    });
     assert_eq!(result, vec![77], "should shrink to just [77]");
 }
 
@@ -226,10 +208,9 @@ fn test_shrink_list_all_greater_than() {
     // vec![100, 200, 300] should shrink to the smallest list still all > 10
     // This could be vec![100] (single element) or minimal multi-element list
     let shrinker = ListShrinker;
-    let result = shrinker.shrink(
-        &vec![100, 200, 300],
-        &mut |list: &Vec<i32>| list.iter().all(|x| *x > 10),
-    );
+    let result = shrinker.shrink(&vec![100, 200, 300], &mut |list: &Vec<i32>| {
+        list.iter().all(|x| *x > 10)
+    });
     assert!(
         result.len() >= 1,
         "should have at least 1 element, got {:?} (len={})",
@@ -248,7 +229,11 @@ fn test_shrink_list_strings() {
     // Predicate: list contains "apple"
     let shrinker: ListShrinker = ListShrinker;
     let result = shrinker.shrink(
-        &vec!["banana".to_string(), "apple".to_string(), "cherry".to_string()],
+        &vec![
+            "banana".to_string(),
+            "apple".to_string(),
+            "cherry".to_string(),
+        ],
         &mut |list: &Vec<String>| list.contains(&"apple".to_string()),
     );
     assert_eq!(
@@ -284,9 +269,6 @@ fn test_shrink_string_no_change_needed() {
     // Predicate: "hello" starts with "h"
     // Already minimal
     let shrinker = StringShrinker;
-    let result = shrinker.shrink(
-        &"h".to_string(),
-        &mut |s: &String| s.starts_with("h"),
-    );
+    let result = shrinker.shrink(&"h".to_string(), &mut |s: &String| s.starts_with("h"));
     assert_eq!(result, "h", "should keep already minimal string 'h'");
 }

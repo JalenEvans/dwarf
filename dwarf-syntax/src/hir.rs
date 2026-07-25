@@ -196,10 +196,7 @@ pub enum Expr {
         span: Span,
     },
     /// Assert that an expression produces consistent results across all targets.
-    AssertConsistent {
-        expr: Box<Expr>,
-        span: Span,
-    },
+    AssertConsistent { expr: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -354,33 +351,15 @@ mod tests {
     #[test]
     fn test_ref_constraint_range_values() {
         let constraint = RefConstraint::Range { min: 0, max: 100 };
-        assert_eq!(
-            constraint,
-            RefConstraint::Range { min: 0, max: 100 }
-        );
-        assert_ne!(
-            constraint,
-            RefConstraint::Range { min: 0, max: 50 }
-        );
-        assert_ne!(
-            constraint,
-            RefConstraint::Range { min: 1, max: 100 }
-        );
+        assert_eq!(constraint, RefConstraint::Range { min: 0, max: 100 });
+        assert_ne!(constraint, RefConstraint::Range { min: 0, max: 50 });
+        assert_ne!(constraint, RefConstraint::Range { min: 1, max: 100 });
     }
 
     #[test]
     fn test_ref_constraint_negative_range() {
-        let constraint = RefConstraint::Range {
-            min: -10,
-            max: 10,
-        };
-        assert_eq!(
-            constraint,
-            RefConstraint::Range {
-                min: -10,
-                max: 10
-            }
-        );
+        let constraint = RefConstraint::Range { min: -10, max: 10 };
+        assert_eq!(constraint, RefConstraint::Range { min: -10, max: 10 });
     }
 
     #[test]
@@ -456,14 +435,12 @@ mod tests {
             span: Span::new(0, 0, 0),
         };
         match &expr {
-            Expr::AssertConsistent { expr: inner, .. } => {
-                match inner.as_ref() {
-                    Expr::Literal { value, .. } => {
-                        assert_eq!(*value, LiteralValue::Int(42));
-                    }
-                    _ => panic!("Expected literal inside AssertConsistent"),
+            Expr::AssertConsistent { expr: inner, .. } => match inner.as_ref() {
+                Expr::Literal { value, .. } => {
+                    assert_eq!(*value, LiteralValue::Int(42));
                 }
-            }
+                _ => panic!("Expected literal inside AssertConsistent"),
+            },
             _ => panic!("Expected AssertConsistent variant"),
         }
     }

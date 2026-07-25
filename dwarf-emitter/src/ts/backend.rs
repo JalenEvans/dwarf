@@ -186,11 +186,11 @@ impl EmitterBackend for TypeScriptBackend {
     fn emit_decl(&mut self, decl: &LirDecl) -> Result<String, EmitterError> {
         match decl {
             // ForAll property-based test — emit as Jest test() wrapper
-            LirDecl::Function {
-                name, body, ..
-            } if matches!(*body, LirExpr::ForAll { .. }) => {
+            LirDecl::Function { name, body, .. } if matches!(*body, LirExpr::ForAll { .. }) => {
                 let inner = self.emit_expr(body)?;
-                Ok(format!("test('{name}', () => {{\n  fc.assert(\n    {inner}\n  );\n}});"))
+                Ok(format!(
+                    "test('{name}', () => {{\n  fc.assert(\n    {inner}\n  );\n}});"
+                ))
             }
             LirDecl::Function {
                 name,

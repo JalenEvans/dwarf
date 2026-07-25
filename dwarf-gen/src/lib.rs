@@ -29,34 +29,80 @@ pub fn generate_edge_cases(ty: &Type) -> Vec<TestCase> {
 fn generate_named_edge_cases(name: &str) -> Vec<TestCase> {
     match name {
         "Int" => vec![
-            TestCase { description: "Int(-1)".into(), value: LiteralValue::Int(-1) },
-            TestCase { description: "Int(0)".into(), value: LiteralValue::Int(0) },
-            TestCase { description: "Int(1)".into(), value: LiteralValue::Int(1) },
-            TestCase { description: "Int(MAX)".into(), value: LiteralValue::Int(i64::MAX) },
-            TestCase { description: "Int(MIN)".into(), value: LiteralValue::Int(i64::MIN) },
+            TestCase {
+                description: "Int(-1)".into(),
+                value: LiteralValue::Int(-1),
+            },
+            TestCase {
+                description: "Int(0)".into(),
+                value: LiteralValue::Int(0),
+            },
+            TestCase {
+                description: "Int(1)".into(),
+                value: LiteralValue::Int(1),
+            },
+            TestCase {
+                description: "Int(MAX)".into(),
+                value: LiteralValue::Int(i64::MAX),
+            },
+            TestCase {
+                description: "Int(MIN)".into(),
+                value: LiteralValue::Int(i64::MIN),
+            },
         ],
         "String" => {
             let long = "a".repeat(256);
             vec![
-                TestCase { description: "String empty".into(), value: LiteralValue::Str("".into()) },
-                TestCase { description: "String a".into(), value: LiteralValue::Str("a".into()) },
-                TestCase { description: "String abc".into(), value: LiteralValue::Str("abc".into()) },
-                TestCase { description: "String null".into(), value: LiteralValue::Str("\0".into()) },
-                TestCase { description: "String long".into(), value: LiteralValue::Str(long) },
+                TestCase {
+                    description: "String empty".into(),
+                    value: LiteralValue::Str("".into()),
+                },
+                TestCase {
+                    description: "String a".into(),
+                    value: LiteralValue::Str("a".into()),
+                },
+                TestCase {
+                    description: "String abc".into(),
+                    value: LiteralValue::Str("abc".into()),
+                },
+                TestCase {
+                    description: "String null".into(),
+                    value: LiteralValue::Str("\0".into()),
+                },
+                TestCase {
+                    description: "String long".into(),
+                    value: LiteralValue::Str(long),
+                },
             ]
         }
         "Bool" => vec![
-            TestCase { description: "Bool true".into(), value: LiteralValue::Bool(true) },
-            TestCase { description: "Bool false".into(), value: LiteralValue::Bool(false) },
+            TestCase {
+                description: "Bool true".into(),
+                value: LiteralValue::Bool(true),
+            },
+            TestCase {
+                description: "Bool false".into(),
+                value: LiteralValue::Bool(false),
+            },
         ],
         "Float" => vec![
-            TestCase { description: "Float(-1.0)".into(), value: LiteralValue::Float(-1.0) },
-            TestCase { description: "Float(0.0)".into(), value: LiteralValue::Float(0.0) },
-            TestCase { description: "Float(1.0)".into(), value: LiteralValue::Float(1.0) },
+            TestCase {
+                description: "Float(-1.0)".into(),
+                value: LiteralValue::Float(-1.0),
+            },
+            TestCase {
+                description: "Float(0.0)".into(),
+                value: LiteralValue::Float(0.0),
+            },
+            TestCase {
+                description: "Float(1.0)".into(),
+                value: LiteralValue::Float(1.0),
+            },
         ],
-        "Null" => vec![
-            TestCase { description: "Null".into(), value: LiteralValue::Null },
-        ],
+        "Null" => vec![TestCase {
+            description: "Null".into(),
+            value: LiteralValue::Null,
+        }],
         _ => vec![],
     }
 }
@@ -70,13 +116,34 @@ fn generate_refined_edge_cases(base: &Type, constraint: &RefConstraint) -> Vec<T
                 let max_plus_1 = if *max == i64::MAX { *max } else { *max + 1 };
                 let mid = min.saturating_add(*max) / 2;
                 vec![
-                    TestCase { description: format!("Int({min_minus_1}) (min-1)"), value: LiteralValue::Int(min_minus_1) },
-                    TestCase { description: format!("Int({min}) (min)"), value: LiteralValue::Int(*min) },
-                    TestCase { description: format!("Int({}) (min+1)", *min + 1), value: LiteralValue::Int(*min + 1) },
-                    TestCase { description: format!("Int({mid}) (mid)"), value: LiteralValue::Int(mid) },
-                    TestCase { description: format!("Int({}) (max-1)", *max - 1), value: LiteralValue::Int(*max - 1) },
-                    TestCase { description: format!("Int({max}) (max)"), value: LiteralValue::Int(*max) },
-                    TestCase { description: format!("Int({max_plus_1}) (max+1)"), value: LiteralValue::Int(max_plus_1) },
+                    TestCase {
+                        description: format!("Int({min_minus_1}) (min-1)"),
+                        value: LiteralValue::Int(min_minus_1),
+                    },
+                    TestCase {
+                        description: format!("Int({min}) (min)"),
+                        value: LiteralValue::Int(*min),
+                    },
+                    TestCase {
+                        description: format!("Int({}) (min+1)", *min + 1),
+                        value: LiteralValue::Int(*min + 1),
+                    },
+                    TestCase {
+                        description: format!("Int({mid}) (mid)"),
+                        value: LiteralValue::Int(mid),
+                    },
+                    TestCase {
+                        description: format!("Int({}) (max-1)", *max - 1),
+                        value: LiteralValue::Int(*max - 1),
+                    },
+                    TestCase {
+                        description: format!("Int({max}) (max)"),
+                        value: LiteralValue::Int(*max),
+                    },
+                    TestCase {
+                        description: format!("Int({max_plus_1}) (max+1)"),
+                        value: LiteralValue::Int(max_plus_1),
+                    },
                 ]
             }
             Type::Named(name) if name == "String" => {
@@ -165,7 +232,10 @@ fn generate_generic_edge_cases(base: &str, args: &[Type]) -> Vec<TestCase> {
                     &inner_cases[0]
                 };
                 cases.push(TestCase {
-                    description: format!("List<{type_name}> [{}, {}]", a.description, b.description),
+                    description: format!(
+                        "List<{type_name}> [{}, {}]",
+                        a.description, b.description
+                    ),
                     value: LiteralValue::Null,
                 });
             }

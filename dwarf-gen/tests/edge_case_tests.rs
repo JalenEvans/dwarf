@@ -31,11 +31,20 @@ fn has_case(cases: &[TestCase], value: &LiteralValue) -> bool {
 fn test_int_edge_cases() {
     let cases = generate_edge_cases(&named("Int"));
     assert!(!cases.is_empty(), "Int should produce edge cases");
-    assert!(has_case(&cases, &LiteralValue::Int(-1)), "should include -1");
+    assert!(
+        has_case(&cases, &LiteralValue::Int(-1)),
+        "should include -1"
+    );
     assert!(has_case(&cases, &LiteralValue::Int(0)), "should include 0");
     assert!(has_case(&cases, &LiteralValue::Int(1)), "should include 1");
-    assert!(has_case(&cases, &LiteralValue::Int(i64::MAX)), "should include MAX");
-    assert!(has_case(&cases, &LiteralValue::Int(i64::MIN)), "should include MIN");
+    assert!(
+        has_case(&cases, &LiteralValue::Int(i64::MAX)),
+        "should include MAX"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(i64::MIN)),
+        "should include MIN"
+    );
     assert_eq!(cases.len(), 5, "unrefined Int should have 5 edge cases");
 }
 
@@ -44,13 +53,34 @@ fn test_int_range_edge_cases() {
     let cases = generate_edge_cases(&refined(named("Int"), 0, 100));
     assert!(!cases.is_empty(), "Int(0..100) should produce edge cases");
     // Boundary: -1, 0, 1, 50, 99, 100, 101
-    assert!(has_case(&cases, &LiteralValue::Int(-1)), "should include -1 (min-1)");
-    assert!(has_case(&cases, &LiteralValue::Int(0)), "should include 0 (min)");
-    assert!(has_case(&cases, &LiteralValue::Int(1)), "should include 1 (min+1)");
-    assert!(has_case(&cases, &LiteralValue::Int(50)), "should include 50 (mid)");
-    assert!(has_case(&cases, &LiteralValue::Int(99)), "should include 99 (max-1)");
-    assert!(has_case(&cases, &LiteralValue::Int(100)), "should include 100 (max)");
-    assert!(has_case(&cases, &LiteralValue::Int(101)), "should include 101 (max+1)");
+    assert!(
+        has_case(&cases, &LiteralValue::Int(-1)),
+        "should include -1 (min-1)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(0)),
+        "should include 0 (min)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(1)),
+        "should include 1 (min+1)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(50)),
+        "should include 50 (mid)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(99)),
+        "should include 99 (max-1)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(100)),
+        "should include 100 (max)"
+    );
+    assert!(
+        has_case(&cases, &LiteralValue::Int(101)),
+        "should include 101 (max+1)"
+    );
     assert_eq!(cases.len(), 7, "range Int should have 7 edge cases");
 }
 
@@ -75,7 +105,10 @@ fn test_string_range_edge_cases() {
     let cases = generate_edge_cases(&refined(named("String"), 1, 50));
     assert!(!cases.is_empty(), "String(1..50) should produce edge cases");
     // Should include empty string (below min)
-    assert!(has_case(&cases, &LiteralValue::Str("".to_string())), "should include empty string");
+    assert!(
+        has_case(&cases, &LiteralValue::Str("".to_string())),
+        "should include empty string"
+    );
 }
 
 #[test]

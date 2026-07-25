@@ -594,7 +594,10 @@ mod tests {
                 assert!(
                     matches!(
                         expr.as_ref(),
-                        LirExpr::Literal { value: LirLiteral::Int(42), .. }
+                        LirExpr::Literal {
+                            value: LirLiteral::Int(42),
+                            ..
+                        }
                     ),
                     "inner expression should be preserved as literal 42"
                 );

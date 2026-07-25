@@ -11,9 +11,7 @@
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::ts::backend::TypeScriptBackend;
-use dwarf_lir::{
-    Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, TargetHint,
-};
+use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, TargetHint};
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
 

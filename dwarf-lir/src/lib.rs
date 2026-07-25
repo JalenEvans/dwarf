@@ -1679,7 +1679,10 @@ mod tests {
         if let LirExpr::AssertConsistent { expr, hint, .. } = &e {
             assert!(matches!(
                 expr.as_ref(),
-                LirExpr::Literal { value: LirLiteral::Int(42), .. }
+                LirExpr::Literal {
+                    value: LirLiteral::Int(42),
+                    ..
+                }
             ));
             assert_eq!(*hint, TargetHint::None);
         } else {

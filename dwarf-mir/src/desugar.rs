@@ -706,13 +706,11 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                             // @gen decorator — generator function.
                             // The function IS the generator; preserve the body as-is.
                             // The type argument from @gen(Type) becomes the return type.
-                            let gen_type = mir_args.first().and_then(|arg| {
-                                match arg {
-                                    MirExpr::Variable { name, .. } => {
-                                        Some(dwarf_syntax::hir::Type::Named(name.clone()))
-                                    }
-                                    _ => None,
+                            let gen_type = mir_args.first().and_then(|arg| match arg {
+                                MirExpr::Variable { name, .. } => {
+                                    Some(dwarf_syntax::hir::Type::Named(name.clone()))
                                 }
+                                _ => None,
                             });
 
                             result.push(MirDecl::Function {
@@ -767,7 +765,9 @@ mod tests {
         desugar_decorators, desugar_for_loop, desugar_pipe, desugar_propagate, expand_type_aliases,
     };
     use crate::*;
-    use dwarf_syntax::hir::{BinaryOp, Decl, Expr, Field, LiteralValue, Param, Pat, Stmt, Type, Variant};
+    use dwarf_syntax::hir::{
+        BinaryOp, Decl, Expr, Field, LiteralValue, Param, Pat, Stmt, Type, Variant,
+    };
     use dwarf_syntax::span::Span;
 
     /// Shared zero-length synthetic span for test expressions.
@@ -2343,18 +2343,13 @@ mod tests {
                                     "the original function body should be preserved"
                                 );
                             }
-                            other => panic!(
-                                "Expected body to call 'pure_red' directly, got {other:?}"
-                            ),
+                            other => {
+                                panic!("Expected body to call 'pure_red' directly, got {other:?}")
+                            }
                         }
-                        assert!(
-                            args.is_empty(),
-                            "pure_red() should have no arguments"
-                        );
+                        assert!(args.is_empty(), "pure_red() should have no arguments");
                     }
-                    other => panic!(
-                        "Expected body to be the original Call expr, got {other:?}"
-                    ),
+                    other => panic!("Expected body to be the original Call expr, got {other:?}"),
                 }
             }
             other => panic!("Expected MirDecl::Function, got {other:?}"),

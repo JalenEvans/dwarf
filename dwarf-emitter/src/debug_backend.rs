@@ -267,9 +267,7 @@ impl EmitterBackend for DebugBackend {
                 let ty_str = self.emit_type(type_)?;
                 let binding_str = self.emit_pat(binding)?;
                 let property_str = self.emit_expr(property)?;
-                Ok(format!(
-                    "forAll({ty_str}, {binding_str} => {property_str})"
-                ))
+                Ok(format!("forAll({ty_str}, {binding_str} => {property_str})"))
             }
             LirExpr::AssertConsistent { expr, .. } => {
                 let inner = self.emit_expr(expr)?;
@@ -342,9 +340,7 @@ impl EmitterBackend for DebugBackend {
             Type::Refined { base, constraint } => {
                 let base_str = self.emit_type(base)?;
                 match constraint {
-                    RefConstraint::Range { min, max } => {
-                        Ok(format!("{base_str}({min}..{max})"))
-                    }
+                    RefConstraint::Range { min, max } => Ok(format!("{base_str}({min}..{max})")),
                 }
             }
         }

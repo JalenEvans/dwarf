@@ -209,9 +209,7 @@ impl EmitterBackend for PythonBackend {
             imports.push("from typing import Union".to_string());
         }
         if self.needs_hypothesis {
-            imports.push(
-                "from hypothesis import given, strategies as st".to_string(),
-            );
+            imports.push("from hypothesis import given, strategies as st".to_string());
         }
 
         if !imports.is_empty() {

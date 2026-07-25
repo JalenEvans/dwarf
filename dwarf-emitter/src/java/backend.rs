@@ -114,7 +114,11 @@ impl EmitterBackend for JavaBackend {
         }
 
         // Class declaration — use PropertyTests when ForAll declarations are present
-        let class_name = if self.has_forall { "PropertyTests" } else { "Main" };
+        let class_name = if self.has_forall {
+            "PropertyTests"
+        } else {
+            "Main"
+        };
         buf.push_line(format!("public class {} {{", class_name));
         buf.indent();
 
