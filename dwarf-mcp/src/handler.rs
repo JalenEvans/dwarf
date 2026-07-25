@@ -9,10 +9,10 @@ use rust_mcp_sdk::mcp_server::ServerHandler;
 use rust_mcp_sdk::schema::*;
 use std::sync::Arc;
 
+use dwarf_gen::generate_edge_cases;
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 use dwarf_parser::pass::ParsePass;
 use dwarf_syntax::hir::{Decl, LiteralValue, Type};
-use dwarf_gen::generate_edge_cases;
 
 /// The MCP server handler for the Dwarf compiler.
 ///
@@ -507,9 +507,7 @@ fn all_tools() -> Vec<Tool> {
         },
         Tool {
             annotations: None,
-            description: Some(
-                "Compile Dwarf source to a target language".to_string(),
-            ),
+            description: Some("Compile Dwarf source to a target language".to_string()),
             execution: None,
             icons: vec![],
             input_schema: serde_json::from_value(serde_json::json!({
@@ -539,9 +537,7 @@ fn all_tools() -> Vec<Tool> {
         },
         Tool {
             annotations: None,
-            description: Some(
-                "Format Dwarf source code".to_string(),
-            ),
+            description: Some("Format Dwarf source code".to_string()),
             execution: None,
             icons: vec![],
             input_schema: serde_json::from_value(serde_json::json!({
@@ -562,9 +558,7 @@ fn all_tools() -> Vec<Tool> {
         },
         Tool {
             annotations: None,
-            description: Some(
-                "Generate edge case test values from type definitions".to_string(),
-            ),
+            description: Some("Generate edge case test values from type definitions".to_string()),
             execution: None,
             icons: vec![],
             input_schema: serde_json::from_value(serde_json::json!({
@@ -591,10 +585,7 @@ fn all_tools() -> Vec<Tool> {
 // ---------------------------------------------------------------------------
 
 /// Extract a string argument by key from the tool call arguments map.
-fn get_arg(
-    args: &Option<serde_json::Map<String, serde_json::Value>>,
-    key: &str,
-) -> Option<String> {
+fn get_arg(args: &Option<serde_json::Map<String, serde_json::Value>>, key: &str) -> Option<String> {
     args.as_ref()
         .and_then(|m| m.get(key))
         .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -618,7 +609,9 @@ fn make_error_result(message: &str) -> CallToolResult {
 fn make_ok_result(value: impl serde::Serialize) -> CallToolResult {
     let json = serde_json::to_string_pretty(&value).unwrap_or_default();
     CallToolResult {
-        content: vec![ContentBlock::TextContent(TextContent::new(json, None, None))],
+        content: vec![ContentBlock::TextContent(TextContent::new(
+            json, None, None,
+        ))],
         is_error: Some(false),
         meta: None,
         structured_content: None,
@@ -630,9 +623,7 @@ fn make_ok_result(value: impl serde::Serialize) -> CallToolResult {
 // ---------------------------------------------------------------------------
 
 /// Handle `dwarf_check` — validate Dwarf source and return structured diagnostics.
-fn handle_dwarf_check(
-    args: &Option<serde_json::Map<String, serde_json::Value>>,
-) -> CallToolResult {
+fn handle_dwarf_check(args: &Option<serde_json::Map<String, serde_json::Value>>) -> CallToolResult {
     let source = match get_arg(args, "source") {
         Some(s) => s,
         None => return make_error_result("Missing required argument: source"),
@@ -776,19 +767,11 @@ fn handle_dwarf_compile(
 ) -> std::result::Result<CallToolResult, CallToolError> {
     let source = match get_arg(args, "source") {
         Some(s) => s,
-        None => {
-            return Ok(make_error_result(
-                "Missing required argument: source",
-            ))
-        }
+        None => return Ok(make_error_result("Missing required argument: source")),
     };
     let target = match get_arg(args, "target") {
         Some(t) => t,
-        None => {
-            return Ok(make_error_result(
-                "Missing required argument: target",
-            ))
-        }
+        None => return Ok(make_error_result("Missing required argument: target")),
     };
     let filename = get_arg(args, "filename").unwrap_or_else(|| "input.kzd".to_string());
 
@@ -1003,12 +986,8 @@ impl ServerHandler for DwarfMcpHandler {
                     subscribe: Some(false),
                     list_changed: None,
                 }),
-                tools: Some(ServerCapabilitiesTools {
-                    list_changed: None,
-                }),
-                prompts: Some(ServerCapabilitiesPrompts {
-                    list_changed: None,
-                }),
+                tools: Some(ServerCapabilitiesTools { list_changed: None }),
+                prompts: Some(ServerCapabilitiesPrompts { list_changed: None }),
                 completions: None,
                 experimental: None,
                 logging: None,
@@ -1050,12 +1029,14 @@ impl ServerHandler for DwarfMcpHandler {
     ) -> std::result::Result<ReadResourceResult, RpcError> {
         match resource_content(&params.uri) {
             Some(text) => Ok(ReadResourceResult {
-                contents: vec![ReadResourceContent::TextResourceContents(TextResourceContents {
-                    uri: params.uri,
-                    mime_type: Some("text/markdown".to_string()),
-                    text: text.to_string(),
-                    meta: None,
-                })],
+                contents: vec![ReadResourceContent::TextResourceContents(
+                    TextResourceContents {
+                        uri: params.uri,
+                        mime_type: Some("text/markdown".to_string()),
+                        text: text.to_string(),
+                        meta: None,
+                    },
+                )],
                 meta: None,
             }),
             None => Err(RpcError {

@@ -174,9 +174,7 @@ fn test_cli_json_output_with_errors() {
         "Files array should not be empty"
     );
     assert!(
-        !json["payload"]["files"][0]["success"]
-            .as_bool()
-            .unwrap(),
+        !json["payload"]["files"][0]["success"].as_bool().unwrap(),
         "File should have success: false for errors"
     );
     assert!(

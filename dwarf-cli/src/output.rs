@@ -22,8 +22,8 @@
 //! deliberately fail the tests below. The Green phase will replace these
 //! stubs with correct implementations.
 
-use serde::{Deserialize, Serialize};
 use serde::Serializer;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -550,10 +550,7 @@ mod tests {
         let output = format_output(OutputFormat::Tty, &envelope);
 
         // FAIL (Red): output is empty string
-        assert!(
-            !output.is_empty(),
-            "TTY mode should produce non-empty text"
-        );
+        assert!(!output.is_empty(), "TTY mode should produce non-empty text");
     }
 
     // ===================================================================

@@ -23,9 +23,8 @@ use dwarf_mcp::handler::DwarfMcpHandler;
 use rust_mcp_sdk::{
     mcp_server::{self, McpServerOptions},
     schema::{
-        Implementation, InitializeResult, ServerCapabilities,
-        ServerCapabilitiesPrompts, ServerCapabilitiesResources,
-        ServerCapabilitiesTools,
+        Implementation, InitializeResult, ServerCapabilities, ServerCapabilitiesPrompts,
+        ServerCapabilitiesResources, ServerCapabilitiesTools,
     },
     McpServer, StdioTransport, ToMcpServerHandler, TransportOptions,
 };
@@ -83,9 +82,7 @@ async fn main() {
             }
         }
         Some(other) => {
-            eprintln!(
-                "dwarf-mcp: unsupported transport '{other}'. Only 'stdio' is supported."
-            );
+            eprintln!("dwarf-mcp: unsupported transport '{other}'. Only 'stdio' is supported.");
             std::process::exit(1);
         }
         None => {
@@ -121,12 +118,8 @@ async fn run_stdio_server() -> rust_mcp_sdk::error::SdkResult<()> {
                 subscribe: Some(false),
                 list_changed: None,
             }),
-            tools: Some(ServerCapabilitiesTools {
-                list_changed: None,
-            }),
-            prompts: Some(ServerCapabilitiesPrompts {
-                list_changed: None,
-            }),
+            tools: Some(ServerCapabilitiesTools { list_changed: None }),
+            prompts: Some(ServerCapabilitiesPrompts { list_changed: None }),
             completions: None,
             experimental: None,
             logging: None,

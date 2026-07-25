@@ -13,9 +13,7 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
 
-use crate::output::{
-    format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem,
-};
+use crate::output::{format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem};
 use dwarf_cli::diff_runner;
 use dwarf_cli::runner::{JavaRunner, PyRunner, TsRunner};
 use dwarf_shrink::{IntShrinker, Shrinker};
@@ -130,10 +128,7 @@ fn run_diff_mode(files: Vec<PathBuf>, json: bool) {
                     message: if result.all_match {
                         format!("All {} targets match oracle", result.others.len())
                     } else {
-                        format!(
-                            "{} target(s) differ from oracle",
-                            n_mismatches
-                        )
+                        format!("{} target(s) differ from oracle", n_mismatches)
                     },
                 }
             })
