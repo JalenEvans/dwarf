@@ -70,6 +70,7 @@ async fn main() {
     };
     tracing_subscriber::fmt()
         .with_max_level(level)
+        .with_writer(std::io::stderr)
         .init();
 
     match cli.transport.as_deref() {
