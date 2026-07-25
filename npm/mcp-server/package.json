@@ -1,0 +1,18 @@
+{
+  "name": "@dwarf/mcp-server",
+  "version": "0.1.0",
+  "description": "Dwarf MCP Server — AI agent tooling for the Dwarf language",
+  "bin": {
+    "dwarf-mcp": "bin/cli.js"
+  },
+  "main": "index.js",
+  "keywords": ["dwarf", "mcp", "model-context-protocol", "ai", "agent"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JalenEvans/dwarf.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

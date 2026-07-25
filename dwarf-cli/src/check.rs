@@ -1,10 +1,14 @@
 //! Implementation of the `dwarf check` subcommand.
 
+use crate::output::{
+    format_output, CheckPayload, FileCheckResult, OutputEnvelope, OutputFormat, StructuredDiagnostic,
+};
 use dwarf_lib::{CompileOptions, DwarfCompiler};
 use dwarf_syntax::diagnostic::format_diagnostic;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
+use std::time::Instant;
 
 pub fn run_check(
     files: Vec<PathBuf>,
@@ -45,7 +49,8 @@ pub fn run_check(
     let options = dwarf_cli::config::merge_config_with_cli(cli_options);
     let compiler = DwarfCompiler::new();
     let mut has_errors = false;
-    let mut all_results = Vec::new();
+    let mut all_results: Vec<FileCheckResult> = Vec::new();
+    let start = Instant::now();
 
     for file_path in &files {
         let path_str = file_path.to_string_lossy().to_string();
@@ -69,20 +74,24 @@ pub fn run_check(
                 }
 
                 if json {
-                    all_results.push(serde_json::json!({
-                        "file": path_str,
-                        "success": !has_errs,
-                        "errors": result.diagnostics.iter().map(|d| {
-                            serde_json::json!({
-                                "code": d.code,
-                                "severity": format!("{}", d.severity),
-                                "message": d.message,
-                                "file": d.file,
-                                "line": d.line,
-                                "col": d.col,
+                    all_results.push(FileCheckResult {
+                        file: path_str.clone(),
+                        success: !has_errs,
+                        errors: result
+                            .diagnostics
+                            .iter()
+                            .map(|d| StructuredDiagnostic {
+                                code: d.code.clone(),
+                                severity: format!("{}", d.severity),
+                                message: d.message.clone(),
+                                file: d.file.clone().unwrap_or_default(),
+                                line: d.line.unwrap_or(0),
+                                col: d.col.unwrap_or(0),
+                                related: vec![],
+                                fix: None,
                             })
-                        }).collect::<Vec<_>>(),
-                    }));
+                            .collect(),
+                    });
                 } else {
                     for diag in &result.diagnostics {
                         let formatted = format_diagnostic(
@@ -100,11 +109,23 @@ pub fn run_check(
             Err(errors) => {
                 has_errors = true;
                 if json {
-                    all_results.push(serde_json::json!({
-                        "file": path_str,
-                        "success": false,
-                        "errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-                    }));
+                    all_results.push(FileCheckResult {
+                        file: path_str.clone(),
+                        success: false,
+                        errors: errors
+                            .iter()
+                            .map(|e| StructuredDiagnostic {
+                                code: "COMPILE_ERR".to_string(),
+                                severity: "error".to_string(),
+                                message: e.to_string(),
+                                file: path_str.clone(),
+                                line: 0,
+                                col: 0,
+                                related: vec![],
+                                fix: None,
+                            })
+                            .collect(),
+                    });
                 } else {
                     eprintln!("Error checking {}:", path_str);
                     for err in &errors {
@@ -116,14 +137,12 @@ pub fn run_check(
     }
 
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "ok": !has_errors,
-                "results": all_results,
-            }))
-            .unwrap()
-        );
+        let payload = CheckPayload {
+            files: all_results,
+        };
+        let envelope = OutputEnvelope::from_start("check", payload, start);
+        let output = format_output(OutputFormat::Json, &envelope);
+        println!("{}", output);
     }
 
     if has_errors {

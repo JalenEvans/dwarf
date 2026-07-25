@@ -73,7 +73,7 @@ fn pure_resolver_returns_error() {
 #[test]
 fn filesystem_resolver_resolves_existing_file() {
     let dir = test_dir();
-    let file_path = write_file(&dir, "test_import.dwarf", "fn greet() = \"hello\"");
+    let _file_path = write_file(&dir, "test_import.dwarf", "fn greet() = \"hello\"");
     let containing_file = dir.path().join("main.dwarf");
     let containing_file_str = containing_file.to_string_lossy().to_string();
 

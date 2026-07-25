@@ -14,4 +14,5 @@ members = [
     "dwarf-napi",
     "dwarf-gen",
     "dwarf-shrink",
+    "dwarf-mcp",
 ]

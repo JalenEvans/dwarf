@@ -1,0 +1,69 @@
+{
+  "Function Declaration": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}($2) -> ${3:Type} {",
+      "  ${0:expr}",
+      "}"
+    ],
+    "description": "Declare a function"
+  },
+  "Pure Function": {
+    "prefix": "pfn",
+    "body": [
+      "pure fn ${1:name}($2) -> ${3:Type} {",
+      "  ${0:expr}",
+      "}"
+    ],
+    "description": "Declare a pure function"
+  },
+  "Let Binding": {
+    "prefix": "let",
+    "body": ["let ${1:name} = ${2:value}"],
+    "description": "Bind a value"
+  },
+  "If Expression": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "  ${2:then_expr}",
+      "} else {",
+      "  ${3:else_expr}",
+      "}"
+    ],
+    "description": "If expression"
+  },
+  "Match Expression": {
+    "prefix": "match",
+    "body": [
+      "match ${1:expr} {",
+      "  ${2:pattern} => ${3:result},",
+      "}"
+    ],
+    "description": "Match expression"
+  },
+  "Test Function": {
+    "prefix": "@test",
+    "body": [
+      "@test",
+      "fn test_${1:name}() {",
+      "  ${0:assert(expr)}",
+      "}"
+    ],
+    "description": "Test decorated function"
+  },
+  "Record Type": {
+    "prefix": "record",
+    "body": [
+      "${1:Name} :: record {",
+      "  ${2:field}: ${3:Type},",
+      "}"
+    ],
+    "description": "Record type definition"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": ["import \"${1:module}\""],
+    "description": "Import a module"
+  }
+}
