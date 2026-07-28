@@ -179,7 +179,13 @@ impl EmitterBackend for TypeScriptBackend {
                         }
                     }
                 }
-                LirDecl::Extern { .. } => {}
+                LirDecl::Extern { source, name, .. } => {
+                    // Register TypeScript imports for npm: extern sources.
+                    // Non-npm sources (e.g. py:) are silently ignored.
+                    if let Some(module) = source.strip_prefix("npm:") {
+                        self.imports.add_import(module, name, None);
+                    }
+                }
             }
         }
 
@@ -339,8 +345,44 @@ impl EmitterBackend for TypeScriptBackend {
                     variants_str.join(" | ")
                 ))
             }
-            LirDecl::Extern { source, name, .. } => {
-                Ok(format!("// extern: {} fn {}", source, name))
+            LirDecl::Extern {
+                source,
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                // Only emit code for npm: sources; ignore other backends (py:, etc.)
+                if !source.starts_with("npm:") {
+                    return Ok(String::new());
+                }
+
+                // If the extern has type information, emit a `declare function`
+                // signature so TypeScript can type-check calls to it.
+                if !params.is_empty() || return_type.is_some() {
+                    let params_str: Vec<String> = params
+                        .iter()
+                        .map(|p| match &p.type_ {
+                            Some(ty) => {
+                                format!("{}: {}", p.name, self.type_mapper.map_type(ty))
+                            }
+                            None => p.name.clone(),
+                        })
+                        .collect();
+                    let ret_str = match return_type {
+                        Some(ty) => format!(": {}", self.type_mapper.map_type(ty)),
+                        None => String::new(),
+                    };
+                    Ok(format!(
+                        "declare function {}({}){};",
+                        name,
+                        params_str.join(", "),
+                        ret_str
+                    ))
+                } else {
+                    // Untyped extern — the import statement is sufficient
+                    Ok(String::new())
+                }
             }
         }
     }
