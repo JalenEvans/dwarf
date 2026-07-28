@@ -867,11 +867,15 @@ impl JavaBackend {
                         LirStmt::Let { value, .. } => {
                             Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math)
                         }
-                        LirStmt::Expr(e) => Self::scan_expr_for_stdlib(e, needs_io, needs_string, needs_math),
+                        LirStmt::Expr(e) => {
+                            Self::scan_expr_for_stdlib(e, needs_io, needs_string, needs_math)
+                        }
                     }
                 }
             }
-            LirExpr::Lambda { body, .. } => Self::scan_expr_for_stdlib(body, needs_io, needs_string, needs_math),
+            LirExpr::Lambda { body, .. } => {
+                Self::scan_expr_for_stdlib(body, needs_io, needs_string, needs_math)
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -885,12 +889,16 @@ impl JavaBackend {
                 Self::scan_expr_for_stdlib(lhs, needs_io, needs_string, needs_math);
                 Self::scan_expr_for_stdlib(rhs, needs_io, needs_string, needs_math);
             }
-            LirExpr::Unary { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math),
+            LirExpr::Unary { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
             LirExpr::Assign { target, value, .. } => {
                 Self::scan_expr_for_stdlib(target, needs_io, needs_string, needs_math);
                 Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math);
             }
-            LirExpr::Member { obj, .. } => Self::scan_expr_for_stdlib(obj, needs_io, needs_string, needs_math),
+            LirExpr::Member { obj, .. } => {
+                Self::scan_expr_for_stdlib(obj, needs_io, needs_string, needs_math)
+            }
             LirExpr::Record { fields, .. } => {
                 for (_, val) in fields {
                     Self::scan_expr_for_stdlib(val, needs_io, needs_string, needs_math);
@@ -901,12 +909,16 @@ impl JavaBackend {
                     Self::scan_expr_for_stdlib(item, needs_io, needs_string, needs_math);
                 }
             }
-            LirExpr::Variant {
-                arg: Some(a), ..
-            } => Self::scan_expr_for_stdlib(a, needs_io, needs_string, needs_math),
+            LirExpr::Variant { arg: Some(a), .. } => {
+                Self::scan_expr_for_stdlib(a, needs_io, needs_string, needs_math)
+            }
             LirExpr::Variant { arg: None, .. } => {}
-            LirExpr::ForAll { property, .. } => Self::scan_expr_for_stdlib(property, needs_io, needs_string, needs_math),
-            LirExpr::AssertConsistent { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math),
+            LirExpr::ForAll { property, .. } => {
+                Self::scan_expr_for_stdlib(property, needs_io, needs_string, needs_math)
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
             _ => {}
         }
     }

@@ -267,7 +267,9 @@ impl PythonBackend {
                 }
             }
             LirExpr::Lambda { body, .. } => self.scan_expr_for_stdlib(body),
-            LirExpr::If { cond, then, else_, .. } => {
+            LirExpr::If {
+                cond, then, else_, ..
+            } => {
                 self.scan_expr_for_stdlib(cond);
                 self.scan_expr_for_stdlib(then);
                 if let Some(el) = else_ {
@@ -307,9 +309,7 @@ impl PythonBackend {
             }
             LirExpr::ForAll { property, .. } => self.scan_expr_for_stdlib(property),
             LirExpr::AssertConsistent { expr, .. } => self.scan_expr_for_stdlib(expr),
-            LirExpr::Variable { .. }
-            | LirExpr::Literal { .. }
-            | LirExpr::Wildcard { .. } => {}
+            LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
 }
@@ -393,8 +393,7 @@ impl EmitterBackend for PythonBackend {
         }
         if self.needs_option {
             imports.push(
-                "from dwarf_runtime.option import Option, some, none, is_some, is_none"
-                    .to_string(),
+                "from dwarf_runtime.option import Option, some, none, is_some, is_none".to_string(),
             );
         }
         if self.needs_result {

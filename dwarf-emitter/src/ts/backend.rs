@@ -902,8 +902,11 @@ impl TypeScriptBackend {
                                     .add_import("dwarf-runtime/string.js", "toLower", None);
                                 self.imports
                                     .add_import("dwarf-runtime/string.js", "reverse", None);
-                                self.imports
-                                    .add_import("dwarf-runtime/string.js", "contains", None);
+                                self.imports.add_import(
+                                    "dwarf-runtime/string.js",
+                                    "contains",
+                                    None,
+                                );
                                 self.imports
                                     .add_import("dwarf-runtime/string.js", "trim", None);
                                 self.imports.add_import(
@@ -993,9 +996,7 @@ impl TypeScriptBackend {
             }
             LirExpr::ForAll { property, .. } => self.scan_expr_for_stdlib(property),
             LirExpr::AssertConsistent { expr, .. } => self.scan_expr_for_stdlib(expr),
-            LirExpr::Variable { .. }
-            | LirExpr::Literal { .. }
-            | LirExpr::Wildcard { .. } => {}
+            LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
 }
@@ -2315,10 +2316,7 @@ mod tests {
             ],
             return_type: Some(Type::Generic {
                 base: "Result".into(),
-                args: vec![
-                    Type::Named("Int".into()),
-                    Type::Named("String".into()),
-                ],
+                args: vec![Type::Named("Int".into()), Type::Named("String".into())],
             }),
             body: LirExpr::Literal {
                 value: LirLiteral::Null,

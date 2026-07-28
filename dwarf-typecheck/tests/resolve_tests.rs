@@ -660,7 +660,7 @@ fn test_resolve_generic_type_nested() {
     assert_eq!(
         result.registry.get(12),
         Some(&TypeDef::GenericInstance {
-            base: 9,          // HashMap
+            base: 9,           // HashMap
             args: vec![2, 11], // str, List<int>
         })
     );

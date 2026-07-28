@@ -234,7 +234,7 @@ fn test_resolve_alias_chain() {
         type_id: 0,
     }]));
     // Chain: 10 -> 9, 11 -> 10, 12 -> 11
-    registry.register(TypeDef::Alias(9));  // ID 10
+    registry.register(TypeDef::Alias(9)); // ID 10
     registry.register(TypeDef::Alias(10)); // ID 11
     registry.register(TypeDef::Alias(11)); // ID 12
 
@@ -460,7 +460,7 @@ fn test_resolve_mutual_alias_chain() {
     let mut registry = TypeRegistry::new();
     // Mutual aliases: 9 -> 10, 10 -> 9
     registry.register(TypeDef::Alias(10)); // ID 9
-    registry.register(TypeDef::Alias(9));  // ID 10
+    registry.register(TypeDef::Alias(9)); // ID 10
 
     // Similar to self-referential — at minimum must not loop.
     let canonical = registry.resolve(9);

@@ -25,15 +25,23 @@ impl TypeRegistry {
     pub fn new() -> Self {
         Self {
             types: vec![
-                TypeDef::Primitive(PrimitiveType::Int),                    // 0
-                TypeDef::Primitive(PrimitiveType::Float),                  // 1
-                TypeDef::Primitive(PrimitiveType::Str),                    // 2
-                TypeDef::Primitive(PrimitiveType::Bool),                   // 3
-                TypeDef::Primitive(PrimitiveType::Null),                   // 4
-                TypeDef::BuiltinGeneric { name: "Option".to_string() },    // 5
-                TypeDef::BuiltinGeneric { name: "Result".to_string() },    // 6
-                TypeDef::BuiltinGeneric { name: "List".to_string() },      // 7
-                TypeDef::BuiltinGeneric { name: "Map".to_string() },       // 8
+                TypeDef::Primitive(PrimitiveType::Int),   // 0
+                TypeDef::Primitive(PrimitiveType::Float), // 1
+                TypeDef::Primitive(PrimitiveType::Str),   // 2
+                TypeDef::Primitive(PrimitiveType::Bool),  // 3
+                TypeDef::Primitive(PrimitiveType::Null),  // 4
+                TypeDef::BuiltinGeneric {
+                    name: "Option".to_string(),
+                }, // 5
+                TypeDef::BuiltinGeneric {
+                    name: "Result".to_string(),
+                }, // 6
+                TypeDef::BuiltinGeneric {
+                    name: "List".to_string(),
+                }, // 7
+                TypeDef::BuiltinGeneric {
+                    name: "Map".to_string(),
+                }, // 8
             ],
         }
     }
@@ -133,9 +141,7 @@ mod tests {
             "Option should be registered as built-in"
         );
         let def = registry.get(option_id.unwrap());
-        assert!(
-            matches!(def, Some(TypeDef::BuiltinGeneric { name }) if name == "Option")
-        );
+        assert!(matches!(def, Some(TypeDef::BuiltinGeneric { name }) if name == "Option"));
     }
 
     #[test]
@@ -154,10 +160,7 @@ mod tests {
         // WILL FAIL — RED PHASE
         let registry = TypeRegistry::new();
         let list_id = registry.get_builtin_id("List");
-        assert!(
-            list_id.is_some(),
-            "List should be registered as built-in"
-        );
+        assert!(list_id.is_some(), "List should be registered as built-in");
     }
 
     #[test]
@@ -165,10 +168,7 @@ mod tests {
         // WILL FAIL — RED PHASE
         let registry = TypeRegistry::new();
         let map_id = registry.get_builtin_id("Map");
-        assert!(
-            map_id.is_some(),
-            "Map should be registered as built-in"
-        );
+        assert!(map_id.is_some(), "Map should be registered as built-in");
     }
 
     #[test]

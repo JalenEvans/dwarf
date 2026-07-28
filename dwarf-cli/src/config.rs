@@ -88,9 +88,6 @@ mod tests {
     fn test_config_with_stdlib_path() {
         let json = r#"{"targets": ["ts"], "stdlib_path": "/project/stdlib"}"#;
         let config = CompilerConfig::from_json(json).unwrap();
-        assert_eq!(
-            config.stdlib_path,
-            Some("/project/stdlib".to_string())
-        );
+        assert_eq!(config.stdlib_path, Some("/project/stdlib".to_string()));
     }
 }
