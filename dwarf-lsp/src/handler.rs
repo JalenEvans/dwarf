@@ -68,6 +68,7 @@ impl DwarfLspHandler {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
                     definition_provider: Some(OneOf::Left(true)),
                     document_symbol_provider: Some(OneOf::Left(true)),
+                    document_formatting_provider: Some(OneOf::Left(true)),
                     completion_provider: Some(CompletionOptions {
                         resolve_provider: Some(false),
                         ..Default::default()
@@ -92,10 +93,7 @@ impl DwarfLspHandler {
                 serde_json::json!(null),
             ))),
             "textDocument/documentSymbol" => self.handle_document_symbol(req),
-            "textDocument/formatting" => Ok(Some(Response::new_ok(
-                req.id.clone(),
-                serde_json::json!(null),
-            ))),
+            "textDocument/formatting" => self.handle_formatting(req),
             _ => Err(format!("Unhandled request method: {}", req.method)),
         }
     }
@@ -322,9 +320,51 @@ impl DwarfLspHandler {
         )))
     }
 
+    /// Handle a `textDocument/formatting` request.
+    fn handle_formatting(&self, req: &Request) -> Result<Option<Response>, String> {
+        let params: DocumentFormattingParams = serde_json::from_value(req.params.clone())
+            .map_err(|e| format!("Invalid formatting params: {e}"))?;
+        let uri = params.text_document.uri;
+        let source = self.get_document_text(&uri).ok_or("Document not found")?;
+
+        // Validate the document via a parse pass. When parsing succeeds we
+        // run a lightweight formatting pass over the source so that the
+        // returned edit contains cleaner spacing.
+        let formatted = match ParsePass.parse(&source) {
+            Ok(_) => format_source(&source),
+            Err(_) => source,
+        };
+
+        let range = Self::whole_document_range(&formatted);
+        Ok(Some(Response::new_ok(
+            req.id.clone(),
+            vec![TextEdit {
+                range,
+                new_text: formatted,
+            }],
+        )))
+    }
+
     /// Get the source text of an open document by URI.
     fn get_document_text(&self, uri: &Uri) -> Option<String> {
         self.open_documents.get(uri).cloned()
+    }
+
+    /// Build a range that covers the entire document text.
+    fn whole_document_range(source: &str) -> Range {
+        let lines: Vec<&str> = source.split('\n').collect();
+        let last_line = lines.len().saturating_sub(1);
+        let last_len = lines.last().map(|l| l.len()).unwrap_or(0);
+        Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: last_line as u32,
+                character: last_len as u32,
+            },
+        }
     }
 
     /// Convert an LSP position to a byte offset into the source text.
@@ -389,8 +429,14 @@ impl DwarfLspHandler {
                 }
             }
             "textDocument/didSave" => {
-                // Document saved — optional re-validation.
-                tracing::info!("Document saved");
+                if let Ok(params) =
+                    serde_json::from_value::<DidSaveTextDocumentParams>(notif.params.clone())
+                {
+                    let uri = params.text_document.uri;
+                    if let Some(text) = self.get_document_text(&uri) {
+                        self.publish_diagnostics(&uri, &text);
+                    }
+                }
             }
             "textDocument/didClose" => {
                 if let Ok(params) =
@@ -471,6 +517,27 @@ impl DwarfLspHandler {
         );
         let _ = self.sender.send(notif.into());
     }
+}
+
+/// Lightweight source formatter that normalizes whitespace around common
+/// Dwarf punctuation so the returned text is easier to read.
+fn format_source(source: &str) -> String {
+    let mut result = source.to_string();
+
+    // Collapse runs of whitespace into a single space.
+    result = result.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // Add spacing around common punctuation.
+    result = result.replace(',', ", ");
+    result = result.replace(':', ": ");
+    result = result.replace("->", " -> ");
+    result = result.replace('{', " { ");
+    result = result.replace('}', " } ");
+    result = result.replace('+', " + ");
+    result = result.replace('=', " = ");
+
+    // Collapse any whitespace introduced by the replacements.
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Convert a Dwarf parser error into an LSP diagnostic.

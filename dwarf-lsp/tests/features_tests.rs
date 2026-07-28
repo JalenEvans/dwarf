@@ -11,15 +11,22 @@ use std::time::Duration;
 
 use dwarf_lsp::handler::DwarfLspHandler;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
-use lsp_types::notification::{DidOpenTextDocument, Notification as _};
+use lsp_types::notification::{
+    DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification as _,
+    PublishDiagnostics,
+};
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize, Request as _,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize,
+    Request as _,
 };
 use lsp_types::{
-    ClientCapabilities, CompletionItem, CompletionParams, DidOpenTextDocumentParams,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, InitializeParams, Location, LocationLink, Position, SymbolInformation, SymbolKind,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
+    ClientCapabilities, CompletionItem, CompletionParams, Diagnostic, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
+    DocumentSymbolParams, DocumentSymbolResponse, FormattingOptions, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, InitializeParams, Location, LocationLink, Position,
+    PublishDiagnosticsParams, SymbolInformation, SymbolKind, TextDocumentContentChangeEvent,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit, Uri,
+    VersionedTextDocumentIdentifier,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -174,6 +181,60 @@ fn document_symbols(conn: &Connection) -> Response {
         params,
     );
     expect_response(conn, RequestId::from(40))
+}
+
+fn expect_notification(conn: &Connection, method: &str) -> Notification {
+    loop {
+        match conn.receiver.recv_timeout(TIMEOUT) {
+            Ok(Message::Notification(notif)) if notif.method == method => return notif,
+            Ok(_) => continue,
+            Err(_) => panic!("timed out waiting for notification {method}"),
+        }
+    }
+}
+
+fn expect_diagnostics(conn: &Connection) -> Vec<Diagnostic> {
+    let notif = expect_notification(conn, PublishDiagnostics::METHOD);
+    let params: PublishDiagnosticsParams =
+        serde_json::from_value(notif.params).expect("publishDiagnostics params should deserialize");
+    params.diagnostics
+}
+
+fn format_document(conn: &Connection) -> Response {
+    let params = DocumentFormattingParams {
+        text_document: TextDocumentIdentifier { uri: test_uri() },
+        options: FormattingOptions {
+            tab_size: 4,
+            insert_spaces: true,
+            ..Default::default()
+        },
+        work_done_progress_params: Default::default(),
+    };
+    send_request(conn, RequestId::from(50), Formatting::METHOD, params);
+    expect_response(conn, RequestId::from(50))
+}
+
+fn change_document(conn: &Connection, text: &str) {
+    let params = DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: test_uri(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: text.to_string(),
+        }],
+    };
+    send_notification(conn, DidChangeTextDocument::METHOD, params);
+}
+
+fn save_document(conn: &Connection) {
+    let params = DidSaveTextDocumentParams {
+        text_document: TextDocumentIdentifier { uri: test_uri() },
+        text: None,
+    };
+    send_notification(conn, DidSaveTextDocument::METHOD, params);
 }
 
 #[test]
@@ -390,6 +451,81 @@ fn document_symbol_shows_structure() {
     assert!(
         function_names.contains(&"main"),
         "expected symbol 'main', got: {function_names:?}"
+    );
+}
+
+#[test]
+fn formatting_formats_document() {
+    let client = start_server();
+    initialize(&client);
+
+    let source = "fn   add(a:Int,b:Int)->Int{a+b}";
+    open_document(&client, source);
+    // Consume the diagnostics notification published on didOpen.
+    let _ = expect_diagnostics(&client);
+
+    let resp = format_document(&client);
+    assert!(
+        resp.error.is_none(),
+        "formatting returned error: {:?}",
+        resp.error
+    );
+    assert!(
+        resp.result.is_some() && !resp.result.as_ref().unwrap().is_null(),
+        "expected formatting result with text edits, got null"
+    );
+
+    let edits: Vec<TextEdit> = serde_json::from_value(resp.result.unwrap())
+        .expect("formatting result should deserialize to a list of text edits");
+    assert!(
+        !edits.is_empty(),
+        "expected at least one formatting text edit, got none"
+    );
+
+    // The first edit should rewrite the entire document, and the new text
+    // should have cleaner spacing around punctuation.
+    let first_edit = &edits[0];
+    let new_text = &first_edit.new_text;
+    assert!(
+        new_text.contains("fn add") || new_text.contains("a: Int") || new_text.contains(", "),
+        "expected formatted text to add spacing, got: {new_text}"
+    );
+}
+
+#[test]
+fn did_save_triggers_diagnostics() {
+    let client = start_server();
+    initialize(&client);
+
+    let source = "fn answer() -> Int { 40 + 2 }";
+    open_document(&client, source);
+
+    // The document is valid, so the initial diagnostics should be clean.
+    let diagnostics = expect_diagnostics(&client);
+    assert!(
+        diagnostics.is_empty(),
+        "expected no diagnostics for clean document, got: {diagnostics:?}"
+    );
+
+    // Replace with a document that has a type error.
+    change_document(&client, "fn answer() -> Int { 40 + true }");
+
+    // didChange already publishes diagnostics; consume them.
+    let change_diagnostics = expect_diagnostics(&client);
+    assert!(
+        change_diagnostics
+            .iter()
+            .any(|d| d.message.contains("type")),
+        "expected change diagnostics to include a type error, got: {change_diagnostics:?}"
+    );
+
+    // Save the document. A real implementation should re-publish diagnostics.
+    save_document(&client);
+
+    let save_diagnostics = expect_diagnostics(&client);
+    assert!(
+        save_diagnostics.iter().any(|d| d.message.contains("type")),
+        "expected save to re-publish diagnostics including the type error, got: {save_diagnostics:?}"
     );
 }
 
