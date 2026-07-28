@@ -602,10 +602,10 @@ fn test_lambda_annotated_param() {
 #[test]
 fn test_call_correct_types() {
     let mut registry = TypeRegistry::new();
-    // Register a function type: Func([Int], Bool) at ID 5
+    // Register a function type: Func([Int], Bool) at ID 9
     registry.register(TypeDef::Func(vec![0], 3));
     let mut env = TypeEnv::new();
-    env.bind("f".to_string(), 5);
+    env.bind("f".to_string(), 9);
 
     // f(42) — correct arg type (Int for Int param)
     let expr = Expr::Call {
@@ -630,10 +630,10 @@ fn test_call_correct_types() {
 #[test]
 fn test_call_wrong_arg_types() {
     let mut registry = TypeRegistry::new();
-    // Register a function type: Func([Int], Bool) at ID 5
+    // Register a function type: Func([Int], Bool) at ID 9
     registry.register(TypeDef::Func(vec![0], 3));
     let mut env = TypeEnv::new();
-    env.bind("f".to_string(), 5);
+    env.bind("f".to_string(), 9);
 
     // f("hi") — wrong arg type (Str instead of Int)
     let expr = Expr::Call {
@@ -728,7 +728,7 @@ fn test_member_access() {
         },
     ]));
     let mut env = TypeEnv::new();
-    env.bind("point".to_string(), 5);
+    env.bind("point".to_string(), 9);
 
     // point.x
     let expr = Expr::Member {
@@ -1115,7 +1115,7 @@ fn test_wildcard_infers() {
 ///   - `Some(Int)` — payload variant
 ///   - `None` — unit variant
 ///
-/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+/// Returns the assigned TypeId (first user type after 5 primitives + 4 built-in generics).
 fn register_option_type(registry: &mut TypeRegistry) -> TypeId {
     let some_variant = VariantDef {
         name: "Some".to_string(),
@@ -1133,7 +1133,6 @@ fn test_variant_unit_no_arg() {
     let mut registry = TypeRegistry::new();
     let env = TypeEnv::new();
 
-    // Register Option<Int> at ID 5
     register_option_type(&mut registry);
 
     // None — unit variant without a payload
@@ -1144,7 +1143,7 @@ fn test_variant_unit_no_arg() {
     };
     let result = infer_expr(&expr, &env, &mut registry);
 
-    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    // Red-phase: stub returns Ok(0), but it should be the union type
     assert!(
         result.is_ok(),
         "Unit variant 'None' should infer successfully"
@@ -1191,7 +1190,7 @@ fn test_variant_with_payload() {
     };
     let result = infer_expr(&expr, &env, &mut registry);
 
-    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    // Red-phase: stub returns Ok(0), but it should be the union type
     assert!(
         result.is_ok(),
         "Payload variant 'Some(42)' should infer successfully"
@@ -1226,7 +1225,7 @@ fn test_variant_payload_mismatch() {
     let mut registry = TypeRegistry::new();
     let env = TypeEnv::new();
 
-    // Register Option<Int> at ID 5 where Some expects Int payload
+    // where Some expects Int payload
     register_option_type(&mut registry);
 
     // Some("hello") — arg is Str but Some expects Int
@@ -1285,9 +1284,9 @@ fn test_pipe_simple() {
     let mut registry = TypeRegistry::new();
     let mut env = TypeEnv::new();
 
-    // Register a function type: Func([Int], Str) at ID 5
+    // Register a function type: Func([Int], Str) at ID 9
     registry.register(TypeDef::Func(vec![0], 2)); // f: Int -> Str
-    env.bind("f".to_string(), 5);
+    env.bind("f".to_string(), 9);
 
     // 5 |> f — equivalent to f(5), f returns Str
     let expr = Expr::Pipe {
@@ -1316,12 +1315,12 @@ fn test_pipe_chain() {
     let mut registry = TypeRegistry::new();
     let mut env = TypeEnv::new();
 
-    // Register f: Int -> Float at ID 5
+    // Register f: Int -> Float at ID 9
     registry.register(TypeDef::Func(vec![0], 1));
-    // Register g: Float -> Bool at ID 6
+    // Register g: Float -> Bool at ID 10
     registry.register(TypeDef::Func(vec![1], 3));
-    env.bind("f".to_string(), 5);
-    env.bind("g".to_string(), 6);
+    env.bind("f".to_string(), 9);
+    env.bind("g".to_string(), 10);
 
     // 5 |> f |> g — equivalent to g(f(5))
     // inner pipe: 5 |> f → Float (1)
@@ -1360,9 +1359,9 @@ fn test_pipe_type_mismatch() {
     let mut registry = TypeRegistry::new();
     let mut env = TypeEnv::new();
 
-    // Register a function type: Func([Int], Int) at ID 5
+    // Register a function type: Func([Int], Int) at ID 9
     registry.register(TypeDef::Func(vec![0], 0)); // f: Int -> Int
-    env.bind("f".to_string(), 5);
+    env.bind("f".to_string(), 9);
 
     // "hello" |> f — Str (2) doesn't match Int (0) param
     let expr = Expr::Pipe {
@@ -1400,7 +1399,7 @@ fn test_pipe_type_mismatch() {
 ///   - `Some(Bool)` — payload variant
 ///   - `None` — unit variant
 ///
-/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+/// Returns the assigned TypeId (first user type after 5 primitives + 4 built-in generics).
 fn register_option_bool_type(registry: &mut TypeRegistry) -> TypeId {
     let some_variant = VariantDef {
         name: "Some".to_string(),

@@ -45,4 +45,7 @@ pub enum TypeDef {
     /// A concrete instantiation of a generic type.
     /// e.g., `Option<int>` where base is the TypeId of `Option` and args is `[0]` (Int).
     GenericInstance { base: TypeId, args: Vec<TypeId> },
+    /// A built-in generic type constructor (e.g., Option, Result, List, Map).
+    /// These serve as the base for GenericInstance types.
+    BuiltinGeneric { name: String },
 }

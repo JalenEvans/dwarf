@@ -88,6 +88,17 @@ impl TypeCheckPass {
                                         ));
                                         continue;
                                     }
+                                    // Built-in generic type constructors are valid annotations
+                                    "Option" | "Result" | "List" | "Map" => {
+                                        let builtin_id = match base.as_str() {
+                                            "Option" => 5,
+                                            "Result" => 6,
+                                            "List" => 7,
+                                            "Map" => 8,
+                                            _ => unreachable!(),
+                                        };
+                                        builtin_id
+                                    }
                                     _ => {
                                         errors.push(TypeCheckError::new(
                                             "DWARF-E-TYPE-0002",
@@ -324,6 +335,48 @@ mod tests {
             !errors.is_empty(),
             "Nested decorators wrapping a function with type errors SHOULD report \
              errors, but got none — the typechecker likely ignored all Decorator nodes"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Built-in generic annotation tests (DWARF-GENERICS)
+    //
+    // WILL FAIL — RED PHASE
+    //
+    // This test verifies that a function parameter annotated with
+    // `Option<Int>` is resolved as a valid type. It will fail until
+    // the TypeCheckPass resolves built-in generic names (Option, Result,
+    // List, Map) via the registry's built-in type constructors.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_typecheck_option_int_annotation() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+        let decls = vec![Decl::Function {
+            name: "test".to_string(),
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Generic {
+                    base: "Option".to_string(),
+                    args: vec![Type::Named("Int".to_string())],
+                }),
+            }],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        }];
+        let (_registry, errors) = pass.check(&decls);
+        // This will currently fail because "Option" is not in the resolve name_map
+        // The fix should make this pass
+        assert!(
+            errors.is_empty(),
+            "Option<Int> annotation should be valid: {:?}",
+            errors
         );
     }
 }
