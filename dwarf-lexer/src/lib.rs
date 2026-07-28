@@ -771,11 +771,69 @@ impl<'a> Lexer<'a> {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
+            "try" => TokenKind::Try,
+            "catch" => TokenKind::Catch,
+            "throw" => TokenKind::Throw,
             _ => TokenKind::Ident(word.to_string()),
         };
         Ok(Token::new(
             kind,
             Span::new(self.file_id, start, self.position),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pass::TokenizePass;
+    use dwarf_syntax::token::TokenKind;
+
+    fn tokenize_kinds(input: &str) -> Vec<TokenKind> {
+        TokenizePass
+            .tokenize(input)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.kind)
+            .collect()
+    }
+
+    #[test]
+    fn lexer_try_keyword() {
+        assert_eq!(tokenize_kinds("try"), vec![TokenKind::Try, TokenKind::Eof]);
+    }
+
+    #[test]
+    fn lexer_catch_keyword() {
+        assert_eq!(
+            tokenize_kinds("catch"),
+            vec![TokenKind::Catch, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lexer_throw_keyword() {
+        assert_eq!(
+            tokenize_kinds("throw"),
+            vec![TokenKind::Throw, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lexer_try_catch_block() {
+        assert_eq!(
+            tokenize_kinds("try { x } catch e { handler }"),
+            vec![
+                TokenKind::Try,
+                TokenKind::LBrace,
+                TokenKind::Ident("x".to_string()),
+                TokenKind::RBrace,
+                TokenKind::Catch,
+                TokenKind::Ident("e".to_string()),
+                TokenKind::LBrace,
+                TokenKind::Ident("handler".to_string()),
+                TokenKind::RBrace,
+                TokenKind::Eof,
+            ]
+        );
     }
 }

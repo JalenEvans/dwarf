@@ -211,6 +211,30 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::Try {
+            body,
+            binding,
+            guard,
+            handler,
+            span,
+        } => LirExpr::Try {
+            body: Box::new(lower_expr(body)),
+            binding: lower_pat(binding),
+            guard: guard.as_ref().map(|g| Box::new(lower_expr(g))),
+            handler: Box::new(lower_expr(handler)),
+            hint: TargetHint::None,
+            span: *span,
+        },
+        MirExpr::Throw { expr, span } => LirExpr::Throw {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
+        MirExpr::Propagate { expr, span } => LirExpr::Propagate {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
     }
 }
 

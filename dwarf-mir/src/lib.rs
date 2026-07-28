@@ -147,6 +147,24 @@ pub enum MirExpr {
         expr: Box<MirExpr>,
         span: Span,
     },
+    /// Try expression with catch handler.
+    Try {
+        body: Box<MirExpr>,
+        binding: MirPat,
+        guard: Option<Box<MirExpr>>,
+        handler: Box<MirExpr>,
+        span: Span,
+    },
+    /// Throw expression.
+    Throw {
+        expr: Box<MirExpr>,
+        span: Span,
+    },
+    /// Propagate operator (`?`).
+    Propagate {
+        expr: Box<MirExpr>,
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -170,7 +188,10 @@ impl MirExpr {
             | MirExpr::Unary { span, .. }
             | MirExpr::Wildcard { span }
             | MirExpr::ForAll { span, .. }
-            | MirExpr::AssertConsistent { span, .. } => *span,
+            | MirExpr::AssertConsistent { span, .. }
+            | MirExpr::Try { span, .. }
+            | MirExpr::Throw { span, .. }
+            | MirExpr::Propagate { span, .. } => *span,
         }
     }
 }

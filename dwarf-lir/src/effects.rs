@@ -228,6 +228,20 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
         MirExpr::AssertConsistent { expr, .. } => {
             extract_calls_inner(expr, calls);
         }
+        MirExpr::Try {
+            body,
+            guard,
+            handler,
+            ..
+        } => {
+            extract_calls_inner(body, calls);
+            if let Some(g) = guard {
+                extract_calls_inner(g, calls);
+            }
+            extract_calls_inner(handler, calls);
+        }
+        MirExpr::Throw { expr, .. } => extract_calls_inner(expr, calls),
+        MirExpr::Propagate { expr, .. } => extract_calls_inner(expr, calls),
     }
 }
 

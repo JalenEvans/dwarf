@@ -22,6 +22,9 @@ pub enum TokenKind {
     True,
     False,
     Null,
+    Try,
+    Catch,
+    Throw,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -99,6 +102,9 @@ impl TokenKind {
             Self::True => "'true'",
             Self::False => "'false'",
             Self::Null => "'null'",
+            Self::Try => "'try'",
+            Self::Catch => "'catch'",
+            Self::Throw => "'throw'",
 
             // Arithmetic
             Self::Plus => "'+'",
