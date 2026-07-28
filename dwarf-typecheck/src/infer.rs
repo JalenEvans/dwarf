@@ -169,8 +169,18 @@ pub fn infer_expr(
         // 18. Assign expressions (target = value)
         Expr::Assign { target, value, .. } => infer_assign(target, value, env, registry),
 
-        // 19. Other expressions (placeholder stubs for future phases)
-        Expr::ForAll { .. } | Expr::AssertConsistent { .. } => Ok(0),
+        // 19. ForAll expression (property-based testing)
+        Expr::ForAll {
+            type_,
+            binding,
+            property,
+            ..
+        } => infer_forall(type_, binding, property, env, registry),
+
+        // 20. AssertConsistent expression (pass-through)
+        Expr::AssertConsistent { expr, .. } => {
+            infer_assert_consistent(expr, env, registry)
+        }
     }
 }
 
@@ -829,4 +839,92 @@ fn infer_assign(
 
     // Assignment returns Null (unit)
     Ok(4)
+}
+
+// ---------------------------------------------------------------------------
+// ForAll and AssertConsistent inference (Phase 5)
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a forAll expression `forAll(x: Int) { property }`.
+///
+/// Semantics:
+/// 1. Resolve the HIR type annotation to a TypeId (via `resolve_hir_type_name`).
+/// 2. Bind the variable to that type in a new scope.
+/// 3. Infer the property expression in the new scope.
+/// 4. Verify the property type is Bool (TypeId 3).
+/// 5. Return Bool.
+///
+/// # Errors
+///
+/// - If the type annotation is unknown or unsupported, returns an error.
+/// - If the binding pattern is unsupported (not Variable or Wildcard),
+///   returns an error.
+/// - If the property does not evaluate to Bool, returns an error.
+fn infer_forall(
+    type_: &HirType,
+    binding: &Pat,
+    property: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Resolve the type annotation (only named types supported for now)
+    let bound_type = match type_ {
+        HirType::Named(name) => {
+            resolve_hir_type_name(name.as_str())
+                .ok_or_else(|| format!("Unknown type '{}' in forAll", name))
+        }
+        HirType::Refined { base, .. } => {
+            // Refined types like `Int(0..100)` delegate to their base
+            match base.as_ref() {
+                HirType::Named(name) => {
+                    resolve_hir_type_name(name.as_str())
+                        .ok_or_else(|| format!("Unknown base type '{}' in forAll", name))
+                }
+                _ => Err("Only named base types are supported in forAll refined bindings"
+                    .to_string()),
+            }
+        }
+        _ => Err("Only named types are supported in forAll bindings".to_string()),
+    }?;
+
+    // Create new scope with binding
+    let mut inner_env = env.clone();
+    match binding {
+        Pat::Variable(name) => {
+            inner_env.bind(name.clone(), bound_type);
+        }
+        Pat::Wildcard => {
+            // Binding ignored
+        }
+        _ => {
+            return Err("Unsupported binding pattern in forAll".to_string());
+        }
+    }
+
+    // Infer property in the new scope
+    let property_type = infer_expr(property, &inner_env, registry)?;
+
+    // Property must be Bool
+    if property_type != 3 {
+        return Err("forAll property must evaluate to Bool".to_string());
+    }
+
+    Ok(3) // Bool
+}
+
+/// Infer the type of an assertConsistent expression `assertConsistent(expr)`.
+///
+/// Semantics:
+/// - Pure pass-through: infer the inner expression and return its type unchanged.
+///
+/// This is a no-op from the type system's perspective — it's a hint to the
+/// compiler that the expression should produce consistent results across all
+/// targets.
+fn infer_assert_consistent(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Pure pass-through — defer to inner expression's type
+    infer_expr(expr, env, registry)
 }

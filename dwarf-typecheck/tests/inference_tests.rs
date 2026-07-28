@@ -1666,3 +1666,141 @@ fn test_assign_type_mismatch() {
         "Assign with type mismatch (Int vs Str) should produce an error (stub fails here)"
     );
 }
+
+// ===========================================================================
+// 21. ForAll and AssertConsistent inference (DWARF-55 Phase 5)
+//     ForAll: forAll(x: Int) { property } binds a variable with an explicit
+//     type annotation and requires the property expression to be Bool.
+//     AssertConsistent: assertConsistent(expr) is a pass-through that returns
+//     the inner expression's type.
+//     Both are currently stubbed to return Ok(0) — these tests fail under
+//     the stub.
+// ===========================================================================
+
+#[test]
+fn test_forall_valid_property() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // forAll(x: Int) { x == x }
+    // The property `x == x` compares two Ints, producing Bool.
+    // After implementation: Ok(3) (Bool).
+    let expr = Expr::ForAll {
+        type_: Type::Named("Int".to_string()),
+        binding: Pat::Variable("x".to_string()),
+        property: Box::new(Expr::Binary {
+            op: BinaryOp::Eq,
+            lhs: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but ForAll with a Bool property should yield Bool
+    assert_ne!(
+        result.unwrap_or(0),
+        0,
+        "ForAll with valid Bool property should NOT infer to Int (stub fails here)"
+    );
+}
+
+#[test]
+fn test_forall_invalid_property() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // forAll(x: Int) { 42 }
+    // The property is an Int literal, which is not Bool — should error.
+    let expr = Expr::ForAll {
+        type_: Type::Named("Int".to_string()),
+        binding: Pat::Variable("x".to_string()),
+        property: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but a non-Bool property should produce an error
+    assert!(
+        result.is_err(),
+        "ForAll with non-Bool property should produce an error (stub fails here)"
+    );
+}
+
+#[test]
+fn test_assert_consistent_custom_type() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // assertConsistent({}) — pass-through on an empty record expression.
+    // The record expression produces a unique TypeId > 0 (not the stub Int),
+    // so assert_ne!(..., 0) properly verifies the pass-through delegates to
+    // infer_expr rather than returning the blanket stub.
+    let expr = Expr::AssertConsistent {
+        expr: Box::new(Expr::Record {
+            fields: vec![],
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert!(
+        result.is_ok(),
+        "assertConsistent({{}}) should not fail"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "assertConsistent({{}}) should pass through the record type (which is != Int), stub fails here"
+    );
+
+    // Verify it's actually a Record type (pass-through property)
+    match registry.get(type_id) {
+        Some(TypeDef::Record(fields)) => {
+            assert!(
+                fields.is_empty(),
+                "Empty record should have no fields"
+            );
+        }
+        other => {
+            panic!(
+                "assertConsistent should pass through the inner Record type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_assert_consistent_bool() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // assertConsistent(true) — pass-through, should return Bool (3)
+    let expr = Expr::AssertConsistent {
+        expr: Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but assertConsistent(true) should yield Bool
+    assert_ne!(
+        result.unwrap_or(0),
+        0,
+        "assertConsistent(true) should NOT infer to Int (stub fails here)"
+    );
+}
