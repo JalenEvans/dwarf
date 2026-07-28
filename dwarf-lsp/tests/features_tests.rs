@@ -1,8 +1,10 @@
-//! Integration tests for hover and completion LSP features in dwarf-lsp.
+//! Integration tests for hover, completion, definition, and document symbol
+//! LSP features in dwarf-lsp.
 //!
-//! These tests exercise textDocument/hover and textDocument/completion through
-//! an in-process memory transport. They are expected to fail while the handler
-//! returns empty completions and null hover results.
+//! These tests exercise textDocument/hover, textDocument/completion,
+//! textDocument/definition, and textDocument/documentSymbol through an
+//! in-process memory transport. They are expected to fail while the handler
+//! returns null for definition and documentSymbol.
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -10,10 +12,14 @@ use std::time::Duration;
 use dwarf_lsp::handler::DwarfLspHandler;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{DidOpenTextDocument, Notification as _};
-use lsp_types::request::{Completion, HoverRequest, Initialize, Request as _};
+use lsp_types::request::{
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize, Request as _,
+};
 use lsp_types::{
-    ClientCapabilities, CompletionItem, CompletionParams, DidOpenTextDocumentParams, Hover,
-    InitializeParams, Position, TextDocumentItem, TextDocumentPositionParams, Uri,
+    ClientCapabilities, CompletionItem, CompletionParams, DidOpenTextDocumentParams,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, InitializeParams, Location, LocationLink, Position, SymbolInformation, SymbolKind,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -142,6 +148,34 @@ fn completion_at(conn: &Connection, line: u32, character: u32) -> Response {
     expect_response(conn, RequestId::from(20))
 }
 
+fn definition_at(conn: &Connection, line: u32, character: u32) -> Response {
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: test_uri() },
+            position: Position { line, character },
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    send_request(conn, RequestId::from(30), GotoDefinition::METHOD, params);
+    expect_response(conn, RequestId::from(30))
+}
+
+fn document_symbols(conn: &Connection) -> Response {
+    let params = DocumentSymbolParams {
+        text_document: TextDocumentIdentifier { uri: test_uri() },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    send_request(
+        conn,
+        RequestId::from(40),
+        DocumentSymbolRequest::METHOD,
+        params,
+    );
+    expect_response(conn, RequestId::from(40))
+}
+
 #[test]
 fn hover_shows_type_info() {
     let client = start_server();
@@ -253,6 +287,109 @@ fn completion_returns_symbols() {
     assert!(
         labels.iter().any(|l| l == "greet"),
         "expected completions to include symbol 'greet', got: {labels:?}"
+    );
+}
+
+#[test]
+fn definition_jumps_to_function() {
+    let client = start_server();
+    initialize(&client);
+
+    let source =
+        "fn greet(name: Str) -> Str { \"hello, \" + name }\nfn main() -> Str { greet(\"world\") }";
+    open_document(&client, source);
+
+    // Position of `greet` in `greet("world")` on line 1, character 19.
+    let resp = definition_at(&client, 1, 19);
+    assert!(
+        resp.error.is_none(),
+        "definition returned error: {:?}",
+        resp.error
+    );
+    assert!(
+        resp.result.is_some() && !resp.result.as_ref().unwrap().is_null(),
+        "expected definition result, got null"
+    );
+
+    let result: GotoDefinitionResponse = serde_json::from_value(resp.result.unwrap())
+        .expect("definition result should deserialize to GotoDefinitionResponse");
+    let locations: Vec<Location> = match result {
+        GotoDefinitionResponse::Scalar(loc) => vec![loc],
+        GotoDefinitionResponse::Array(locs) => locs,
+        GotoDefinitionResponse::Link(links) => links
+            .into_iter()
+            .map(|link: LocationLink| Location {
+                uri: link.target_uri,
+                range: link.target_range,
+            })
+            .collect(),
+    };
+
+    assert!(
+        locations
+            .iter()
+            .any(|loc| loc.uri == test_uri() && loc.range.start.line == 0),
+        "expected definition to point to line 0, got: {locations:?}"
+    );
+}
+
+#[test]
+fn document_symbol_shows_structure() {
+    let client = start_server();
+    initialize(&client);
+
+    let source = "fn add(a: Int, b: Int) -> Int { a + b }\nfn main() -> Int { add(1, 2) }";
+    open_document(&client, source);
+
+    let resp = document_symbols(&client);
+    assert!(
+        resp.error.is_none(),
+        "documentSymbol returned error: {:?}",
+        resp.error
+    );
+    assert!(
+        resp.result.is_some() && !resp.result.as_ref().unwrap().is_null(),
+        "expected documentSymbol result, got null"
+    );
+
+    let result: DocumentSymbolResponse = serde_json::from_value(resp.result.unwrap())
+        .expect("documentSymbol result should deserialize to DocumentSymbolResponse");
+    let symbols: Vec<SymbolInformation> = match result {
+        DocumentSymbolResponse::Flat(symbols) => symbols,
+        DocumentSymbolResponse::Nested(nested) => nested
+            .into_iter()
+            .map(|s| SymbolInformation {
+                name: s.name,
+                kind: s.kind,
+                location: Location {
+                    uri: test_uri(),
+                    range: s.range,
+                },
+                container_name: s.detail,
+                #[allow(deprecated)]
+                deprecated: None,
+                tags: None,
+            })
+            .collect(),
+    };
+
+    let function_names: Vec<&str> = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::FUNCTION)
+        .map(|s| s.name.as_str())
+        .collect();
+
+    assert!(
+        function_names.len() >= 2,
+        "expected at least 2 function symbols, got: {symbols:?}"
+    );
+    assert!(
+        function_names.contains(&"add"),
+        "expected symbol 'add', got: {function_names:?}"
+    );
+    assert!(
+        function_names.contains(&"main"),
+        "expected symbol 'main', got: {function_names:?}"
     );
 }
 

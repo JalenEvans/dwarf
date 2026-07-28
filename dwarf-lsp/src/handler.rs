@@ -7,7 +7,8 @@
 use crossbeam_channel::Sender;
 use dwarf_parser::pass::ParsePass;
 use dwarf_syntax::diagnostic::byte_to_line_col;
-use dwarf_syntax::hir::{Decl, Expr, Stmt, Type as HirType};
+use dwarf_syntax::hir::{Decl, Expr, Pat, Stmt, Type as HirType};
+use dwarf_syntax::span::Span;
 use dwarf_typecheck::infer::{infer_expr, TypeEnv};
 use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_typecheck::registry::TypeRegistry;
@@ -65,6 +66,8 @@ impl DwarfLspHandler {
                         TextDocumentSyncKind::FULL,
                     )),
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
+                    definition_provider: Some(OneOf::Left(true)),
+                    document_symbol_provider: Some(OneOf::Left(true)),
                     completion_provider: Some(CompletionOptions {
                         resolve_provider: Some(false),
                         ..Default::default()
@@ -83,18 +86,12 @@ impl DwarfLspHandler {
             ))),
             "textDocument/completion" => self.handle_completion(req),
             "textDocument/hover" => self.handle_hover(req),
-            "textDocument/definition" => Ok(Some(Response::new_ok(
-                req.id.clone(),
-                serde_json::json!(null),
-            ))),
+            "textDocument/definition" => self.handle_definition(req),
             "textDocument/references" => Ok(Some(Response::new_ok(
                 req.id.clone(),
                 serde_json::json!(null),
             ))),
-            "textDocument/documentSymbol" => Ok(Some(Response::new_ok(
-                req.id.clone(),
-                serde_json::json!(null),
-            ))),
+            "textDocument/documentSymbol" => self.handle_document_symbol(req),
             "textDocument/formatting" => Ok(Some(Response::new_ok(
                 req.id.clone(),
                 serde_json::json!(null),
@@ -234,6 +231,94 @@ impl DwarfLspHandler {
         Ok(Some(Response::new_ok(
             req.id.clone(),
             CompletionResponse::Array(items),
+        )))
+    }
+
+    /// Handle a `textDocument/definition` request.
+    fn handle_definition(&mut self, req: &Request) -> Result<Option<Response>, String> {
+        let params: GotoDefinitionParams = serde_json::from_value(req.params.clone())
+            .map_err(|e| format!("Invalid definition params: {}", e))?;
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let source = self.get_document_text(&uri).ok_or("Document not found")?;
+        let offset = Self::position_to_offset(&source, position);
+
+        let parse_pass = ParsePass;
+        let (decls, _) = parse_pass
+            .parse(&source)
+            .map_err(|e| format!("Parse error: {}", e))?;
+
+        let ident = identifier_at_offset(&source, offset);
+        if ident.is_empty() {
+            return Ok(Some(Response::new_ok(
+                req.id.clone(),
+                serde_json::Value::Null,
+            )));
+        }
+
+        // Top-level declaration (function, record, union, type alias).
+        if let Some(decl) = find_decl_by_name(&decls, &ident) {
+            let range = span_to_range(&source, decl_span(decl));
+            return Ok(Some(Response::new_ok(
+                req.id.clone(),
+                GotoDefinitionResponse::Scalar(Location { uri, range }),
+            )));
+        }
+
+        // Local `let` binding inside a function body.
+        if let Some(span) = find_local_var_decl(&decls, &ident) {
+            let range = span_to_range(&source, span);
+            return Ok(Some(Response::new_ok(
+                req.id.clone(),
+                GotoDefinitionResponse::Scalar(Location { uri, range }),
+            )));
+        }
+
+        Ok(Some(Response::new_ok(
+            req.id.clone(),
+            serde_json::Value::Null,
+        )))
+    }
+
+    /// Handle a `textDocument/documentSymbol` request.
+    fn handle_document_symbol(&mut self, req: &Request) -> Result<Option<Response>, String> {
+        let params: DocumentSymbolParams = serde_json::from_value(req.params.clone())
+            .map_err(|e| format!("Invalid document symbol params: {}", e))?;
+        let uri = params.text_document.uri;
+        let source = self.get_document_text(&uri).ok_or("Document not found")?;
+
+        let parse_pass = ParsePass;
+        let (decls, _) = parse_pass
+            .parse(&source)
+            .map_err(|e| format!("Parse error: {}", e))?;
+
+        let mut symbols: Vec<SymbolInformation> = Vec::new();
+        for decl in &decls {
+            let (name, kind) = match decl {
+                Decl::Function { name, .. } => (name.clone(), SymbolKind::FUNCTION),
+                Decl::RecordDef { name, .. } => (name.clone(), SymbolKind::STRUCT),
+                Decl::UnionDef { name, .. } => (name.clone(), SymbolKind::ENUM),
+                Decl::TypeDef { name, .. } => (name.clone(), SymbolKind::STRUCT),
+                Decl::Import { .. } | Decl::Decorator { .. } => continue,
+            };
+            let range = span_to_range(&source, decl_span(decl));
+            symbols.push(SymbolInformation {
+                name,
+                kind,
+                location: Location {
+                    uri: uri.clone(),
+                    range,
+                },
+                container_name: None,
+                #[allow(deprecated)]
+                deprecated: None,
+                tags: None,
+            });
+        }
+
+        Ok(Some(Response::new_ok(
+            req.id.clone(),
+            DocumentSymbolResponse::Flat(symbols),
         )))
     }
 
@@ -547,6 +632,88 @@ fn find_param_hover(decls: &[Decl], source: &str, offset: usize) -> Option<Strin
                         return param.type_.as_ref().map(hir_type_to_string);
                     }
                 }
+            }
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Definition / document-symbol helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a HIR byte span to an LSP zero-indexed range.
+fn span_to_range(source: &str, span: Span) -> Range {
+    let (start_line, start_col) = byte_to_line_col(source, span.start).unwrap_or((1, 1));
+    let (end_line, end_col) = byte_to_line_col(source, span.end).unwrap_or((start_line, start_col));
+
+    Range {
+        start: Position {
+            line: start_line.saturating_sub(1) as u32,
+            character: start_col.saturating_sub(1) as u32,
+        },
+        end: Position {
+            line: end_line.saturating_sub(1) as u32,
+            character: end_col.saturating_sub(1) as u32,
+        },
+    }
+}
+
+/// Return the source span for a top-level declaration.
+fn decl_span(decl: &Decl) -> Span {
+    match decl {
+        Decl::Import { span, .. } => *span,
+        Decl::Function { span, .. } => *span,
+        Decl::TypeDef { span, .. } => *span,
+        Decl::RecordDef { span, .. } => *span,
+        Decl::UnionDef { span, .. } => *span,
+        Decl::Decorator { span, .. } => *span,
+    }
+}
+
+/// Find a top-level declaration whose name matches `ident`.
+fn find_decl_by_name<'a>(decls: &'a [Decl], ident: &str) -> Option<&'a Decl> {
+    decls.iter().find(|decl| {
+        let name_matches = |decl: &Decl| match decl {
+            Decl::Function { name, .. } => name == ident,
+            Decl::RecordDef { name, .. } => name == ident,
+            Decl::UnionDef { name, .. } => name == ident,
+            Decl::TypeDef { name, .. } => name == ident,
+            _ => false,
+        };
+
+        match decl {
+            Decl::Decorator { target, .. } => name_matches(target),
+            _ => name_matches(decl),
+        }
+    })
+}
+
+/// Find a local `let` binding named `ident` in any function body.
+fn find_local_var_decl(decls: &[Decl], ident: &str) -> Option<Span> {
+    for decl in decls {
+        if let Decl::Function { body, .. } = decl {
+            if let Some(span) = find_let_in_expr(body, ident) {
+                return Some(span);
+            }
+        }
+    }
+    None
+}
+
+fn find_let_in_expr(expr: &Expr, ident: &str) -> Option<Span> {
+    if let Expr::Block { stmts, .. } = expr {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let(Pat::Variable(name), init) if name == ident => {
+                    return Some(init.span());
+                }
+                Stmt::Expr(e) => {
+                    if let Some(span) = find_let_in_expr(e, ident) {
+                        return Some(span);
+                    }
+                }
+                _ => {}
             }
         }
     }
