@@ -12,7 +12,10 @@ use dwarf_syntax::span::Span;
 use dwarf_typecheck::infer::{infer_expr, TypeEnv};
 use dwarf_typecheck::pass::TypeCheckPass;
 use dwarf_typecheck::registry::TypeRegistry;
-use dwarf_typecheck::types::{TypeDef, TypeId};
+use dwarf_typecheck::types::{
+    TypeDef, TypeId, BOOL_TYPE_ID, FLOAT_TYPE_ID, INT_TYPE_ID, LIST_TYPE_ID, MAP_TYPE_ID,
+    NEVER_TYPE_ID, NULL_TYPE_ID, OPTION_TYPE_ID, RESULT_TYPE_ID, STR_TYPE_ID,
+};
 use lsp_server::{Message, Notification, Request, Response};
 use lsp_types::notification::{Notification as LspNotification, PublishDiagnostics};
 use lsp_types::*;
@@ -25,13 +28,12 @@ use std::collections::HashMap;
 /// notifications.
 pub struct DwarfLspHandler {
     /// Capabilities advertised by the LSP client during initialization.
+    #[allow(dead_code)]
     client_capabilities: ClientCapabilities,
     /// Outbound channel for sending LSP notifications to the client.
     sender: Sender<Message>,
     /// Open documents tracked by the server (uri → source text).
     open_documents: HashMap<Uri, String>,
-    /// Root URI provided by the client during initialization.
-    root_uri: Option<Uri>,
 }
 
 impl DwarfLspHandler {
@@ -42,7 +44,6 @@ impl DwarfLspHandler {
             client_capabilities,
             sender,
             open_documents: HashMap::new(),
-            root_uri: None,
         }
     }
 
@@ -52,35 +53,6 @@ impl DwarfLspHandler {
     /// or don't require a response. Returns `Err` for unhandled methods.
     pub fn handle_request(&mut self, req: &Request) -> Result<Option<Response>, String> {
         match req.method.as_str() {
-            "initialize" => {
-                let params: InitializeParams = serde_json::from_value(req.params.clone())
-                    .map_err(|e| format!("Invalid initialize params: {}", e))?;
-                self.client_capabilities = params.capabilities;
-                #[allow(deprecated)]
-                {
-                    self.root_uri = params.root_uri;
-                }
-
-                let server_capabilities = ServerCapabilities {
-                    text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                        TextDocumentSyncKind::FULL,
-                    )),
-                    hover_provider: Some(HoverProviderCapability::Simple(true)),
-                    definition_provider: Some(OneOf::Left(true)),
-                    document_symbol_provider: Some(OneOf::Left(true)),
-                    document_formatting_provider: Some(OneOf::Left(true)),
-                    completion_provider: Some(CompletionOptions {
-                        resolve_provider: Some(false),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                };
-                let result = InitializeResult {
-                    capabilities: server_capabilities,
-                    server_info: None,
-                };
-                Ok(Some(Response::new_ok(req.id.clone(), result)))
-            }
             "shutdown" => Ok(Some(Response::new_ok(
                 req.id.clone(),
                 serde_json::Value::Null,
@@ -809,11 +781,11 @@ fn is_ident_char(byte: u8) -> bool {
 fn resolve_hir_type_simple(t: &HirType) -> Option<TypeId> {
     match t {
         HirType::Named(name) => match name.as_str() {
-            "int" | "Int" => Some(0),
-            "float" | "Float" => Some(1),
-            "str" | "Str" | "string" | "String" => Some(2),
-            "bool" | "Bool" => Some(3),
-            "null" | "Null" => Some(4),
+            "int" | "Int" => Some(INT_TYPE_ID),
+            "float" | "Float" => Some(FLOAT_TYPE_ID),
+            "str" | "Str" | "string" | "String" => Some(STR_TYPE_ID),
+            "bool" | "Bool" => Some(BOOL_TYPE_ID),
+            "null" | "Null" => Some(NULL_TYPE_ID),
             _ => None,
         },
         _ => None,
@@ -839,12 +811,16 @@ fn hir_type_to_string(t: &HirType) -> String {
 /// Convert a type ID into a human-readable type name.
 fn type_id_to_name(registry: &TypeRegistry, type_id: TypeId) -> String {
     match type_id {
-        0 => "Int".to_string(),
-        1 => "Float".to_string(),
-        2 => "Str".to_string(),
-        3 => "Bool".to_string(),
-        4 => "Null".to_string(),
-        usize::MAX => "Never".to_string(),
+        INT_TYPE_ID => "Int".to_string(),
+        FLOAT_TYPE_ID => "Float".to_string(),
+        STR_TYPE_ID => "Str".to_string(),
+        BOOL_TYPE_ID => "Bool".to_string(),
+        NULL_TYPE_ID => "Null".to_string(),
+        OPTION_TYPE_ID => "Option".to_string(),
+        RESULT_TYPE_ID => "Result".to_string(),
+        LIST_TYPE_ID => "List".to_string(),
+        MAP_TYPE_ID => "Map".to_string(),
+        NEVER_TYPE_ID => "Never".to_string(),
         _ => match registry.get(type_id) {
             Some(TypeDef::Primitive(p)) => format!("{p:?}"),
             Some(TypeDef::BuiltinGeneric { name }) => name.clone(),

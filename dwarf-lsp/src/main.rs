@@ -77,6 +77,8 @@ async fn run_stdio_server() -> Result<(), Box<dyn Error>> {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
+        definition_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
         completion_provider: Some(CompletionOptions {
             resolve_provider: Some(false),
             ..Default::default()

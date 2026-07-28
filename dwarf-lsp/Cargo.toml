@@ -25,6 +25,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "dwarf-lsp"
 path = "src/main.rs"
-
-[dev-dependencies]
-tempfile = "3"

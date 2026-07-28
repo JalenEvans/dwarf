@@ -10,15 +10,15 @@ use std::time::Duration;
 use dwarf_lsp::handler::DwarfLspHandler;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Exit, Notification as _,
-    PublishDiagnostics,
+    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Exit, Initialized,
+    Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{Initialize, Request as _, Shutdown};
 use lsp_types::{
     ClientCapabilities, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, InitializeParams, InitializeResult, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind,
-    Uri, VersionedTextDocumentIdentifier,
+    DidOpenTextDocumentParams, InitializeParams, InitializeResult, ServerCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, VersionedTextDocumentIdentifier,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(1);
@@ -28,6 +28,16 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 fn start_server() -> Connection {
     let (server_conn, client_conn) = Connection::memory();
     std::thread::spawn(move || {
+        // Handle the initialize handshake before creating the handler,
+        // just like production code does in main.rs.
+        let server_capabilities = ServerCapabilities {
+            text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+            ..Default::default()
+        };
+        let _init_params = server_conn
+            .initialize(serde_json::to_value(&server_capabilities).unwrap())
+            .unwrap();
+
         let mut handler =
             DwarfLspHandler::new(ClientCapabilities::default(), server_conn.sender.clone());
         for msg in &server_conn.receiver {
@@ -92,6 +102,34 @@ fn expect_notification(conn: &Connection, method: &str) -> Notification {
     }
 }
 
+fn initialize(conn: &Connection) {
+    let params = InitializeParams {
+        process_id: None,
+        #[allow(deprecated)]
+        root_path: None,
+        #[allow(deprecated)]
+        root_uri: None,
+        capabilities: ClientCapabilities::default(),
+        workspace_folders: None,
+        client_info: None,
+        locale: None,
+        trace: None,
+        work_done_progress_params: Default::default(),
+        initialization_options: None,
+    };
+    send_request(conn, RequestId::from(1), Initialize::METHOD, params);
+    let resp = expect_response(conn, RequestId::from(1));
+    assert!(
+        resp.error.is_none(),
+        "initialize returned error: {:?}",
+        resp.error
+    );
+    assert!(resp.result.is_some(), "initialize response missing result");
+
+    // Send the initialized notification to complete the handshake.
+    send_notification(conn, Initialized::METHOD, ());
+}
+
 #[test]
 fn initialize_handshake() {
     let client = start_server();
@@ -137,11 +175,15 @@ fn initialize_handshake() {
         }
         other => panic!("unexpected text_document_sync capability: {other:?}"),
     }
+
+    // Send the initialized notification to complete the handshake.
+    send_notification(&client, Initialized::METHOD, ());
 }
 
 #[test]
 fn did_open_notification() {
     let client = start_server();
+    initialize(&client);
 
     let params = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -164,6 +206,7 @@ fn did_open_notification() {
 #[test]
 fn did_change_notification() {
     let client = start_server();
+    initialize(&client);
 
     let uri = test_uri();
     let open_params = DidOpenTextDocumentParams {
@@ -196,6 +239,7 @@ fn did_change_notification() {
 #[test]
 fn did_close_notification() {
     let client = start_server();
+    initialize(&client);
 
     let params = DidCloseTextDocumentParams {
         text_document: TextDocumentIdentifier { uri: test_uri() },
@@ -213,6 +257,7 @@ fn did_close_notification() {
 #[test]
 fn shutdown_request() {
     let client = start_server();
+    initialize(&client);
 
     send_request(
         &client,

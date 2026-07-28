@@ -10,11 +10,9 @@ import {
 let client: LanguageClient;
 
 export function activate(context: vscode.ExtensionContext) {
-  // Determine server binary path
   const config = vscode.workspace.getConfiguration('dwarf.lsp');
   let serverPath = config.get<string>('path') || 'dwarf-lsp';
 
-  // If relative, resolve from extension directory
   if (!path.isAbsolute(serverPath)) {
     serverPath = context.asAbsolutePath(path.join('server', serverPath));
   }

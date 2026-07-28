@@ -12,8 +12,8 @@ use std::time::Duration;
 use dwarf_lsp::handler::DwarfLspHandler;
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification as _,
-    PublishDiagnostics,
+    DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Initialized,
+    Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
     Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Initialize,
@@ -24,8 +24,9 @@ use lsp_types::{
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
     DocumentSymbolParams, DocumentSymbolResponse, FormattingOptions, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, InitializeParams, Location, LocationLink, Position,
-    PublishDiagnosticsParams, SymbolInformation, SymbolKind, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit, Uri,
+    PublishDiagnosticsParams, ServerCapabilities, SymbolInformation, SymbolKind,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri,
     VersionedTextDocumentIdentifier,
 };
 
@@ -36,6 +37,16 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 fn start_server() -> Connection {
     let (server_conn, client_conn) = Connection::memory();
     std::thread::spawn(move || {
+        // Handle the initialize handshake before creating the handler,
+        // just like production code does in main.rs.
+        let server_capabilities = ServerCapabilities {
+            text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+            ..Default::default()
+        };
+        let _init_params = server_conn
+            .initialize(serde_json::to_value(&server_capabilities).unwrap())
+            .unwrap();
+
         let mut handler =
             DwarfLspHandler::new(ClientCapabilities::default(), server_conn.sender.clone());
         for msg in &server_conn.receiver {
@@ -113,6 +124,9 @@ fn initialize(conn: &Connection) {
         resp.error
     );
     assert!(resp.result.is_some(), "initialize response missing result");
+
+    // Send the initialized notification to complete the handshake.
+    send_notification(conn, Initialized::METHOD, ());
 }
 
 fn open_document(conn: &Connection, text: &str) {

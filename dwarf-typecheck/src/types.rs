@@ -14,6 +14,18 @@ pub const BOOL_TYPE_ID: TypeId = 3;
 /// TypeId for the built-in `Null` primitive type.
 pub const NULL_TYPE_ID: TypeId = 4;
 
+/// TypeId for the built-in `Option` generic type constructor.
+pub const OPTION_TYPE_ID: TypeId = 5;
+/// TypeId for the built-in `Result` generic type constructor.
+pub const RESULT_TYPE_ID: TypeId = 6;
+/// TypeId for the built-in `List` generic type constructor.
+pub const LIST_TYPE_ID: TypeId = 7;
+/// TypeId for the built-in `Map` generic type constructor.
+pub const MAP_TYPE_ID: TypeId = 8;
+
+/// Sentinel TypeId representing the bottom/never type (produced by `throw`).
+pub const NEVER_TYPE_ID: TypeId = TypeId::MAX;
+
 /// Built-in primitive types.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PrimitiveType {
