@@ -12,9 +12,22 @@ use crate::types::{PrimitiveType, TypeDef, TypeId};
 /// - 4: Null
 ///
 /// User-defined types are assigned IDs starting from 5.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// The List base type for array inference is registered lazily on first use
+/// via [`get_or_create_list_base`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TypeRegistry {
     types: Vec<TypeDef>,
+    /// Lazily-initialised cache of the List base type ID for array inference.
+    #[serde(skip)]
+    list_base_id: Option<TypeId>,
+}
+
+// Manual PartialEq — skips the list_base_id cache field since it's derived
+// state that is semantically implied by the types vector.
+impl PartialEq for TypeRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        self.types == other.types
+    }
 }
 
 impl TypeRegistry {
@@ -28,7 +41,23 @@ impl TypeRegistry {
                 TypeDef::Primitive(PrimitiveType::Bool),
                 TypeDef::Primitive(PrimitiveType::Null),
             ],
+            list_base_id: None,
         }
+    }
+
+    /// Get or create the List base type used for array inference.
+    ///
+    /// The List base is registered as an empty record `{}` the first time this
+    /// method is called. Its ID is cached for subsequent calls so that all
+    /// `GenericInstance { base: List, … }` types share the same base.
+    pub fn get_or_create_list_base(&mut self) -> TypeId {
+        if let Some(id) = self.list_base_id {
+            return id;
+        }
+        let id = self.types.len();
+        self.types.push(TypeDef::Record(Vec::new()));
+        self.list_base_id = Some(id);
+        id
     }
 
     /// Register a new type definition, returning its TypeId.

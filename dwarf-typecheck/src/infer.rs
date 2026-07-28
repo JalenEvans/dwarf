@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use dwarf_syntax::hir::Type as HirType;
 use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt, UnaryOp};
 
+use crate::compat;
 use crate::registry::TypeRegistry;
 use crate::types::{FieldDef, TypeDef, TypeId};
 
@@ -142,14 +143,18 @@ pub fn infer_expr(
         // 11. Match expressions
         Expr::Match { expr, arms, .. } => infer_match(expr, arms, env, registry),
 
-        // 12. Other expressions (placeholder stubs)
+        // 12. Array expressions (List<T>)
+        Expr::Array { items, .. } => infer_array(items, env, registry),
+
+        // 13. Wildcard expressions (placeholder, infers to Null)
+        Expr::Wildcard { .. } => infer_wildcard(),
+
+        // 14. Other expressions (placeholder stubs)
         Expr::Pipe { .. }
         | Expr::Propagate { .. }
         | Expr::For { .. }
         | Expr::ForAll { .. }
         | Expr::Assign { .. }
-        | Expr::Array { .. }
-        | Expr::Wildcard { .. }
         | Expr::Variant { .. }
         | Expr::AssertConsistent { .. } => Ok(0),
     }
@@ -489,4 +494,54 @@ fn infer_match(
     }
 
     Ok(first_type)
+}
+
+/// Infer the type of an array literal expression.
+///
+/// All elements must have the same type (checked via structural compatibility).
+/// Empty arrays infer to `List<Null>`.
+///
+/// Returns a `GenericInstance` with `base = List` (lazily registered empty
+/// record) and `args = [element_type]`.
+fn infer_array(
+    items: &[Expr],
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let list_base = registry.get_or_create_list_base();
+
+    if items.is_empty() {
+        // Empty array: List<Null>
+        return Ok(registry.register(TypeDef::GenericInstance {
+            base: list_base,
+            args: vec![4], // Null as element type
+        }));
+    }
+
+    // Infer first element type
+    let elem_type = infer_expr(&items[0], env, registry)?;
+
+    // Check remaining elements are compatible with the first
+    for item in &items[1..] {
+        let t = infer_expr(item, env, registry)?;
+        if !compat::check(registry, elem_type, t).compatible {
+            return Err(format!(
+                "Type mismatch in array literal: expected type {}, got {}",
+                elem_type, t
+            ));
+        }
+    }
+
+    // Return List<elem_type>
+    Ok(registry.register(TypeDef::GenericInstance {
+        base: list_base,
+        args: vec![elem_type],
+    }))
+}
+
+/// Infer the type of a wildcard expression `_`.
+///
+/// A wildcard is a placeholder that always infers to the Null type (4).
+fn infer_wildcard() -> Result<TypeId, String> {
+    Ok(4) // Null type
 }

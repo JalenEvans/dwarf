@@ -870,3 +870,244 @@ fn test_type_env_bind_multiple() {
         "Unbound variable 'z' should return None"
     );
 }
+
+// ===========================================================================
+// 14. Array expressions (DWARF-55 Phase 1)
+//     Arrays infer to List<T> where T is the common type of all elements.
+//     Empty arrays infer to List<Null> (or a fresh type variable).
+//     Heterogeneous arrays produce a type error.
+//     Currently stubbed to return Ok(0) — these tests will pass once
+//     the real inference is implemented.
+// ===========================================================================
+
+#[test]
+fn test_array_empty() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // []
+    let expr = Expr::Array {
+        items: vec![],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but should return a List type
+    assert!(result.is_ok(), "Empty array should infer successfully");
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Empty array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the result should be a GenericInstance (List)
+    // with one type argument (the element type, likely Null or a fresh variable)
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "List type should have one type argument");
+            assert!(
+                registry.get(args[0]).is_some(),
+                "Element type should be registered"
+            );
+        }
+        other => {
+            panic!(
+                "Empty array should infer to a GenericInstance (List) type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_homogeneous_int() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [1, 2, 3]
+    let expr = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(3),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "Homogeneous array should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Homogeneous array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be List<Int>
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "List type should have one type argument");
+            assert_eq!(args[0], 0, "Element type should be Int");
+        }
+        other => {
+            panic!(
+                "Array should infer to a GenericInstance (List) type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_nested() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [[1, 2], [3, 4]]
+    let inner1 = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let inner2 = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(3),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(4),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let expr = Expr::Array {
+        items: vec![inner1, inner2],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(result.is_ok(), "Nested array should infer successfully");
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Nested array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be List<List<Int>>
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "Outer List should have one type argument");
+            let inner_type_id = args[0];
+            // Inner should be List<Int>
+            match registry.get(inner_type_id) {
+                Some(TypeDef::GenericInstance {
+                    base: _,
+                    args: inner_args,
+                }) => {
+                    assert_eq!(
+                        inner_args.len(),
+                        1,
+                        "Inner List should have one type argument"
+                    );
+                    assert_eq!(
+                        inner_args[0], 0,
+                        "Innermost element type should be Int"
+                    );
+                }
+                other => {
+                    panic!(
+                        "Inner array should be GenericInstance, got {:?}",
+                        other
+                    );
+                }
+            }
+        }
+        other => {
+            panic!(
+                "Outer array should be GenericInstance, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_heterogeneous_error() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [1, "hello"] — type mismatch between Int and Str
+    let expr = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Str("hello".to_string()),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "Heterogeneous array [Int, Str] should produce a type error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 15. Wildcard expressions (DWARF-55 Phase 1)
+//     A wildcard `_` is a placeholder expression that infers to a bottom
+//     type (Null) or a fresh type variable. It should never crash.
+//     Currently stubbed to return Ok(0).
+// ===========================================================================
+
+#[test]
+fn test_wildcard_infers() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // _
+    let expr = Expr::Wildcard {
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "Wildcard expression should infer successfully"
+    );
+    let type_id = result.unwrap();
+
+    // Red-phase: stub returns Int (0), but wildcard should NOT be Int
+    assert_ne!(
+        type_id, 0,
+        "Wildcard should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: wildcard should be Null (4) or a fresh type variable.
+    // Assert it's a valid registered type.
+    assert!(
+        registry.get(type_id).is_some(),
+        "Wildcard type should be registered in the registry"
+    );
+}
