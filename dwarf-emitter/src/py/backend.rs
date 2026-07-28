@@ -125,7 +125,11 @@ impl PythonBackend {
                         }
                         LirStmt::Expr(expr) => {
                             let expr_str = self.emit_expr(expr)?;
-                            if is_last {
+                            if expr_str.contains('\n') {
+                                for line in expr_str.lines() {
+                                    lines.push(format!("{}{}", PY_INDENT, line));
+                                }
+                            } else if is_last {
                                 lines.push(format!("{}return {}", PY_INDENT, expr_str));
                             } else {
                                 lines.push(format!("{}{}", PY_INDENT, expr_str));
@@ -137,7 +141,15 @@ impl PythonBackend {
             }
             other => {
                 let expr_str = self.emit_expr(other)?;
-                Ok(vec![format!("{}return {}", PY_INDENT, expr_str)])
+                if expr_str.contains('\n') {
+                    let mut lines: Vec<String> = Vec::new();
+                    for line in expr_str.lines() {
+                        lines.push(format!("{}{}", PY_INDENT, line));
+                    }
+                    Ok(lines)
+                } else {
+                    Ok(vec![format!("{}return {}", PY_INDENT, expr_str)])
+                }
             }
         }
     }
@@ -322,7 +334,10 @@ impl PythonBackend {
                 self.scan_expr_for_stdlib(handler);
             }
             LirExpr::Throw { expr, .. } => self.scan_expr_for_stdlib(expr),
-            LirExpr::Propagate { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Propagate { expr, .. } => {
+                self.needs_result = true;
+                self.scan_expr_for_stdlib(expr);
+            }
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
@@ -740,16 +755,41 @@ impl EmitterBackend for PythonBackend {
                 ))
             }
             LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
-            LirExpr::Try { .. } => Err(EmitterError::UnsupportedFeature(
-                "try/catch expressions are not yet supported for Python".into(),
-            )),
+            LirExpr::Try {
+                body,
+                binding,
+                guard,
+                handler,
+                ..
+            } => {
+                let body_str = self.emit_expr(body)?;
+                let binding_str = self.emit_pat(binding)?;
+                let handler_str = self.emit_expr(handler)?;
+                match guard {
+                    Some(guard_expr) => {
+                        let guard_str = self.emit_expr(guard_expr)?;
+                        Ok(format!(
+                            "try:\n    {}\nexcept Exception as {}:\n    if {}:\n        {}\n    else:\n        raise {}",
+                            body_str, binding_str, guard_str, handler_str, binding_str
+                        ))
+                    }
+                    None => Ok(format!(
+                        "try:\n    {}\nexcept Exception as {}:\n    {}",
+                        body_str, binding_str, handler_str
+                    )),
+                }
+            }
             LirExpr::Throw { expr, .. } => {
                 let expr_str = self.emit_expr(expr)?;
                 Ok(format!("raise {}", expr_str))
             }
-            LirExpr::Propagate { .. } => Err(EmitterError::UnsupportedFeature(
-                "propagate operator is not yet supported for Python".into(),
-            )),
+            LirExpr::Propagate { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!(
+                    "__v = {}\nif is_err(__v):\n    return __v\nreturn __v.value",
+                    expr_str
+                ))
+            }
         }
     }
 
