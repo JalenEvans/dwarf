@@ -203,6 +203,7 @@ fn config_merge_with_cli() {
         out_dir: "dist".to_string(),
         pretty: false,
         skip_passes: vec![],
+        stdlib_path: None,
     };
 
     // CLI overrides: pick one target and enable pretty.
@@ -212,6 +213,7 @@ fn config_merge_with_cli() {
         passes: None,
         skip_passes: vec![],
         source_map: false,
+        stdlib_path: None,
     };
 
     let merged = config.merge_with_cli(&cli_options);

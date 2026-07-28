@@ -130,6 +130,10 @@ pub struct CompileOptions {
     /// Whether to generate a source map alongside the output.
     #[serde(default)]
     pub source_map: bool,
+    /// Path to the standard library runtime directory.
+    /// If None, the compiler searches default locations.
+    #[serde(default)]
+    pub stdlib_path: Option<String>,
 }
 
 impl Default for CompileOptions {
@@ -140,6 +144,7 @@ impl Default for CompileOptions {
             passes: None,
             skip_passes: Vec::new(),
             source_map: false,
+            stdlib_path: None,
         }
     }
 }
@@ -205,6 +210,9 @@ pub struct CompilerConfig {
     /// Pass names to skip.
     #[serde(default)]
     pub skip_passes: Vec<String>,
+    /// Path to the standard library runtime directory.
+    #[serde(default)]
+    pub stdlib_path: Option<String>,
 }
 
 fn default_targets() -> Vec<String> {
@@ -250,6 +258,11 @@ impl CompilerConfig {
                 self.skip_passes.clone()
             },
             source_map: options.source_map,
+            stdlib_path: if options.stdlib_path.is_some() {
+                options.stdlib_path.clone()
+            } else {
+                self.stdlib_path.clone()
+            },
         }
     }
 }
@@ -281,3 +294,16 @@ impl std::fmt::Display for DwarfError {
 }
 
 impl std::error::Error for DwarfError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WILL FAIL — RED PHASE: CompileOptions does not yet have a stdlib_path field
+    #[test]
+    fn test_compile_options_stdlib_path_default() {
+        let opts = CompileOptions::default();
+        // stdlib_path should default to None (system will search default paths)
+        assert!(opts.stdlib_path.is_none());
+    }
+}

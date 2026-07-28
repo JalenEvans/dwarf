@@ -50,6 +50,10 @@ enum Commands {
         /// List available passes and exit
         #[arg(long)]
         list_passes: bool,
+
+        /// Path to standard library runtime files
+        #[arg(long, id = "stdlib-path")]
+        stdlib_path: Option<String>,
     },
 
     /// Emit code from Dwarf source files to a target language
@@ -73,6 +77,10 @@ enum Commands {
         /// Comma-separated list of passes to skip
         #[arg(long)]
         skip_passes: Option<String>,
+
+        /// Path to standard library runtime files
+        #[arg(long, id = "stdlib-path")]
+        stdlib_path: Option<String>,
     },
 
     /// Transpile and run a Dwarf source file
@@ -92,6 +100,10 @@ enum Commands {
         /// Comma-separated list of passes to skip
         #[arg(long)]
         skip_passes: Option<String>,
+
+        /// Path to standard library runtime files
+        #[arg(long, id = "stdlib-path")]
+        stdlib_path: Option<String>,
     },
 
     /// Watch source files and re-run on changes
@@ -111,6 +123,10 @@ enum Commands {
         /// Comma-separated list of passes to skip
         #[arg(long)]
         skip_passes: Option<String>,
+
+        /// Path to standard library runtime files
+        #[arg(long, id = "stdlib-path")]
+        stdlib_path: Option<String>,
     },
 
     /// Build Dwarf source files into target language
@@ -145,6 +161,10 @@ enum Commands {
         /// Comma-separated list of passes to skip
         #[arg(long)]
         skip_passes: Option<String>,
+
+        /// Path to standard library runtime files
+        #[arg(long, id = "stdlib-path")]
+        stdlib_path: Option<String>,
     },
 
     /// Format Dwarf source files
@@ -202,6 +222,7 @@ fn main() {
             target,
             passes,
             skip_passes,
+            stdlib_path: _,
         }) => {
             run::run_run(files, target, passes, skip_passes);
         }
@@ -211,6 +232,7 @@ fn main() {
             passes,
             skip_passes,
             list_passes,
+            stdlib_path: _,
         }) => {
             check::run_check(files, json, passes, skip_passes, list_passes);
         }
@@ -220,14 +242,16 @@ fn main() {
             json,
             passes,
             skip_passes,
+            stdlib_path,
         }) => {
-            emit::run_emit(files, target, json, passes, skip_passes);
+            emit::run_emit(files, target, json, passes, skip_passes, stdlib_path);
         }
         Some(Commands::Dev {
             files,
             target,
             passes,
             skip_passes,
+            stdlib_path: _,
         }) => {
             dev::run_dev(files, target, passes, skip_passes);
         }
@@ -240,6 +264,7 @@ fn main() {
             json,
             passes,
             skip_passes,
+            stdlib_path,
         }) => {
             build::run_build(
                 files,
@@ -250,6 +275,7 @@ fn main() {
                 json,
                 passes,
                 skip_passes,
+                stdlib_path,
             );
         }
         Some(Commands::Fmt {

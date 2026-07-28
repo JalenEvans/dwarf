@@ -45,6 +45,7 @@ pub fn run_check(
             .map(|s| s.trim().to_string())
             .collect(),
         source_map: false,
+        stdlib_path: None,
     };
 
     let options = dwarf_cli::config::merge_config_with_cli(cli_options);

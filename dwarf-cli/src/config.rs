@@ -82,4 +82,15 @@ mod tests {
         let result = find_config_in(&child_dir).unwrap();
         assert!(result.is_some(), "Should find config in parent");
     }
+
+    // WILL FAIL — RED PHASE: CompilerConfig does not yet have a stdlib_path field
+    #[test]
+    fn test_config_with_stdlib_path() {
+        let json = r#"{"targets": ["ts"], "stdlib_path": "/project/stdlib"}"#;
+        let config = CompilerConfig::from_json(json).unwrap();
+        assert_eq!(
+            config.stdlib_path,
+            Some("/project/stdlib".to_string())
+        );
+    }
 }
