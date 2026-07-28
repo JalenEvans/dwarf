@@ -25,6 +25,7 @@ pub enum TokenKind {
     Try,
     Catch,
     Throw,
+    Extern,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -105,6 +106,7 @@ impl TokenKind {
             Self::Try => "'try'",
             Self::Catch => "'catch'",
             Self::Throw => "'throw'",
+            Self::Extern => "'extern'",
 
             // Arithmetic
             Self::Plus => "'+'",
@@ -196,5 +198,31 @@ mod tests {
     fn test_token_dotdot_debug() {
         let s = format!("{:?}", TokenKind::DotDot);
         assert!(!s.is_empty(), "Debug output should not be empty");
+    }
+
+    // ------------------------------------------------------------------
+    // Extern keyword tests (RED Phase — expected to fail)
+    //
+    // TokenKind::Extern does not exist yet. These tests specify the
+    // expected token for Phase 1 extern/FFI support.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_extern_token_kind_exists() {
+        // TokenKind::Extern should exist and have the correct description
+        assert_eq!(TokenKind::Extern.description(), "'extern'");
+    }
+
+    #[test]
+    fn test_extern_token_kind_equality() {
+        assert_eq!(TokenKind::Extern, TokenKind::Extern);
+        assert_ne!(TokenKind::Extern, TokenKind::Fn);
+        assert_ne!(TokenKind::Extern, TokenKind::Import);
+    }
+
+    #[test]
+    fn test_extern_token_kind_debug() {
+        let s = format!("{:?}", TokenKind::Extern);
+        assert_eq!(s, "Extern");
     }
 }

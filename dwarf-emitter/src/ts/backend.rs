@@ -179,6 +179,7 @@ impl EmitterBackend for TypeScriptBackend {
                         }
                     }
                 }
+                LirDecl::Extern { .. } => {}
             }
         }
 
@@ -337,6 +338,9 @@ impl EmitterBackend for TypeScriptBackend {
                     name,
                     variants_str.join(" | ")
                 ))
+            }
+            LirDecl::Extern { source, name, .. } => {
+                Ok(format!("// extern: {} fn {}", source, name))
             }
         }
     }
@@ -1064,6 +1068,7 @@ fn decl_span(decl: &LirDecl) -> Option<Span> {
         LirDecl::Function { span, .. }
         | LirDecl::RecordDef { span, .. }
         | LirDecl::UnionDef { span, .. } => Some(*span),
+        LirDecl::Extern { .. } => None,
     }
 }
 

@@ -157,6 +157,7 @@ impl EmitterBackend for JavaBackend {
                         }
                     }
                 }
+                LirDecl::Extern { .. } => {}
             }
             // Detect ForAll declarations for jqwik import and class name
             if let LirDecl::Function { body, .. } = decl {
@@ -448,6 +449,9 @@ impl EmitterBackend for JavaBackend {
                 }
 
                 Ok(result)
+            }
+            LirDecl::Extern { source, name, .. } => {
+                Ok(format!("// extern: {} fn {}", source, name))
             }
         }
     }
@@ -1059,7 +1063,7 @@ impl JavaBackend {
                 }
                 Self::scan_expr_for_imports(body, needs_cf, needs_opt);
             }
-            LirDecl::RecordDef { .. } | LirDecl::UnionDef { .. } => {}
+            LirDecl::RecordDef { .. } | LirDecl::UnionDef { .. } | LirDecl::Extern { .. } => {}
         }
     }
 

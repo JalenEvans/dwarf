@@ -428,6 +428,7 @@ impl EmitterBackend for PythonBackend {
                         self.needs_hypothesis = true;
                     }
                 }
+                LirDecl::Extern { .. } => {}
             }
         }
 
@@ -462,6 +463,7 @@ impl EmitterBackend for PythonBackend {
                         }
                     }
                 }
+                LirDecl::Extern { .. } => {}
             }
         }
 
@@ -660,6 +662,8 @@ impl EmitterBackend for PythonBackend {
                     variants_str.join(", ")
                 ))
             }
+
+            LirDecl::Extern { source, name, .. } => Ok(format!("# extern: {} fn {}", source, name)),
         }
     }
 

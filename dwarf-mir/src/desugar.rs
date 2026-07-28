@@ -573,6 +573,22 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 is_pub: *is_pub,
                 span: *span,
             }),
+
+            // Extern declarations pass through with converted params.
+            Decl::Extern {
+                source,
+                name,
+                params,
+                return_type,
+                is_pub,
+                span: _,
+            } => Some(MirDecl::Extern {
+                source: source.clone(),
+                name: name.clone(),
+                params: params.iter().map(convert_param).collect(),
+                return_type: return_type.clone(),
+                is_pub: *is_pub,
+            }),
         })
         .collect()
 }

@@ -306,6 +306,14 @@ pub enum Decl {
         is_pub: bool,
         span: Span,
     },
+    Extern {
+        source: String,
+        name: String,
+        params: Vec<Param>,
+        return_type: Option<Type>,
+        is_pub: bool,
+        span: Span,
+    },
 }
 
 #[cfg(test)]

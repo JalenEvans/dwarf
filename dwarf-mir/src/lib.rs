@@ -280,6 +280,13 @@ pub enum MirDecl {
         is_pub: bool,
         span: Span,
     },
+    Extern {
+        source: String,
+        name: String,
+        params: Vec<MirParam>,
+        return_type: Option<Type>,
+        is_pub: bool,
+    },
 }
 
 /// A field in a record type definition.

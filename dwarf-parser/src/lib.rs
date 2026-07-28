@@ -74,13 +74,14 @@ impl Parser {
     }
 
     /// Panic-mode recovery: skip tokens until we reach a declaration
-    /// boundary (fn, type, import, @, pub, or eof).
+    /// boundary (fn, type, import, extern, @, pub, or eof).
     fn sync_to_declaration_boundary(&mut self) {
         while !self.is_at_end() {
             match &self.peek().kind {
                 TokenKind::Fn
                 | TokenKind::Type
                 | TokenKind::Import
+                | TokenKind::Extern
                 | TokenKind::At
                 | TokenKind::Pub => return,
                 _ => {
@@ -191,6 +192,7 @@ impl Parser {
         match &self.peek().kind {
             TokenKind::Import => self.parse_import(is_pub),
             TokenKind::Fn => self.parse_function(is_pub),
+            TokenKind::Extern => self.parse_extern(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
@@ -269,6 +271,37 @@ impl Parser {
             body,
             is_pub,
             span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an extern declaration: `extern "source" fn name(params) -> ret`
+    fn parse_extern(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let extern_start = self.advance().span; // consume `extern`
+        let source = self.consume_str("expected source string after 'extern'")?;
+        self.consume(TokenKind::Fn, "expected 'fn' after extern source")?;
+        let name = self.consume_ident("expected function name")?;
+
+        self.consume(TokenKind::LParen, "expected '(' after function name")?;
+        let params = self.parse_params()?;
+        self.consume(TokenKind::RParen, "expected ')' after parameters")?;
+
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        Ok(Decl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            is_pub,
+            span: Span::new(
+                extern_start.file_id,
+                extern_start.start,
+                self.previous().span.end,
+            ),
         })
     }
 

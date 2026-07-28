@@ -1,0 +1,29 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Extern": {
+      "source": "npm:express",
+      "name": "listen",
+      "params": [
+        {
+          "name": "port",
+          "type_": {
+            "Named": "Int"
+          }
+        }
+      ],
+      "return_type": {
+        "Named": "String"
+      },
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 51
+      }
+    }
+  }
+]
