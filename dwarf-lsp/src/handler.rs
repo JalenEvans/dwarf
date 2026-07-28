@@ -7,6 +7,7 @@
 use crossbeam_channel::Sender;
 use dwarf_parser::pass::ParsePass;
 use dwarf_syntax::diagnostic::byte_to_line_col;
+use dwarf_typecheck::pass::TypeCheckPass;
 use lsp_server::{Message, Notification, Request, Response};
 use lsp_types::notification::{Notification as LspNotification, PublishDiagnostics};
 use lsp_types::*;
@@ -155,10 +156,22 @@ impl DwarfLspHandler {
     fn publish_diagnostics(&self, uri: &Uri, text: &str) {
         let parse_pass = ParsePass;
         let diagnostics = match parse_pass.parse(text) {
-            Ok((_, errors)) => errors
-                .iter()
-                .map(|err| parse_error_to_diagnostic(text, err))
-                .collect(),
+            Ok((decls, errors)) => {
+                let mut diagnostics: Vec<Diagnostic> = errors
+                    .iter()
+                    .map(|err| parse_error_to_diagnostic(text, err))
+                    .collect();
+
+                let type_pass = TypeCheckPass::new();
+                let (_, type_errors) = type_pass.check(&decls);
+                diagnostics.extend(
+                    type_errors
+                        .iter()
+                        .map(|err| typecheck_error_to_diagnostic(text, err)),
+                );
+
+                diagnostics
+            }
             Err(message) => vec![Diagnostic {
                 range: Range {
                     start: Position {
@@ -206,6 +219,37 @@ impl DwarfLspHandler {
 
 /// Convert a Dwarf parser error into an LSP diagnostic.
 fn parse_error_to_diagnostic(source: &str, err: &dwarf_parser::ParseError) -> Diagnostic {
+    let (start_line, start_col) = byte_to_line_col(source, err.span.start).unwrap_or((1, 1));
+    let (end_line, end_col) =
+        byte_to_line_col(source, err.span.end).unwrap_or((start_line, start_col));
+
+    let start = Position {
+        line: start_line.saturating_sub(1) as u32,
+        character: start_col.saturating_sub(1) as u32,
+    };
+    let end = Position {
+        line: end_line.saturating_sub(1) as u32,
+        character: end_col.saturating_sub(1) as u32,
+    };
+
+    Diagnostic {
+        range: Range { start, end },
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: Some(NumberOrString::String(err.code.to_string())),
+        code_description: None,
+        source: Some("dwarf".to_string()),
+        message: err.message.clone(),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Convert a Dwarf type-checking error into an LSP diagnostic.
+fn typecheck_error_to_diagnostic(
+    source: &str,
+    err: &dwarf_typecheck::error::TypeCheckError,
+) -> Diagnostic {
     let (start_line, start_col) = byte_to_line_col(source, err.span.start).unwrap_or((1, 1));
     let (end_line, end_col) =
         byte_to_line_col(source, err.span.end).unwrap_or((start_line, start_col));

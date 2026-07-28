@@ -502,6 +502,7 @@ dependencies = [
  "dwarf-lib",
  "dwarf-parser",
  "dwarf-syntax",
+ "dwarf-typecheck",
  "lsp-server",
  "lsp-types",
  "serde",
