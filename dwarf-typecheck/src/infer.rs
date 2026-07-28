@@ -178,9 +178,7 @@ pub fn infer_expr(
         } => infer_forall(type_, binding, property, env, registry),
 
         // 20. AssertConsistent expression (pass-through)
-        Expr::AssertConsistent { expr, .. } => {
-            infer_assert_consistent(expr, env, registry)
-        }
+        Expr::AssertConsistent { expr, .. } => infer_assert_consistent(expr, env, registry),
     }
 }
 
@@ -602,10 +600,9 @@ fn infer_variant(
         // Look for a matching variant and extract its expected payload type.
         // The borrow on registry is dropped before we call infer_expr below.
         let expected_type = match registry.get(resolved_id) {
-            Some(TypeDef::Union(variants)) => variants
-                .iter()
-                .find(|v| v.name == name)
-                .map(|v| v.type_id),
+            Some(TypeDef::Union(variants)) => {
+                variants.iter().find(|v| v.name == name).map(|v| v.type_id)
+            }
             _ => None,
         };
 
@@ -614,8 +611,7 @@ fn infer_variant(
                 (Some(arg_expr), Some(expected)) => {
                     // Variant with payload: validate arg type
                     let inferred_arg_type = infer_expr(arg_expr, env, registry)?;
-                    let compat_result =
-                        compat::check(registry, expected, inferred_arg_type);
+                    let compat_result = compat::check(registry, expected, inferred_arg_type);
                     if !compat_result.compatible {
                         return Err(format!(
                             "type mismatch for variant '{}': expected type {}, got {}",
@@ -626,17 +622,11 @@ fn infer_variant(
                 }
                 (Some(_), None) => {
                     // Variant is unit (no payload) but an argument was provided
-                    return Err(format!(
-                        "Variant '{}' does not accept an argument",
-                        name
-                    ));
+                    return Err(format!("Variant '{}' does not accept an argument", name));
                 }
                 (None, Some(_)) => {
                     // Variant expects a payload but no argument was provided
-                    return Err(format!(
-                        "Variant '{}' requires an argument",
-                        name
-                    ));
+                    return Err(format!("Variant '{}' requires an argument", name));
                 }
                 (None, None) => {
                     // Unit variant without argument: valid
@@ -789,9 +779,7 @@ fn infer_for(
                     // Binding ignored
                 }
                 _ => {
-                    return Err(
-                        "Unsupported binding pattern in for loop".to_string()
-                    );
+                    return Err("Unsupported binding pattern in for loop".to_string());
                 }
             }
 
@@ -832,8 +820,7 @@ fn infer_assign(
     // Check compatibility: value must be assignable to target
     if !compat::check(registry, target_type, value_type).compatible {
         return Err(
-            "Assignment type mismatch: target and value types are incompatible"
-                .to_string(),
+            "Assignment type mismatch: target and value types are incompatible".to_string(),
         );
     }
 
@@ -869,19 +856,16 @@ fn infer_forall(
 ) -> Result<TypeId, String> {
     // Resolve the type annotation (only named types supported for now)
     let bound_type = match type_ {
-        HirType::Named(name) => {
-            resolve_hir_type_name(name.as_str())
-                .ok_or_else(|| format!("Unknown type '{}' in forAll", name))
-        }
+        HirType::Named(name) => resolve_hir_type_name(name.as_str())
+            .ok_or_else(|| format!("Unknown type '{}' in forAll", name)),
         HirType::Refined { base, .. } => {
             // Refined types like `Int(0..100)` delegate to their base
             match base.as_ref() {
-                HirType::Named(name) => {
-                    resolve_hir_type_name(name.as_str())
-                        .ok_or_else(|| format!("Unknown base type '{}' in forAll", name))
-                }
-                _ => Err("Only named base types are supported in forAll refined bindings"
-                    .to_string()),
+                HirType::Named(name) => resolve_hir_type_name(name.as_str())
+                    .ok_or_else(|| format!("Unknown base type '{}' in forAll", name)),
+                _ => Err(
+                    "Only named base types are supported in forAll refined bindings".to_string(),
+                ),
             }
         }
         _ => Err("Only named types are supported in forAll bindings".to_string()),

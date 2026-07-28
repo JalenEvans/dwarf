@@ -1027,24 +1027,15 @@ fn test_array_nested() {
                         1,
                         "Inner List should have one type argument"
                     );
-                    assert_eq!(
-                        inner_args[0], 0,
-                        "Innermost element type should be Int"
-                    );
+                    assert_eq!(inner_args[0], 0, "Innermost element type should be Int");
                 }
                 other => {
-                    panic!(
-                        "Inner array should be GenericInstance, got {:?}",
-                        other
-                    );
+                    panic!("Inner array should be GenericInstance, got {:?}", other);
                 }
             }
         }
         other => {
-            panic!(
-                "Outer array should be GenericInstance, got {:?}",
-                other
-            );
+            panic!("Outer array should be GenericInstance, got {:?}", other);
         }
     }
 }
@@ -1087,9 +1078,7 @@ fn test_wildcard_infers() {
     let mut registry = TypeRegistry::new();
     let env = TypeEnv::new();
     // _
-    let expr = Expr::Wildcard {
-        span: dummy_span(),
-    };
+    let expr = Expr::Wildcard { span: dummy_span() };
     let result = infer_expr(&expr, &env, &mut registry);
 
     assert!(
@@ -1217,8 +1206,9 @@ fn test_variant_with_payload() {
     match registry.get(type_id) {
         Some(TypeDef::Union(variants)) => {
             assert!(
-                variants.iter().any(|v| v.name == "Some"
-                    && v.type_id == Some(0)),
+                variants
+                    .iter()
+                    .any(|v| v.name == "Some" && v.type_id == Some(0)),
                 "Union should contain 'Some' variant with Int payload"
             );
         }
@@ -1755,10 +1745,7 @@ fn test_assert_consistent_custom_type() {
     };
 
     let result = infer_expr(&expr, &env, &mut registry);
-    assert!(
-        result.is_ok(),
-        "assertConsistent({{}}) should not fail"
-    );
+    assert!(result.is_ok(), "assertConsistent({{}}) should not fail");
     let type_id = result.unwrap();
     assert_ne!(
         type_id, 0,
@@ -1768,10 +1755,7 @@ fn test_assert_consistent_custom_type() {
     // Verify it's actually a Record type (pass-through property)
     match registry.get(type_id) {
         Some(TypeDef::Record(fields)) => {
-            assert!(
-                fields.is_empty(),
-                "Empty record should have no fields"
-            );
+            assert!(fields.is_empty(), "Empty record should have no fields");
         }
         other => {
             panic!(
