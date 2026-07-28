@@ -772,6 +772,7 @@ impl TypeScriptBackend {
                 "Int" => Ok("fc.integer()".to_string()),
                 "String" => Ok("fc.string()".to_string()),
                 "Bool" => Ok("fc.boolean()".to_string()),
+                "Float" => Ok("fc.float()".to_string()),
                 _ => Ok("fc.anything()".to_string()),
             },
             Type::Generic { base, args } => match base.as_str() {
@@ -787,6 +788,10 @@ impl TypeScriptBackend {
                     let ok_gen = self.type_to_fc_generator(&args[0])?;
                     let err_gen = self.type_to_fc_generator(&args[1])?;
                     Ok(format!("fc.oneof({}, {})", ok_gen, err_gen))
+                }
+                "Map" if args.len() == 2 => {
+                    let value_gen = self.type_to_fc_generator(&args[1])?;
+                    Ok(format!("fc.dictionary(fc.string(), {})", value_gen))
                 }
                 _ => Ok("fc.anything()".to_string()),
             },

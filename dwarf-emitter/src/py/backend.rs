@@ -157,12 +157,26 @@ impl PythonBackend {
                 "Int" => Ok("st.integers()".to_string()),
                 "String" => Ok("st.text()".to_string()),
                 "Bool" => Ok("st.booleans()".to_string()),
+                "Float" => Ok("st.floats()".to_string()),
                 _ => Ok("st.just(None)".to_string()),
             },
             Type::Generic { base, args } => match base.as_str() {
                 "List" if args.len() == 1 => {
                     let elem_gen = self.type_to_st_generator(&args[0])?;
                     Ok(format!("st.lists({})", elem_gen))
+                }
+                "Option" if args.len() == 1 => {
+                    let inner_gen = self.type_to_st_generator(&args[0])?;
+                    Ok(format!("st.one_of(st.none(), {})", inner_gen))
+                }
+                "Result" if args.len() == 2 => {
+                    let ok_gen = self.type_to_st_generator(&args[0])?;
+                    let err_gen = self.type_to_st_generator(&args[1])?;
+                    Ok(format!("st.one_of({}, {})", ok_gen, err_gen))
+                }
+                "Map" if args.len() == 2 => {
+                    let value_gen = self.type_to_st_generator(&args[1])?;
+                    Ok(format!("st.dictionaries(st.text(), {})", value_gen))
                 }
                 _ => Ok("st.just(None)".to_string()),
             },
