@@ -1111,3 +1111,173 @@ fn test_wildcard_infers() {
         "Wildcard type should be registered in the registry"
     );
 }
+
+// ===========================================================================
+// 16. Variant expression inference (DWARF-55 Phase 2)
+//     Variant expressions like `None`, `Some(42)` look up variant definitions
+//     in registered union types. Unit variants have no payload; payload
+//     variants carry a single expression that must match the declared type.
+//     Unknown variant names produce an error.
+// ===========================================================================
+
+/// Helper: register an `Option<Int>` union type in the registry.
+///
+/// This creates a union with two variants:
+///   - `Some(Int)` — payload variant
+///   - `None` — unit variant
+///
+/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+fn register_option_type(registry: &mut TypeRegistry) -> TypeId {
+    let some_variant = VariantDef {
+        name: "Some".to_string(),
+        type_id: Some(0), // Int payload
+    };
+    let none_variant = VariantDef {
+        name: "None".to_string(),
+        type_id: None, // Unit variant
+    };
+    registry.register(TypeDef::Union(vec![some_variant, none_variant]))
+}
+
+#[test]
+fn test_variant_unit_no_arg() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5
+    register_option_type(&mut registry);
+
+    // None — unit variant without a payload
+    let expr = Expr::Variant {
+        name: "None".to_string(),
+        arg: None,
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    assert!(
+        result.is_ok(),
+        "Unit variant 'None' should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Unit variant should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be a Union containing the None variant
+    match registry.get(type_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert!(
+                variants.iter().any(|v| v.name == "None"),
+                "Union should contain a 'None' variant"
+            );
+        }
+        other => {
+            panic!(
+                "Variant expression should infer to a Union type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variant_with_payload() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5
+    register_option_type(&mut registry);
+
+    // Some(42) — variant with Int payload matching the union definition
+    let expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    assert!(
+        result.is_ok(),
+        "Payload variant 'Some(42)' should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Payload variant should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be a Union containing the Some variant
+    match registry.get(type_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert!(
+                variants.iter().any(|v| v.name == "Some"
+                    && v.type_id == Some(0)),
+                "Union should contain 'Some' variant with Int payload"
+            );
+        }
+        other => {
+            panic!(
+                "Variant expression should infer to a Union type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variant_payload_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5 where Some expects Int payload
+    register_option_type(&mut registry);
+
+    // Some("hello") — arg is Str but Some expects Int
+    let expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but this should be a type error
+    assert!(
+        result.is_err(),
+        "Payload type mismatch (Str vs expected Int) should produce an error (stub fails here)"
+    );
+}
+
+#[test]
+fn test_variant_unknown_name() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // No union registered — Foo doesn't exist in any variant set
+
+    // Foo(42) — unknown variant name
+    let expr = Expr::Variant {
+        name: "Foo".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but unknown variant should be an error
+    assert!(
+        result.is_err(),
+        "Unknown variant name 'Foo' should produce an error (stub fails here)"
+    );
+}

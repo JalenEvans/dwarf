@@ -149,13 +149,15 @@ pub fn infer_expr(
         // 13. Wildcard expressions (placeholder, infers to Null)
         Expr::Wildcard { .. } => infer_wildcard(),
 
-        // 14. Other expressions (placeholder stubs)
+        // 14. Variant expressions (e.g. None, Some(42))
+        Expr::Variant { name, arg, .. } => infer_variant(name, arg.as_deref(), env, registry),
+
+        // 15. Other expressions (placeholder stubs)
         Expr::Pipe { .. }
         | Expr::Propagate { .. }
         | Expr::For { .. }
         | Expr::ForAll { .. }
         | Expr::Assign { .. }
-        | Expr::Variant { .. }
         | Expr::AssertConsistent { .. } => Ok(0),
     }
 }
@@ -544,4 +546,84 @@ fn infer_array(
 /// A wildcard is a placeholder that always infers to the Null type (4).
 fn infer_wildcard() -> Result<TypeId, String> {
     Ok(4) // Null type
+}
+
+/// Infer the type of a variant expression (e.g. `None`, `Some(42)`).
+///
+/// Searches all registered types in the registry for a `TypeDef::Union`
+/// containing a variant with the matching `name`. If found, validates the
+/// argument (payload) against the variant's expected type and returns the
+/// union's `TypeId`.
+///
+/// # Errors
+///
+/// - `"Unknown variant '{name}'"` if no registered union contains a variant
+///   with the given name.
+/// - `"Variant '{name}' does not accept an argument"` if `arg` is `Some` but
+///   the variant definition has no expected payload type.
+/// - `"Variant '{name}' requires an argument"` if `arg` is `None` but the
+///   variant definition expects a payload type.
+/// - Compat check errors if the inferred arg type does not match the expected
+///   payload type.
+fn infer_variant(
+    name: &str,
+    arg: Option<&Expr>,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Search every type in the registry for a Union containing this variant.
+    // We extract variant info first to avoid holding a borrow on registry
+    // while calling infer_expr (which needs &mut registry).
+    for id in 0..registry.len() {
+        let resolved_id = registry.resolve(id);
+
+        // Look for a matching variant and extract its expected payload type.
+        // The borrow on registry is dropped before we call infer_expr below.
+        let expected_type = match registry.get(resolved_id) {
+            Some(TypeDef::Union(variants)) => variants
+                .iter()
+                .find(|v| v.name == name)
+                .map(|v| v.type_id),
+            _ => None,
+        };
+
+        if let Some(expected_type) = expected_type {
+            match (arg, expected_type) {
+                (Some(arg_expr), Some(expected)) => {
+                    // Variant with payload: validate arg type
+                    let inferred_arg_type = infer_expr(arg_expr, env, registry)?;
+                    let compat_result =
+                        compat::check(registry, expected, inferred_arg_type);
+                    if !compat_result.compatible {
+                        return Err(format!(
+                            "type mismatch for variant '{}': expected type {}, got {}",
+                            name, expected, inferred_arg_type
+                        ));
+                    }
+                    return Ok(resolved_id);
+                }
+                (Some(_), None) => {
+                    // Variant is unit (no payload) but an argument was provided
+                    return Err(format!(
+                        "Variant '{}' does not accept an argument",
+                        name
+                    ));
+                }
+                (None, Some(_)) => {
+                    // Variant expects a payload but no argument was provided
+                    return Err(format!(
+                        "Variant '{}' requires an argument",
+                        name
+                    ));
+                }
+                (None, None) => {
+                    // Unit variant without argument: valid
+                    return Ok(resolved_id);
+                }
+            }
+        }
+    }
+
+    // No union found containing this variant name
+    Err(format!("Unknown variant '{}'", name))
 }
