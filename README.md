@@ -91,3 +91,45 @@ List all available runtime targets and exit.
 ```
 dwarf --list-runtimes
 ```
+
+### `dwarf install <package>`
+
+Install a package and generate an extern declaration stub for FFI interop.
+
+```
+dwarf install npm:express
+dwarf install py:json
+dwarf install java:java.util.ArrayList
+```
+
+Supported prefixes: `npm`, `py`, `java`. For Java, the last dotted segment becomes the function name (e.g. `java:java.util.ArrayList` → `extern "java:java.util" fn ArrayList()`).
+
+## FFI & Host Interop
+
+Dwarf can call external target-language code via **extern declarations**. Each extern binds a Dwarf function name to a package in the host language's ecosystem, so the transpiler emits real imports and calls — no manual glue code.
+
+### Syntax
+
+```
+extern "<source>:<package>" fn <name>(<params>) -> <return_type>
+```
+
+### Supported Sources
+
+| Prefix | Target Language | Example |
+|---|---|---|
+| `npm:` | TypeScript | `extern "npm:express" fn express() -> ()` |
+| `py:` | Python | `extern "py:json" fn dumps(obj: Any) -> String` |
+| `java:` | Java | `extern "java:java.util" fn ArrayList() -> List<any>` |
+
+### Codegen Output
+
+Each backend emits native import statements for its own externs and ignores externs for other targets:
+
+- **TypeScript** → `import { express } from 'express'`
+- **Python** → `import json`
+- **Java** → `import java.util.*`
+
+### The `Any` Type
+
+`Any` is compatible with all types. Use it in extern signatures when the parameter or return type is dynamic or unknown at compile time. It maps to `any` in TypeScript, `Any` in Python, and `Object` in Java.
