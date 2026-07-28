@@ -2,7 +2,7 @@
 //!
 //! The LIR is the final IR before code emission. It extends MIR with target
 //! backend hints (async, optional, result, react-component) and removes
-//! remaining high-level constructs (For, Pipe, Propagate) that MIR desugars.
+//! remaining high-level constructs (For, Pipe) that MIR desugars.
 //!
 //! All expression variants carry a [`TargetHint`] that guides backend codegen.
 
@@ -171,6 +171,27 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    /// Try expression with catch handler.
+    Try {
+        body: Box<LirExpr>,
+        binding: LirPat,
+        guard: Option<Box<LirExpr>>,
+        handler: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
+    /// Throw expression.
+    Throw {
+        expr: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
+    /// Propagate operator (`?`).
+    Propagate {
+        expr: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
 }
 
 impl LirExpr {
@@ -193,7 +214,10 @@ impl LirExpr {
             | LirExpr::Unary { span, .. }
             | LirExpr::Wildcard { span, .. }
             | LirExpr::ForAll { span, .. }
-            | LirExpr::AssertConsistent { span, .. } => *span,
+            | LirExpr::AssertConsistent { span, .. }
+            | LirExpr::Try { span, .. }
+            | LirExpr::Throw { span, .. }
+            | LirExpr::Propagate { span, .. } => *span,
         }
     }
 
@@ -216,7 +240,10 @@ impl LirExpr {
             | LirExpr::Unary { hint, .. }
             | LirExpr::Wildcard { hint, .. }
             | LirExpr::ForAll { hint, .. }
-            | LirExpr::AssertConsistent { hint, .. } => hint.clone(),
+            | LirExpr::AssertConsistent { hint, .. }
+            | LirExpr::Try { hint, .. }
+            | LirExpr::Throw { hint, .. }
+            | LirExpr::Propagate { hint, .. } => hint.clone(),
         }
     }
 }
@@ -1637,11 +1664,11 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Absent variants — verify For, Pipe, Propagate are NOT present in LIR
+    // Absent variants — verify For and Pipe are NOT present in LIR
     // ------------------------------------------------------------------
 
     #[test]
-    fn test_lir_expr_no_for_pipe_propagate() {
+    fn test_lir_expr_no_for_pipe() {
         // These types should NOT exist in the LIR crate.
         // This test verifies the assertion at compile time by checking
         // that the corresponding variants are absent.
@@ -1650,7 +1677,7 @@ mod tests {
             hint: TargetHint::None,
             span: span1(),
         };
-        // If LirExpr had For/Pipe/Propagate, this test would still compile —
+        // If LirExpr had For/Pipe, this test would still compile —
         // but those variants must not be part of the LIR enum.
     }
 

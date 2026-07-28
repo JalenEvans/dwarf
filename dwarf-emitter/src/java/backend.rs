@@ -607,6 +607,16 @@ impl EmitterBackend for JavaBackend {
                 ))
             }
             LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
+            LirExpr::Try { .. } => Err(EmitterError::UnsupportedFeature(
+                "try/catch expressions are not yet supported for Java".into(),
+            )),
+            LirExpr::Throw { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!("throw {}", expr_str))
+            }
+            LirExpr::Propagate { .. } => Err(EmitterError::UnsupportedFeature(
+                "propagate operator is not yet supported for Java".into(),
+            )),
         }
     }
 
@@ -919,6 +929,24 @@ impl JavaBackend {
             LirExpr::AssertConsistent { expr, .. } => {
                 Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
             }
+            LirExpr::Try {
+                body,
+                guard,
+                handler,
+                ..
+            } => {
+                Self::scan_expr_for_stdlib(body, needs_io, needs_string, needs_math);
+                if let Some(g) = guard {
+                    Self::scan_expr_for_stdlib(g, needs_io, needs_string, needs_math);
+                }
+                Self::scan_expr_for_stdlib(handler, needs_io, needs_string, needs_math);
+            }
+            LirExpr::Throw { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
+            LirExpr::Propagate { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
             _ => {}
         }
     }
@@ -1022,6 +1050,24 @@ impl JavaBackend {
                 Self::scan_expr_for_imports(property, needs_cf, needs_opt);
             }
             LirExpr::AssertConsistent { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
+            }
+            LirExpr::Try {
+                body,
+                guard,
+                handler,
+                ..
+            } => {
+                Self::scan_expr_for_imports(body, needs_cf, needs_opt);
+                if let Some(g) = guard {
+                    Self::scan_expr_for_imports(g, needs_cf, needs_opt);
+                }
+                Self::scan_expr_for_imports(handler, needs_cf, needs_opt);
+            }
+            LirExpr::Throw { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
+            }
+            LirExpr::Propagate { expr, .. } => {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
         }

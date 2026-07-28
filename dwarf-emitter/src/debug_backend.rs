@@ -273,6 +273,33 @@ impl EmitterBackend for DebugBackend {
                 let inner = self.emit_expr(expr)?;
                 Ok(format!("assert.consistent({})", inner))
             }
+            LirExpr::Try {
+                body,
+                binding,
+                guard,
+                handler,
+                ..
+            } => {
+                let body_str = self.emit_expr(body)?;
+                let binding_str = self.emit_pat(binding)?;
+                let guard_str = match guard {
+                    Some(g) => format!(", guard {}", self.emit_expr(g)?),
+                    None => String::new(),
+                };
+                let handler_str = self.emit_expr(handler)?;
+                Ok(format!(
+                    "try({}, {}, {}, {})",
+                    body_str, binding_str, guard_str, handler_str
+                ))
+            }
+            LirExpr::Throw { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("throw({})", inner))
+            }
+            LirExpr::Propagate { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("propagate({})", inner))
+            }
         }
     }
 

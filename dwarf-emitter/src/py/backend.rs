@@ -309,6 +309,20 @@ impl PythonBackend {
             }
             LirExpr::ForAll { property, .. } => self.scan_expr_for_stdlib(property),
             LirExpr::AssertConsistent { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Try {
+                body,
+                guard,
+                handler,
+                ..
+            } => {
+                self.scan_expr_for_stdlib(body);
+                if let Some(g) = guard {
+                    self.scan_expr_for_stdlib(g);
+                }
+                self.scan_expr_for_stdlib(handler);
+            }
+            LirExpr::Throw { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Propagate { expr, .. } => self.scan_expr_for_stdlib(expr),
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
@@ -726,6 +740,16 @@ impl EmitterBackend for PythonBackend {
                 ))
             }
             LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
+            LirExpr::Try { .. } => Err(EmitterError::UnsupportedFeature(
+                "try/catch expressions are not yet supported for Python".into(),
+            )),
+            LirExpr::Throw { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!("raise {}", expr_str))
+            }
+            LirExpr::Propagate { .. } => Err(EmitterError::UnsupportedFeature(
+                "propagate operator is not yet supported for Python".into(),
+            )),
         }
     }
 

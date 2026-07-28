@@ -528,6 +528,41 @@ impl EmitterBackend for TypeScriptBackend {
                 ))
             }
             LirExpr::AssertConsistent { expr, .. } => self.emit_expr(expr),
+            LirExpr::Try {
+                body,
+                binding,
+                guard,
+                handler,
+                ..
+            } => {
+                let body_str = self.emit_expr(body)?;
+                let binding_str = self.emit_pat(binding)?;
+                let handler_str = self.emit_expr(handler)?;
+                match guard {
+                    Some(guard_expr) => {
+                        let guard_str = self.emit_expr(guard_expr)?;
+                        Ok(format!(
+                            "try {{ {} }} catch ({}) {{ if ({}) {{ {} }} else {{ throw {}; }} }}",
+                            body_str, binding_str, guard_str, handler_str, binding_str
+                        ))
+                    }
+                    None => Ok(format!(
+                        "try {{ {} }} catch ({}) {{ {} }}",
+                        body_str, binding_str, handler_str
+                    )),
+                }
+            }
+            LirExpr::Throw { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!("throw {}", expr_str))
+            }
+            LirExpr::Propagate { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!(
+                    "(function() {{ const __v = {}; if (isErr(__v)) {{ return __v; }} return __v.value; }})()",
+                    expr_str
+                ))
+            }
         }
     }
 
@@ -996,6 +1031,24 @@ impl TypeScriptBackend {
             }
             LirExpr::ForAll { property, .. } => self.scan_expr_for_stdlib(property),
             LirExpr::AssertConsistent { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Try {
+                body,
+                guard,
+                handler,
+                ..
+            } => {
+                self.scan_expr_for_stdlib(body);
+                if let Some(g) = guard {
+                    self.scan_expr_for_stdlib(g);
+                }
+                self.scan_expr_for_stdlib(handler);
+            }
+            LirExpr::Throw { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Propagate { expr, .. } => {
+                self.scan_expr_for_stdlib(expr);
+                self.imports
+                    .add_import("dwarf-runtime/result.js", "isErr", None);
+            }
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
