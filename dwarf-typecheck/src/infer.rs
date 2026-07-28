@@ -180,12 +180,25 @@ pub fn infer_expr(
         // 20. AssertConsistent expression (pass-through)
         Expr::AssertConsistent { expr, .. } => infer_assert_consistent(expr, env, registry),
 
-        // 21. Try/Throw expressions (not yet type-checked)
-        Expr::Try { .. } | Expr::Throw { .. } => {
-            Err("try/throw expressions are not yet type-checked".to_string())
-        }
+        // 21. Try/Throw expressions
+        Expr::Try {
+            body,
+            binding,
+            guard,
+            handler,
+            ..
+        } => infer_try(body, binding, guard, handler, env, registry),
+
+        Expr::Throw { expr, .. } => infer_throw(expr, env, registry),
     }
 }
+
+/// Sentinel TypeId representing the bottom/never type produced by `throw`.
+///
+/// `throw` does not produce a value at runtime, so its static type is
+/// compatible with any expected type. `usize::MAX` can never collide with a
+/// real registered type ID.
+const NEVER_TYPE_ID: TypeId = TypeId::MAX;
 
 // ---------------------------------------------------------------------------
 // Inference helpers
@@ -916,4 +929,68 @@ fn infer_assert_consistent(
 ) -> Result<TypeId, String> {
     // Pure pass-through — defer to inner expression's type
     infer_expr(expr, env, registry)
+}
+
+// ---------------------------------------------------------------------------
+// Try/Throw inference (DWARF-57 Phase 2)
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a try expression `try { body } catch e { handler }`.
+///
+/// Semantics:
+/// 1. Infer the `body` type.
+/// 2. If a `guard` expression is present, it must evaluate to Bool.
+/// 3. Bind the catch variable in a new scope. The error variable is typed as
+///    Str by default (error messages are strings).
+/// 4. Infer the `handler` type in that new scope.
+/// 5. If either arm has the bottom/never type (produced by `throw`), the whole
+///    expression takes the other arm's type. Otherwise the two arm types must
+///    be identical.
+fn infer_try(
+    body: &Expr,
+    binding: &Pat,
+    guard: &Option<Box<Expr>>,
+    handler: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let body_type = infer_expr(body, env, registry)?;
+
+    if let Some(guard_expr) = guard {
+        let guard_type = infer_expr(guard_expr, env, registry)?;
+        if guard_type != 3 {
+            return Err("try guard must be Bool".to_string());
+        }
+    }
+
+    let mut handler_env = env.clone();
+    // Catch binding defaults to Str for now.
+    bind_pat(binding, 2, &mut handler_env);
+
+    let handler_type = infer_expr(handler, &handler_env, registry)?;
+
+    // `throw` produces the bottom/never type, which unifies with any type.
+    if body_type == NEVER_TYPE_ID {
+        return Ok(handler_type);
+    }
+    if handler_type == NEVER_TYPE_ID {
+        return Ok(body_type);
+    }
+
+    if body_type != handler_type {
+        return Err("try body and handler have mismatched types".to_string());
+    }
+
+    Ok(body_type)
+}
+
+/// Infer the type of a throw expression `throw expr`.
+///
+/// Semantics:
+/// 1. The thrown expression must be well-typed.
+/// 2. `throw` itself never produces a value, so its type is the bottom/never
+///    type which unifies with any expected type.
+fn infer_throw(expr: &Expr, env: &TypeEnv, registry: &mut TypeRegistry) -> Result<TypeId, String> {
+    let _thrown_type = infer_expr(expr, env, registry)?;
+    Ok(NEVER_TYPE_ID)
 }

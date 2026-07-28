@@ -1787,3 +1787,271 @@ fn test_assert_consistent_bool() {
         "assertConsistent(true) should NOT infer to Int (stub fails here)"
     );
 }
+
+// ===========================================================================
+// 22. Try/Catch/Throw inference (DWARF-57 Phase 2)
+//     try { body } catch e { handler } infers to the common type of body and
+//     handler. throw expr is well-typed if expr is well-typed.
+//     Currently stubbed to return Err — these tests fail under the stub.
+// ===========================================================================
+
+/// Helper: register a `Result<{ value: Str }, Int>` union type in the registry.
+///
+/// Creates a union with variants:
+///   - `Ok({ value: Str })` — payload variant carrying a record
+///   - `Err(Int)` — payload variant used as the error type
+///
+/// Returns the assigned TypeId of the union.
+fn register_result_value_type(registry: &mut TypeRegistry) -> TypeId {
+    let record_id = registry.register(TypeDef::Record(vec![FieldDef {
+        name: "value".to_string(),
+        type_id: 2, // Str
+    }]));
+    let ok_variant = VariantDef {
+        name: "Ok".to_string(),
+        type_id: Some(record_id),
+    };
+    let err_variant = VariantDef {
+        name: "Err".to_string(),
+        type_id: Some(0), // Int as a stand-in error type
+    };
+    registry.register(TypeDef::Union(vec![ok_variant, err_variant]))
+}
+
+#[test]
+fn test_try_catch_same_type() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // try { "ok" } catch e { "fallback" }
+    let expr = Expr::Try {
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Str("ok".to_string()),
+            span: dummy_span(),
+        }),
+        binding: Pat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(Expr::Literal {
+            value: LiteralValue::Str("fallback".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "try/catch with both arms Str should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_try_catch_type_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // try { 42 } catch e { "oops" }
+    let expr = Expr::Try {
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        binding: Pat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(Expr::Literal {
+            value: LiteralValue::Str("oops".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert!(
+        result.is_err(),
+        "try/catch arms with mismatched types should error"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("mismatch") || err.contains("mismatched"),
+        "Expected a type mismatch error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_try_catch_nested() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // try { try { "a" } catch e { "b" } } catch e { "c" }
+    let inner = Expr::Try {
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Str("a".to_string()),
+            span: dummy_span(),
+        }),
+        binding: Pat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(Expr::Literal {
+            value: LiteralValue::Str("b".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let expr = Expr::Try {
+        body: Box::new(inner),
+        binding: Pat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(Expr::Literal {
+            value: LiteralValue::Str("c".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "nested try/catch expressions returning Str should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_throw_typechecks() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register Error: Str -> Int (constructor returning an error value)
+    let error_func_id = registry.register(TypeDef::Func(vec![2], 0));
+    env.bind("Error".to_string(), error_func_id);
+
+    // throw Error("msg")
+    let expr = Expr::Throw {
+        expr: Box::new(Expr::Call {
+            func: Box::new(Expr::Variable {
+                name: "Error".to_string(),
+                span: dummy_span(),
+            }),
+            args: vec![Expr::Literal {
+                value: LiteralValue::Str("msg".to_string()),
+                span: dummy_span(),
+            }],
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert!(
+        result.is_ok(),
+        "throw Error(\"msg\") should type-check (stub fails here)"
+    );
+}
+
+#[test]
+fn test_throw_in_try_body() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register Error: Str -> Int
+    let error_func_id = registry.register(TypeDef::Func(vec![2], 0));
+    env.bind("Error".to_string(), error_func_id);
+
+    // try { throw Error("fail") } catch e { "recovered" }
+    let expr = Expr::Try {
+        body: Box::new(Expr::Throw {
+            expr: Box::new(Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "Error".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Str("fail".to_string()),
+                    span: dummy_span(),
+                }],
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        binding: Pat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(Expr::Literal {
+            value: LiteralValue::Str("recovered".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "try with throw in body and Str handler should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_propagate_on_result() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register Result<{ value: Str }, Int>
+    let result_type = register_result_value_type(&mut registry);
+    env.bind("result".to_string(), result_type);
+
+    // result?.value  ===  (?result).value
+    let expr = Expr::Member {
+        obj: Box::new(Expr::Propagate {
+            expr: Box::new(Expr::Variable {
+                name: "result".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        field: "value".to_string(),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "result?.value where result: Result({{value: Str}}, _) should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_propagate_on_non_result() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // x: Int (not a Result)
+    env.bind("x".to_string(), 0);
+
+    // x?.value  ===  (?x).value
+    let expr = Expr::Member {
+        obj: Box::new(Expr::Propagate {
+            expr: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        field: "value".to_string(),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert!(
+        result.is_err(),
+        "x?.value where x is not Result/Option should produce an error"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Propagate") || err.contains("Result") || err.contains("Option"),
+        "Expected a propagate-specific error, got: {}",
+        err
+    );
+}
