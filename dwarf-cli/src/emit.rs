@@ -34,6 +34,7 @@ pub fn run_emit(
     json: bool,
     passes: Option<String>,
     skip_passes: Option<String>,
+    stdlib_path: Option<String>,
 ) {
     // Parse the target string into a list of targets
     let targets: Vec<String> = if target.is_empty() {
@@ -73,6 +74,7 @@ pub fn run_emit(
                     .map(|s| s.trim().to_string())
                     .collect(),
                 source_map: false,
+                stdlib_path: stdlib_path.clone(),
             };
 
             let options = dwarf_cli::config::merge_config_with_cli(cli_options);
@@ -315,6 +317,28 @@ mod tests {
         assert!(
             result.is_err(),
             "Should have failed: at least one file is required but none were given"
+        );
+    }
+
+    // WILL FAIL — RED PHASE: --stdlib-path is not yet defined in clap args
+    #[test]
+    fn test_emit_cli_parse_with_stdlib_path() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-emitter",
+            "emit",
+            "file.kzd",
+            "--target",
+            "ts",
+            "--stdlib-path",
+            "/custom/stdlib",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("stdlib-path").map(String::as_str),
+            Some("/custom/stdlib")
         );
     }
 }

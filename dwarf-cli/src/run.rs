@@ -14,6 +14,7 @@ pub fn run_run(
     target: String,
     _passes: Option<String>,
     _skip_passes: Option<String>,
+    _stdlib_path: Option<String>,
 ) {
     // Validate target
     if target != "ts" {

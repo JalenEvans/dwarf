@@ -79,6 +79,7 @@ fn compilation_with_params() {
         passes: None,
         skip_passes: vec![],
         source_map: false,
+        stdlib_path: None,
     };
 
     let result = expect_ok(compiler.compile(
@@ -194,6 +195,7 @@ fn multiple_compilations_reuse() {
             passes: None,
             skip_passes: vec![],
             source_map: false,
+            stdlib_path: None,
         },
     ));
     assert!(

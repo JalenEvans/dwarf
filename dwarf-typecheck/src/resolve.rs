@@ -39,6 +39,17 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     name_map.insert("bool".to_string(), 3);
     name_map.insert("string".to_string(), 2); // alias for str
 
+    // Built-in generic type constructors
+    name_map.insert("Option".to_string(), 5);
+    name_map.insert("Result".to_string(), 6);
+    name_map.insert("List".to_string(), 7);
+    name_map.insert("Map".to_string(), 8);
+    // Lowercase variants for case-insensitive matching
+    name_map.insert("option".to_string(), 5);
+    name_map.insert("result".to_string(), 6);
+    name_map.insert("list".to_string(), 7);
+    name_map.insert("map".to_string(), 8);
+
     // The returned name_map will only contain user-defined names.
     let mut user_name_map: HashMap<String, TypeId> = HashMap::new();
 

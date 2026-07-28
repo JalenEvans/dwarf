@@ -140,11 +140,44 @@ impl EmitterBackend for TypeScriptBackend {
     }
 
     fn emit_module(&mut self, decls: &[LirDecl]) -> Result<String, EmitterError> {
-        // First pass: scan for ForAll declarations to add fast-check import
+        // First pass: scan for ForAll declarations (fast-check) and
+        // scan for stdlib type usage to add runtime imports.
         for decl in decls {
             if let LirDecl::Function { body, .. } = decl {
                 if matches!(*body, LirExpr::ForAll { .. }) {
                     self.imports.add_import("fast-check", "*", Some("fc"));
+                }
+            }
+            // Register stdlib imports based on type usage and function calls
+            match decl {
+                LirDecl::Function {
+                    params,
+                    return_type,
+                    body,
+                    ..
+                } => {
+                    for param in params {
+                        if let Some(ref ty) = param.type_ {
+                            self.register_stdlib_imports(ty);
+                        }
+                    }
+                    if let Some(ref ty) = return_type {
+                        self.register_stdlib_imports(ty);
+                    }
+                    // Also scan the body for stdlib function calls
+                    self.scan_expr_for_stdlib(body);
+                }
+                LirDecl::RecordDef { fields, .. } => {
+                    for field in fields {
+                        self.register_stdlib_imports(&field.type_);
+                    }
+                }
+                LirDecl::UnionDef { variants, .. } => {
+                    for variant in variants {
+                        if let Some(ref arg_type) = variant.arg {
+                            self.register_stdlib_imports(arg_type);
+                        }
+                    }
                 }
             }
         }
@@ -739,6 +772,7 @@ impl TypeScriptBackend {
                 "Int" => Ok("fc.integer()".to_string()),
                 "String" => Ok("fc.string()".to_string()),
                 "Bool" => Ok("fc.boolean()".to_string()),
+                "Float" => Ok("fc.float()".to_string()),
                 _ => Ok("fc.anything()".to_string()),
             },
             Type::Generic { base, args } => match base.as_str() {
@@ -755,9 +789,214 @@ impl TypeScriptBackend {
                     let err_gen = self.type_to_fc_generator(&args[1])?;
                     Ok(format!("fc.oneof({}, {})", ok_gen, err_gen))
                 }
+                "Map" if args.len() == 2 => {
+                    let value_gen = self.type_to_fc_generator(&args[1])?;
+                    Ok(format!("fc.dictionary(fc.string(), {})", value_gen))
+                }
                 _ => Ok("fc.anything()".to_string()),
             },
             _ => Ok("fc.anything()".to_string()),
+        }
+    }
+
+    /// Scan a type for stdlib references and register the corresponding imports.
+    fn register_stdlib_imports(&mut self, ty: &Type) {
+        match ty {
+            Type::Generic { base, args } => {
+                match base.as_str() {
+                    "Option" => {
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "some", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "none", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "isSome", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "isNone", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "Option", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "Some", None);
+                        self.imports
+                            .add_import("dwarf-runtime/option.js", "None", None);
+                    }
+                    "Result" => {
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "ok", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "err", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "isOk", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "isErr", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "Result", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "Ok", None);
+                        self.imports
+                            .add_import("dwarf-runtime/result.js", "Err", None);
+                    }
+                    "List" => {
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "list", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "map", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "filter", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "reduce", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "sum", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "sort", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "reverse", None);
+                        self.imports
+                            .add_import("dwarf-runtime/list.js", "length", None);
+                    }
+                    _ => {}
+                }
+                // Recurse into type arguments
+                for arg in args {
+                    self.register_stdlib_imports(arg);
+                }
+            }
+            Type::Record(fields) => {
+                for (_, field_type) in fields {
+                    self.register_stdlib_imports(field_type);
+                }
+            }
+            Type::Union(variants) => {
+                for variant in variants {
+                    self.register_stdlib_imports(variant);
+                }
+            }
+            Type::Func { params, return_ } => {
+                for param in params {
+                    self.register_stdlib_imports(param);
+                }
+                self.register_stdlib_imports(return_);
+            }
+            Type::Refined { base, .. } => {
+                self.register_stdlib_imports(base);
+            }
+            Type::Named(_) => {} // No stdlib imports needed for simple names
+        }
+    }
+
+    /// Scan an expression for stdlib function calls and register the
+    /// corresponding imports.
+    fn scan_expr_for_stdlib(&mut self, expr: &LirExpr) {
+        match expr {
+            LirExpr::Call { func, args, .. } => {
+                // Check for module-style calls like String.split, List.map, etc.
+                if let LirExpr::Member { obj, field, .. } = func.as_ref() {
+                    if let LirExpr::Variable { name, .. } = obj.as_ref() {
+                        match (name.as_str(), field.as_str()) {
+                            ("String", _) => {
+                                self.imports
+                                    .add_import("dwarf-runtime/string.js", "split", None);
+                                self.imports
+                                    .add_import("dwarf-runtime/string.js", "toUpper", None);
+                                self.imports
+                                    .add_import("dwarf-runtime/string.js", "toLower", None);
+                                self.imports
+                                    .add_import("dwarf-runtime/string.js", "reverse", None);
+                                self.imports.add_import(
+                                    "dwarf-runtime/string.js",
+                                    "contains",
+                                    None,
+                                );
+                                self.imports
+                                    .add_import("dwarf-runtime/string.js", "trim", None);
+                                self.imports.add_import(
+                                    "dwarf-runtime/string.js",
+                                    "stringLength",
+                                    None,
+                                );
+                            }
+                            ("List", _) => {
+                                // Already handled by type-based detection above
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                // Also check for bare function calls like print(), readFile(), etc.
+                if let LirExpr::Variable { name, .. } = func.as_ref() {
+                    match name.as_str() {
+                        "print" => {
+                            self.imports
+                                .add_import("dwarf-runtime/io.js", "print", None);
+                        }
+                        "readFile" => {
+                            self.imports
+                                .add_import("dwarf-runtime/io.js", "readFile", None);
+                        }
+                        "writeFile" => {
+                            self.imports
+                                .add_import("dwarf-runtime/io.js", "writeFile", None);
+                        }
+                        _ => {}
+                    }
+                }
+                // Recurse into args
+                for arg in args {
+                    self.scan_expr_for_stdlib(arg);
+                }
+            }
+            LirExpr::Block { stmts, .. } => {
+                for stmt in stmts {
+                    match stmt {
+                        LirStmt::Let { value, .. } => self.scan_expr_for_stdlib(value),
+                        LirStmt::Expr(expr) => self.scan_expr_for_stdlib(expr),
+                    }
+                }
+            }
+            LirExpr::Lambda { body, .. } => self.scan_expr_for_stdlib(body),
+            LirExpr::If {
+                cond, then, else_, ..
+            } => {
+                self.scan_expr_for_stdlib(cond);
+                self.scan_expr_for_stdlib(then);
+                if let Some(el) = else_ {
+                    self.scan_expr_for_stdlib(el);
+                }
+            }
+            LirExpr::Match { expr, arms, .. } => {
+                self.scan_expr_for_stdlib(expr);
+                for arm in arms {
+                    self.scan_expr_for_stdlib(&arm.body);
+                }
+            }
+            LirExpr::Record { fields, .. } => {
+                for (_, val) in fields {
+                    self.scan_expr_for_stdlib(val);
+                }
+            }
+            LirExpr::Array { items, .. } => {
+                for item in items {
+                    self.scan_expr_for_stdlib(item);
+                }
+            }
+            LirExpr::Binary { lhs, rhs, .. } => {
+                self.scan_expr_for_stdlib(lhs);
+                self.scan_expr_for_stdlib(rhs);
+            }
+            LirExpr::Unary { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Assign { target, value, .. } => {
+                self.scan_expr_for_stdlib(target);
+                self.scan_expr_for_stdlib(value);
+            }
+            LirExpr::Member { obj, .. } => self.scan_expr_for_stdlib(obj),
+            LirExpr::Variant { arg, .. } => {
+                if let Some(a) = arg {
+                    self.scan_expr_for_stdlib(a);
+                }
+            }
+            LirExpr::ForAll { property, .. } => self.scan_expr_for_stdlib(property),
+            LirExpr::AssertConsistent { expr, .. } => self.scan_expr_for_stdlib(expr),
+            LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
 }
@@ -2016,6 +2255,132 @@ mod tests {
         assert!(
             lines[2].contains("import { readFile } from 'fs'"),
             "third line should be the import statement"
+        );
+    }
+
+    // ==================================================================
+    // Auto-imports from stdlib types — RED PHASE (will fail)
+    // ==================================================================
+
+    #[test]
+    fn test_emit_module_auto_imports_option() {
+        // WILL FAIL — RED PHASE: emit_module does not yet walk types to
+        // auto-register stdlib imports. A function with Option<Int> param
+        // should produce `import { Option } from 'dwarf/stdlib'` etc.
+        let mut backend = TypeScriptBackend::new("0.1.0");
+        let decl = LirDecl::Function {
+            name: "tryParse".into(),
+            params: vec![LirParam {
+                name: "x".into(),
+                type_: Some(Type::Generic {
+                    base: "Option".into(),
+                    args: vec![Type::Named("Int".into())],
+                }),
+            }],
+            return_type: Some(Type::Named("Int".into())),
+            body: LirExpr::Literal {
+                value: LirLiteral::Int(0),
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            is_generator: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(
+            result.contains("import { Option }"),
+            "Option<Int> param should produce a stdlib import for Option, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_module_auto_imports_result() {
+        // WILL FAIL — RED PHASE: emit_module does not yet walk types to
+        // auto-register stdlib imports. A function returning Result<Int,String>
+        // should produce `import { Result } from 'dwarf/stdlib'`.
+        let mut backend = TypeScriptBackend::new("0.1.0");
+        let decl = LirDecl::Function {
+            name: "divide".into(),
+            params: vec![
+                LirParam {
+                    name: "a".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+                LirParam {
+                    name: "b".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+            ],
+            return_type: Some(Type::Generic {
+                base: "Result".into(),
+                args: vec![Type::Named("Int".into()), Type::Named("String".into())],
+            }),
+            body: LirExpr::Literal {
+                value: LirLiteral::Null,
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            is_generator: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(
+            result.contains("import { Result }"),
+            "Result<Int,String> return should produce a stdlib import for Result, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_emit_module_no_stdlib_no_stdlib_imports() {
+        // WILL FAIL — RED PHASE: this test verifies the negative case.
+        // When no stdlib types (Option, Result, etc.) appear in params or
+        // return types, no stdlib imports should be emitted. Currently even
+        // plain types may incorrectly trigger stdlib imports.
+        let mut backend = TypeScriptBackend::new("0.1.0");
+        let decl = LirDecl::Function {
+            name: "add".into(),
+            params: vec![
+                LirParam {
+                    name: "a".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+                LirParam {
+                    name: "b".into(),
+                    type_: Some(Type::Named("Int".into())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".into())),
+            body: LirExpr::Binary {
+                op: LirBinaryOp::Add,
+                lhs: Box::new(LirExpr::Variable {
+                    name: "a".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                rhs: Box::new(LirExpr::Variable {
+                    name: "b".into(),
+                    hint: hint_none(),
+                    span: s(),
+                }),
+                hint: hint_none(),
+                span: s(),
+            },
+            effect: Effect::Pure,
+            hint: TargetHint::None,
+            is_pub: true,
+            is_generator: false,
+            span: s(),
+        };
+        let result = backend.emit_module(&[decl]).unwrap();
+        assert!(
+            !result.contains("import { "),
+            "stdlib imports should be absent when no stdlib types are used, got: {result:?}"
         );
     }
 

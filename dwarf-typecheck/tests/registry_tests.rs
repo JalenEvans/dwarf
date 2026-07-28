@@ -16,8 +16,8 @@ use dwarf_typecheck::types::*;
 #[test]
 fn test_primitives_pre_registered_len() {
     let registry = TypeRegistry::new();
-    // A new registry should have exactly 5 primitives: Int, Float, Str, Bool, Null
-    assert_eq!(registry.len(), 5);
+    // A new registry should have 5 primitives + 4 built-in generics = 9 entries
+    assert_eq!(registry.len(), 9);
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn test_primitives_pre_registered_null() {
 #[test]
 fn test_is_empty_true_only_primitives() {
     let registry = TypeRegistry::new();
-    // With only primitives, is_empty() should return true
+    // With only built-in types (5 primitives + 4 built-in generics), is_empty() should return true
     assert!(registry.is_empty());
 }
 
@@ -85,7 +85,7 @@ fn test_is_empty_false_after_register() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_register_record_returns_id_5() {
+fn test_register_record_returns_id_9() {
     let mut registry = TypeRegistry::new();
     let record = TypeDef::Record(vec![
         FieldDef {
@@ -98,28 +98,28 @@ fn test_register_record_returns_id_5() {
         },
     ]);
     let id = registry.register(record);
-    assert_eq!(id, 5);
+    assert_eq!(id, 9);
 }
 
 #[test]
-fn test_register_alias_returns_id_6() {
+fn test_register_alias_returns_id_10() {
     let mut registry = TypeRegistry::new();
-    // Register a record first (ID 5), then an alias to it (ID 6)
+    // Register a record first (ID 9), then an alias to it (ID 10)
     let record = TypeDef::Record(vec![FieldDef {
         name: "point".to_string(),
         type_id: 0,
     }]);
     registry.register(record);
-    let id = registry.register(TypeDef::Alias(5));
-    assert_eq!(id, 6);
+    let id = registry.register(TypeDef::Alias(9));
+    assert_eq!(id, 10);
 }
 
 #[test]
-fn test_register_union_returns_id_7() {
+fn test_register_union_returns_id_11() {
     let mut registry = TypeRegistry::new();
-    // Register record (5), alias (6), then union (7)
+    // Register record (9), alias (10), then union (11)
     registry.register(TypeDef::Record(vec![]));
-    registry.register(TypeDef::Alias(5));
+    registry.register(TypeDef::Alias(9));
     let union = TypeDef::Union(vec![
         VariantDef {
             name: "None".to_string(),
@@ -131,37 +131,37 @@ fn test_register_union_returns_id_7() {
         },
     ]);
     let id = registry.register(union);
-    assert_eq!(id, 7);
+    assert_eq!(id, 11);
 }
 
 #[test]
-fn test_register_func_returns_id_8() {
+fn test_register_func_returns_id_12() {
     let mut registry = TypeRegistry::new();
-    // Register record (5), alias (6), union (7), then func (8)
+    // Register record (9), alias (10), union (11), then func (12)
     registry.register(TypeDef::Record(vec![]));
-    registry.register(TypeDef::Alias(5));
+    registry.register(TypeDef::Alias(9));
     registry.register(TypeDef::Union(vec![]));
     let func = TypeDef::Func(vec![0, 1], 2);
     let id = registry.register(func);
-    assert_eq!(id, 8);
+    assert_eq!(id, 12);
 }
 
 #[test]
 fn test_register_increases_len() {
     let mut registry = TypeRegistry::new();
-    assert_eq!(registry.len(), 5);
+    assert_eq!(registry.len(), 9);
 
     registry.register(TypeDef::Record(vec![]));
-    assert_eq!(registry.len(), 6);
+    assert_eq!(registry.len(), 10);
 
-    registry.register(TypeDef::Alias(5));
-    assert_eq!(registry.len(), 7);
+    registry.register(TypeDef::Alias(9));
+    assert_eq!(registry.len(), 11);
 
     registry.register(TypeDef::Union(vec![]));
-    assert_eq!(registry.len(), 8);
+    assert_eq!(registry.len(), 12);
 
     registry.register(TypeDef::Func(vec![], 0));
-    assert_eq!(registry.len(), 9);
+    assert_eq!(registry.len(), 13);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,8 +194,8 @@ fn test_get_valid_id_returns_some() {
 #[test]
 fn test_get_invalid_id_returns_none() {
     let registry = TypeRegistry::new();
-    // IDs 0-4 are valid (primitives), 5+ are out of bounds
-    assert!(registry.get(5).is_none());
+    // IDs 0-8 are valid (primitives + built-in generics), 9+ are out of bounds
+    assert!(registry.get(9).is_none());
     assert!(registry.get(100).is_none());
 }
 
@@ -213,38 +213,38 @@ fn test_get_missing_type_id_returns_none() {
 #[test]
 fn test_resolve_single_alias() {
     let mut registry = TypeRegistry::new();
-    // Register a record (ID 5), then an alias to it (ID 6)
+    // Register a record (ID 9), then an alias to it (ID 10)
     registry.register(TypeDef::Record(vec![FieldDef {
         name: "point".to_string(),
         type_id: 0,
     }]));
-    registry.register(TypeDef::Alias(5));
+    registry.register(TypeDef::Alias(9));
 
-    // Resolving the alias should give the canonical ID 5
-    let canonical = registry.resolve(6);
-    assert_eq!(canonical, 5);
+    // Resolving the alias should give the canonical ID 9
+    let canonical = registry.resolve(10);
+    assert_eq!(canonical, 9);
 }
 
 #[test]
 fn test_resolve_alias_chain() {
     let mut registry = TypeRegistry::new();
-    // Register record (ID 5)
+    // Register record (ID 9)
     registry.register(TypeDef::Record(vec![FieldDef {
         name: "value".to_string(),
         type_id: 0,
     }]));
-    // Chain: 6 -> 5, 7 -> 6, 8 -> 7
-    registry.register(TypeDef::Alias(5)); // ID 6
-    registry.register(TypeDef::Alias(6)); // ID 7
-    registry.register(TypeDef::Alias(7)); // ID 8
+    // Chain: 10 -> 9, 11 -> 10, 12 -> 11
+    registry.register(TypeDef::Alias(9)); // ID 10
+    registry.register(TypeDef::Alias(10)); // ID 11
+    registry.register(TypeDef::Alias(11)); // ID 12
 
-    // Resolving the end of the chain should give the canonical ID 5
-    let canonical = registry.resolve(8);
-    assert_eq!(canonical, 5);
+    // Resolving the end of the chain should give the canonical ID 9
+    let canonical = registry.resolve(12);
+    assert_eq!(canonical, 9);
 
-    // Intermediate aliases should also resolve to 5
-    assert_eq!(registry.resolve(6), 5);
-    assert_eq!(registry.resolve(7), 5);
+    // Intermediate aliases should also resolve to 9
+    assert_eq!(registry.resolve(10), 9);
+    assert_eq!(registry.resolve(11), 9);
 }
 
 #[test]
@@ -267,7 +267,7 @@ fn test_resolve_record_returns_same_id() {
     }]));
 
     // Non-alias user types should return the same ID
-    assert_eq!(registry.resolve(5), 5);
+    assert_eq!(registry.resolve(9), 9);
 }
 
 // ---------------------------------------------------------------------------
@@ -411,11 +411,11 @@ fn test_registry_json_roundtrip() {
             type_id: 0,
         },
     ]));
-    registry.register(TypeDef::Alias(5));
+    registry.register(TypeDef::Alias(9));
     registry.register(TypeDef::Union(vec![
         VariantDef {
             name: "Ok".to_string(),
-            type_id: Some(5),
+            type_id: Some(9),
         },
         VariantDef {
             name: "Err".to_string(),
@@ -430,9 +430,9 @@ fn test_registry_json_roundtrip() {
     // Verify the round-tripped registry behaves the same
     assert_eq!(back.len(), registry.len());
     assert_eq!(back.get(0), Some(&TypeDef::Primitive(PrimitiveType::Int)));
-    assert_eq!(back.get(5), registry.get(5));
-    assert_eq!(back.get(6), registry.get(6));
-    assert_eq!(back.get(7), registry.get(7));
+    assert_eq!(back.get(9), registry.get(9));
+    assert_eq!(back.get(10), registry.get(10));
+    assert_eq!(back.get(11), registry.get(11));
 }
 
 // ---------------------------------------------------------------------------
@@ -442,13 +442,13 @@ fn test_registry_json_roundtrip() {
 #[test]
 fn test_resolve_self_referential_alias_does_not_loop() {
     let mut registry = TypeRegistry::new();
-    // Register a record (ID 5), then an alias pointing to itself (ID 6 -> 6)
+    // Register a record (ID 9), then an alias pointing to itself (ID 10 -> 10)
     registry.register(TypeDef::Record(vec![]));
-    registry.register(TypeDef::Alias(6)); // Self-referential alias
+    registry.register(TypeDef::Alias(10)); // Self-referential alias
 
-    // resolve(6) should detect the cycle and return something sensible.
+    // resolve(10) should detect the cycle and return something sensible.
     // For now we just call it — the implementation must handle this.
-    let canonical = registry.resolve(6);
+    let canonical = registry.resolve(10);
     // If the implementation cannot resolve, it should at least not loop infinitely.
     // The exact behavior (return the alias ID vs. the non-existent target) is TBD.
     // We test that it *returns* rather than hangs.
@@ -458,11 +458,11 @@ fn test_resolve_self_referential_alias_does_not_loop() {
 #[test]
 fn test_resolve_mutual_alias_chain() {
     let mut registry = TypeRegistry::new();
-    // Mutual aliases: 5 -> 6, 6 -> 5
-    registry.register(TypeDef::Alias(6)); // ID 5
-    registry.register(TypeDef::Alias(5)); // ID 6
+    // Mutual aliases: 9 -> 10, 10 -> 9
+    registry.register(TypeDef::Alias(10)); // ID 9
+    registry.register(TypeDef::Alias(9)); // ID 10
 
     // Similar to self-referential — at minimum must not loop.
-    let canonical = registry.resolve(5);
+    let canonical = registry.resolve(9);
     let _ = canonical;
 }

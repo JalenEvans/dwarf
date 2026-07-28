@@ -29,6 +29,12 @@ pub struct JavaBackend {
     needs_optional: bool,
     needs_jqwik: bool,
     has_forall: bool,
+    needs_option: bool,
+    needs_result: bool,
+    needs_list_utils: bool,
+    needs_string_utils: bool,
+    needs_math_utils: bool,
+    needs_io_utils: bool,
 }
 
 impl JavaBackend {
@@ -43,6 +49,12 @@ impl JavaBackend {
             needs_optional: false,
             needs_jqwik: false,
             has_forall: false,
+            needs_option: false,
+            needs_result: false,
+            needs_list_utils: false,
+            needs_string_utils: false,
+            needs_math_utils: false,
+            needs_io_utils: false,
         }
     }
 
@@ -80,6 +92,71 @@ impl EmitterBackend for JavaBackend {
                 &mut self.needs_completable_future,
                 &mut self.needs_optional,
             );
+            // Scan types for stdlib references
+            match decl {
+                LirDecl::Function {
+                    params,
+                    return_type,
+                    body,
+                    ..
+                } => {
+                    for param in params {
+                        if let Some(ref ty) = param.type_ {
+                            Self::scan_type_for_stdlib(
+                                ty,
+                                &mut self.needs_option,
+                                &mut self.needs_result,
+                                &mut self.needs_list_utils,
+                                &mut self.needs_string_utils,
+                                &mut self.needs_math_utils,
+                            );
+                        }
+                    }
+                    if let Some(ref ty) = return_type {
+                        Self::scan_type_for_stdlib(
+                            ty,
+                            &mut self.needs_option,
+                            &mut self.needs_result,
+                            &mut self.needs_list_utils,
+                            &mut self.needs_string_utils,
+                            &mut self.needs_math_utils,
+                        );
+                    }
+                    // Also scan expression for stdlib calls
+                    Self::scan_expr_for_stdlib(
+                        body,
+                        &mut self.needs_io_utils,
+                        &mut self.needs_string_utils,
+                        &mut self.needs_math_utils,
+                    );
+                }
+                LirDecl::RecordDef { fields, .. } => {
+                    for field in fields {
+                        Self::scan_type_for_stdlib(
+                            &field.type_,
+                            &mut self.needs_option,
+                            &mut self.needs_result,
+                            &mut self.needs_list_utils,
+                            &mut self.needs_string_utils,
+                            &mut self.needs_math_utils,
+                        );
+                    }
+                }
+                LirDecl::UnionDef { variants, .. } => {
+                    for variant in variants {
+                        if let Some(ref arg_type) = variant.arg {
+                            Self::scan_type_for_stdlib(
+                                arg_type,
+                                &mut self.needs_option,
+                                &mut self.needs_result,
+                                &mut self.needs_list_utils,
+                                &mut self.needs_string_utils,
+                                &mut self.needs_math_utils,
+                            );
+                        }
+                    }
+                }
+            }
             // Detect ForAll declarations for jqwik import and class name
             if let LirDecl::Function { body, .. } = decl {
                 if matches!(*body, LirExpr::ForAll { .. }) {
@@ -112,7 +189,34 @@ impl EmitterBackend for JavaBackend {
         if self.needs_jqwik {
             buf.push_line("import net.jqwik.api.*;");
         }
-        if self.needs_completable_future || self.needs_optional || self.needs_jqwik {
+        if self.needs_option {
+            buf.push_line("import dwarf.gen.Option;");
+        }
+        if self.needs_result {
+            buf.push_line("import dwarf.gen.Result;");
+        }
+        if self.needs_list_utils {
+            buf.push_line("import dwarf.gen.ListUtils;");
+        }
+        if self.needs_string_utils {
+            buf.push_line("import dwarf.gen.StringUtils;");
+        }
+        if self.needs_math_utils {
+            buf.push_line("import dwarf.gen.MathUtils;");
+        }
+        if self.needs_io_utils {
+            buf.push_line("import dwarf.gen.IOUtils;");
+        }
+        if self.needs_completable_future
+            || self.needs_optional
+            || self.needs_jqwik
+            || self.needs_option
+            || self.needs_result
+            || self.needs_list_utils
+            || self.needs_string_utils
+            || self.needs_math_utils
+            || self.needs_io_utils
+        {
             buf.push_empty();
         }
 
@@ -642,6 +746,181 @@ impl JavaBackend {
             }
         }
         Ok(format!("{{ {}; }}", parts.join("; ")))
+    }
+
+    /// Scan a type for stdlib references and mark needed imports.
+    #[allow(clippy::only_used_in_recursion)]
+    fn scan_type_for_stdlib(
+        ty: &Type,
+        needs_option: &mut bool,
+        needs_result: &mut bool,
+        needs_list: &mut bool,
+        needs_string: &mut bool,
+        needs_math: &mut bool,
+    ) {
+        match ty {
+            Type::Generic { base, args } => {
+                match base.as_str() {
+                    "Option" => *needs_option = true,
+                    "Result" => *needs_result = true,
+                    "List" => *needs_list = true,
+                    _ => {}
+                }
+                for arg in args {
+                    Self::scan_type_for_stdlib(
+                        arg,
+                        needs_option,
+                        needs_result,
+                        needs_list,
+                        needs_string,
+                        needs_math,
+                    );
+                }
+            }
+            Type::Record(fields) => {
+                for (_, field_type) in fields {
+                    Self::scan_type_for_stdlib(
+                        field_type,
+                        needs_option,
+                        needs_result,
+                        needs_list,
+                        needs_string,
+                        needs_math,
+                    );
+                }
+            }
+            Type::Union(variants) => {
+                for variant in variants {
+                    Self::scan_type_for_stdlib(
+                        variant,
+                        needs_option,
+                        needs_result,
+                        needs_list,
+                        needs_string,
+                        needs_math,
+                    );
+                }
+            }
+            Type::Func { params, return_ } => {
+                for param in params {
+                    Self::scan_type_for_stdlib(
+                        param,
+                        needs_option,
+                        needs_result,
+                        needs_list,
+                        needs_string,
+                        needs_math,
+                    );
+                }
+                Self::scan_type_for_stdlib(
+                    return_,
+                    needs_option,
+                    needs_result,
+                    needs_list,
+                    needs_string,
+                    needs_math,
+                );
+            }
+            Type::Refined { base, .. } => Self::scan_type_for_stdlib(
+                base,
+                needs_option,
+                needs_result,
+                needs_list,
+                needs_string,
+                needs_math,
+            ),
+            Type::Named(_) => {}
+        }
+    }
+
+    /// Scan an expression for stdlib calls (I/O, String, Math, etc.)
+    fn scan_expr_for_stdlib(
+        expr: &LirExpr,
+        needs_io: &mut bool,
+        needs_string: &mut bool,
+        needs_math: &mut bool,
+    ) {
+        match expr {
+            LirExpr::Call { func, args, .. } => {
+                if let LirExpr::Variable { name, .. } = func.as_ref() {
+                    match name.as_str() {
+                        "print" | "readFile" | "writeFile" => *needs_io = true,
+                        _ => {}
+                    }
+                }
+                if let LirExpr::Member { obj, .. } = func.as_ref() {
+                    if let LirExpr::Variable { name, .. } = obj.as_ref() {
+                        match name.as_str() {
+                            "String" => *needs_string = true,
+                            "Math" => *needs_math = true,
+                            _ => {}
+                        }
+                    }
+                }
+                for arg in args {
+                    Self::scan_expr_for_stdlib(arg, needs_io, needs_string, needs_math);
+                }
+            }
+            LirExpr::Block { stmts, .. } => {
+                for stmt in stmts {
+                    match stmt {
+                        LirStmt::Let { value, .. } => {
+                            Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math)
+                        }
+                        LirStmt::Expr(e) => {
+                            Self::scan_expr_for_stdlib(e, needs_io, needs_string, needs_math)
+                        }
+                    }
+                }
+            }
+            LirExpr::Lambda { body, .. } => {
+                Self::scan_expr_for_stdlib(body, needs_io, needs_string, needs_math)
+            }
+            LirExpr::If {
+                cond, then, else_, ..
+            } => {
+                Self::scan_expr_for_stdlib(cond, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(then, needs_io, needs_string, needs_math);
+                if let Some(el) = else_ {
+                    Self::scan_expr_for_stdlib(el, needs_io, needs_string, needs_math);
+                }
+            }
+            LirExpr::Binary { lhs, rhs, .. } => {
+                Self::scan_expr_for_stdlib(lhs, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(rhs, needs_io, needs_string, needs_math);
+            }
+            LirExpr::Unary { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
+            LirExpr::Assign { target, value, .. } => {
+                Self::scan_expr_for_stdlib(target, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math);
+            }
+            LirExpr::Member { obj, .. } => {
+                Self::scan_expr_for_stdlib(obj, needs_io, needs_string, needs_math)
+            }
+            LirExpr::Record { fields, .. } => {
+                for (_, val) in fields {
+                    Self::scan_expr_for_stdlib(val, needs_io, needs_string, needs_math);
+                }
+            }
+            LirExpr::Array { items, .. } => {
+                for item in items {
+                    Self::scan_expr_for_stdlib(item, needs_io, needs_string, needs_math);
+                }
+            }
+            LirExpr::Variant { arg: Some(a), .. } => {
+                Self::scan_expr_for_stdlib(a, needs_io, needs_string, needs_math)
+            }
+            LirExpr::Variant { arg: None, .. } => {}
+            LirExpr::ForAll { property, .. } => {
+                Self::scan_expr_for_stdlib(property, needs_io, needs_string, needs_math)
+            }
+            LirExpr::AssertConsistent { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math)
+            }
+            _ => {}
+        }
     }
 
     /// Recursively scan a declaration for imports needed by the module.

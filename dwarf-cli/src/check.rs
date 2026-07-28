@@ -17,6 +17,7 @@ pub fn run_check(
     passes: Option<String>,
     skip_passes: Option<String>,
     list_passes: bool,
+    stdlib_path: Option<String>,
 ) {
     if list_passes {
         println!(
@@ -45,6 +46,7 @@ pub fn run_check(
             .map(|s| s.trim().to_string())
             .collect(),
         source_map: false,
+        stdlib_path,
     };
 
     let options = dwarf_cli::config::merge_config_with_cli(cli_options);

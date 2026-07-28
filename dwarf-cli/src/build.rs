@@ -78,6 +78,7 @@ pub fn run_build(
     json: bool,
     passes: Option<String>,
     skip_passes: Option<String>,
+    stdlib_path: Option<String>,
 ) {
     // Parse the target string into a list of targets
     let targets: Vec<String> = if target.is_empty() {
@@ -98,6 +99,7 @@ pub fn run_build(
             .map(|s| s.trim().to_string())
             .collect(),
         source_map,
+        stdlib_path,
     };
 
     // Merge with config file if present
@@ -620,6 +622,29 @@ mod tests {
         assert_eq!(
             sub_m.get_one::<String>("skip_passes").map(String::as_str),
             Some("typecheck")
+        );
+    }
+
+    // WILL FAIL — RED PHASE: --stdlib-path is not yet defined in clap args
+    #[test]
+    fn test_build_cli_parse_with_stdlib_path() {
+        let cmd = crate::Cli::command();
+        let matches = cmd.try_get_matches_from([
+            "dwarf-cli",
+            "build",
+            "file.kzd",
+            "--target",
+            "ts",
+            "--stdlib-path",
+            "/custom/stdlib",
+        ]);
+        assert!(matches.is_ok(), "Parse failed: {:?}", matches.err());
+
+        let matches = matches.unwrap();
+        let (_, sub_m) = matches.subcommand().unwrap();
+        assert_eq!(
+            sub_m.get_one::<String>("stdlib-path").map(String::as_str),
+            Some("/custom/stdlib")
         );
     }
 }
