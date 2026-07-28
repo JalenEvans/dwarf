@@ -1477,3 +1477,192 @@ fn test_propagate_on_non_option_result() {
         "Propagate on non-union type (Int) should produce an error (stub fails here)"
     );
 }
+
+// ===========================================================================
+// 19. For loop inference (DWARF-55 Phase 4)
+//     `for x in iterable { body }` binds the loop variable to the element
+//     type of a list, infers the body in a scoped environment, and returns
+//     Null (unit). Iterating over a non-list type produces a type error.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_for_loop_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in [1, 2, 3] { x }
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Array {
+            items: vec![
+                Expr::Literal {
+                    value: LiteralValue::Int(1),
+                    span: dummy_span(),
+                },
+                Expr::Literal {
+                    value: LiteralValue::Int(2),
+                    span: dummy_span(),
+                },
+                Expr::Literal {
+                    value: LiteralValue::Int(3),
+                    span: dummy_span(),
+                },
+            ],
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but for loop should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "For loop over a list should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "For loop should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the loop itself should be Null (4)
+}
+
+#[test]
+fn test_for_loop_empty_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in [] { null }
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Array {
+            items: vec![],
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Null,
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but for loop should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "For loop over an empty list should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "For loop over empty list should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the loop itself should be Null (4)
+}
+
+#[test]
+fn test_for_loop_non_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in 42 { x } — iterating over Int (not a List)
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but iterating over a non-list should error
+    assert!(
+        result.is_err(),
+        "For loop over non-list type (Int) should produce an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 20. Assign expression inference (DWARF-55 Phase 4)
+//     `target = value` checks that the target and value types are compatible
+//     and returns Null (unit). A type mismatch produces a type error.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_assign_simple() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+    env.bind("x".to_string(), 0); // x: Int
+
+    // x = 42
+    let expr = Expr::Assign {
+        target: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but assign should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "Assign with matching types should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Assign should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: assignment should be Null (4)
+}
+
+#[test]
+fn test_assign_type_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+    env.bind("x".to_string(), 0); // x: Int
+
+    // x = "hello" — Int vs Str mismatch
+    let expr = Expr::Assign {
+        target: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but type mismatch should error
+    assert!(
+        result.is_err(),
+        "Assign with type mismatch (Int vs Str) should produce an error (stub fails here)"
+    );
+}

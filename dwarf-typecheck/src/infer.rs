@@ -158,11 +158,19 @@ pub fn infer_expr(
         // 16. Propagate expressions (?expr)
         Expr::Propagate { expr, .. } => infer_propagate(expr, env, registry),
 
-        // 17. Other expressions (placeholder stubs)
-        Expr::For { .. }
-        | Expr::ForAll { .. }
-        | Expr::Assign { .. }
-        | Expr::AssertConsistent { .. } => Ok(0),
+        // 17. For loop expressions (for x in iterable { body })
+        Expr::For {
+            binding,
+            iterable,
+            body,
+            ..
+        } => infer_for(binding, iterable, body, env, registry),
+
+        // 18. Assign expressions (target = value)
+        Expr::Assign { target, value, .. } => infer_assign(target, value, env, registry),
+
+        // 19. Other expressions (placeholder stubs for future phases)
+        Expr::ForAll { .. } | Expr::AssertConsistent { .. } => Ok(0),
     }
 }
 
@@ -715,4 +723,110 @@ fn infer_propagate(
         Some(_) => Err("Propagate target must be a union type (Result/Option)".to_string()),
         None => Err("Propagate target type not found".to_string()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// For loop and Assign inference (Phase 4)
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a for loop expression `for binding in iterable { body }`.
+///
+/// Semantics:
+/// 1. Infer the `iterable` type — it must be a `List<T>` (GenericInstance
+///    with base == List base and args containing the element type).
+/// 2. Extract the element type `T` from the List's generic arguments.
+/// 3. Create a new scope with the `binding` variable mapped to `T`.
+/// 4. Infer the `body` expression in the new scope.
+/// 5. Return Null (4) — for loops are control-flow expressions that don't
+///    produce a meaningful value.
+///
+/// # Errors
+///
+/// - If the iterable is not a `List<T>`, returns an error.
+/// - If the binding pattern is unsupported (not Variable or Wildcard),
+///   returns an error.
+fn infer_for(
+    binding: &Pat,
+    iterable: &Expr,
+    body: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Infer the iterable type
+    let iter_type = infer_expr(iterable, env, registry)?;
+    let resolved = registry.resolve(iter_type);
+
+    // Get the list base before matching to avoid conflicting borrows
+    let list_base = registry.get_or_create_list_base();
+
+    match registry.get(resolved) {
+        Some(TypeDef::GenericInstance { base, args }) => {
+            if *base != list_base {
+                return Err("For loop iterable must be a List".to_string());
+            }
+            if args.is_empty() {
+                return Err("For loop iterable List has no element type".to_string());
+            }
+            let elem_type = args[0];
+
+            // Create new scope with binding
+            let mut inner_env = env.clone();
+            match binding {
+                Pat::Variable(name) => {
+                    inner_env.bind(name.clone(), elem_type);
+                }
+                Pat::Wildcard => {
+                    // Binding ignored
+                }
+                _ => {
+                    return Err(
+                        "Unsupported binding pattern in for loop".to_string()
+                    );
+                }
+            }
+
+            // Infer body in new scope
+            infer_expr(body, &inner_env, registry)?;
+
+            // For loops return Null (unit / control-flow)
+            Ok(4)
+        }
+        Some(_) => Err("For loop iterable must be a List".to_string()),
+        None => Err("For loop iterable type not found".to_string()),
+    }
+}
+
+/// Infer the type of an assignment expression `target = value`.
+///
+/// Semantics:
+/// 1. Infer the `target` type (e.g. looking up a variable in the environment).
+/// 2. Infer the `value` type.
+/// 3. Check that the two types are structurally compatible.
+/// 4. Return Null (4) — assignment is a statement whose value is discarded.
+///
+/// # Errors
+///
+/// - If the target type and value type are incompatible, returns an error.
+fn infer_assign(
+    target: &Expr,
+    value: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Infer the target type (e.g. resolves a variable reference)
+    let target_type = infer_expr(target, env, registry)?;
+
+    // Infer the value type
+    let value_type = infer_expr(value, env, registry)?;
+
+    // Check compatibility: value must be assignable to target
+    if !compat::check(registry, target_type, value_type).compatible {
+        return Err(
+            "Assignment type mismatch: target and value types are incompatible"
+                .to_string(),
+        );
+    }
+
+    // Assignment returns Null (unit)
+    Ok(4)
 }
