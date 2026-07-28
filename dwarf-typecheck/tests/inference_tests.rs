@@ -870,3 +870,921 @@ fn test_type_env_bind_multiple() {
         "Unbound variable 'z' should return None"
     );
 }
+
+// ===========================================================================
+// 14. Array expressions (DWARF-55 Phase 1)
+//     Arrays infer to List<T> where T is the common type of all elements.
+//     Empty arrays infer to List<Null> (or a fresh type variable).
+//     Heterogeneous arrays produce a type error.
+//     Currently stubbed to return Ok(0) — these tests will pass once
+//     the real inference is implemented.
+// ===========================================================================
+
+#[test]
+fn test_array_empty() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // []
+    let expr = Expr::Array {
+        items: vec![],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but should return a List type
+    assert!(result.is_ok(), "Empty array should infer successfully");
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Empty array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the result should be a GenericInstance (List)
+    // with one type argument (the element type, likely Null or a fresh variable)
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "List type should have one type argument");
+            assert!(
+                registry.get(args[0]).is_some(),
+                "Element type should be registered"
+            );
+        }
+        other => {
+            panic!(
+                "Empty array should infer to a GenericInstance (List) type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_homogeneous_int() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [1, 2, 3]
+    let expr = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(3),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "Homogeneous array should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Homogeneous array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be List<Int>
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "List type should have one type argument");
+            assert_eq!(args[0], 0, "Element type should be Int");
+        }
+        other => {
+            panic!(
+                "Array should infer to a GenericInstance (List) type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_nested() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [[1, 2], [3, 4]]
+    let inner1 = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(2),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let inner2 = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(3),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Int(4),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let expr = Expr::Array {
+        items: vec![inner1, inner2],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(result.is_ok(), "Nested array should infer successfully");
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Nested array should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be List<List<Int>>
+    match registry.get(type_id) {
+        Some(TypeDef::GenericInstance { base: _, args }) => {
+            assert_eq!(args.len(), 1, "Outer List should have one type argument");
+            let inner_type_id = args[0];
+            // Inner should be List<Int>
+            match registry.get(inner_type_id) {
+                Some(TypeDef::GenericInstance {
+                    base: _,
+                    args: inner_args,
+                }) => {
+                    assert_eq!(
+                        inner_args.len(),
+                        1,
+                        "Inner List should have one type argument"
+                    );
+                    assert_eq!(inner_args[0], 0, "Innermost element type should be Int");
+                }
+                other => {
+                    panic!("Inner array should be GenericInstance, got {:?}", other);
+                }
+            }
+        }
+        other => {
+            panic!("Outer array should be GenericInstance, got {:?}", other);
+        }
+    }
+}
+
+#[test]
+fn test_array_heterogeneous_error() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // [1, "hello"] — type mismatch between Int and Str
+    let expr = Expr::Array {
+        items: vec![
+            Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            Expr::Literal {
+                value: LiteralValue::Str("hello".to_string()),
+                span: dummy_span(),
+            },
+        ],
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "Heterogeneous array [Int, Str] should produce a type error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 15. Wildcard expressions (DWARF-55 Phase 1)
+//     A wildcard `_` is a placeholder expression that infers to a bottom
+//     type (Null) or a fresh type variable. It should never crash.
+//     Currently stubbed to return Ok(0).
+// ===========================================================================
+
+#[test]
+fn test_wildcard_infers() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+    // _
+    let expr = Expr::Wildcard { span: dummy_span() };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "Wildcard expression should infer successfully"
+    );
+    let type_id = result.unwrap();
+
+    // Red-phase: stub returns Int (0), but wildcard should NOT be Int
+    assert_ne!(
+        type_id, 0,
+        "Wildcard should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: wildcard should be Null (4) or a fresh type variable.
+    // Assert it's a valid registered type.
+    assert!(
+        registry.get(type_id).is_some(),
+        "Wildcard type should be registered in the registry"
+    );
+}
+
+// ===========================================================================
+// 16. Variant expression inference (DWARF-55 Phase 2)
+//     Variant expressions like `None`, `Some(42)` look up variant definitions
+//     in registered union types. Unit variants have no payload; payload
+//     variants carry a single expression that must match the declared type.
+//     Unknown variant names produce an error.
+// ===========================================================================
+
+/// Helper: register an `Option<Int>` union type in the registry.
+///
+/// This creates a union with two variants:
+///   - `Some(Int)` — payload variant
+///   - `None` — unit variant
+///
+/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+fn register_option_type(registry: &mut TypeRegistry) -> TypeId {
+    let some_variant = VariantDef {
+        name: "Some".to_string(),
+        type_id: Some(0), // Int payload
+    };
+    let none_variant = VariantDef {
+        name: "None".to_string(),
+        type_id: None, // Unit variant
+    };
+    registry.register(TypeDef::Union(vec![some_variant, none_variant]))
+}
+
+#[test]
+fn test_variant_unit_no_arg() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5
+    register_option_type(&mut registry);
+
+    // None — unit variant without a payload
+    let expr = Expr::Variant {
+        name: "None".to_string(),
+        arg: None,
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    assert!(
+        result.is_ok(),
+        "Unit variant 'None' should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Unit variant should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be a Union containing the None variant
+    match registry.get(type_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert!(
+                variants.iter().any(|v| v.name == "None"),
+                "Union should contain a 'None' variant"
+            );
+        }
+        other => {
+            panic!(
+                "Variant expression should infer to a Union type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variant_with_payload() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5
+    register_option_type(&mut registry);
+
+    // Some(42) — variant with Int payload matching the union definition
+    let expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Red-phase: stub returns Ok(0), but it should be the union type (ID 5+)
+    assert!(
+        result.is_ok(),
+        "Payload variant 'Some(42)' should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Payload variant should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: should be a Union containing the Some variant
+    match registry.get(type_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert!(
+                variants
+                    .iter()
+                    .any(|v| v.name == "Some" && v.type_id == Some(0)),
+                "Union should contain 'Some' variant with Int payload"
+            );
+        }
+        other => {
+            panic!(
+                "Variant expression should infer to a Union type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variant_payload_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Int> at ID 5 where Some expects Int payload
+    register_option_type(&mut registry);
+
+    // Some("hello") — arg is Str but Some expects Int
+    let expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but this should be a type error
+    assert!(
+        result.is_err(),
+        "Payload type mismatch (Str vs expected Int) should produce an error (stub fails here)"
+    );
+}
+
+#[test]
+fn test_variant_unknown_name() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // No union registered — Foo doesn't exist in any variant set
+
+    // Foo(42) — unknown variant name
+    let expr = Expr::Variant {
+        name: "Foo".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but unknown variant should be an error
+    assert!(
+        result.is_err(),
+        "Unknown variant name 'Foo' should produce an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 17. Pipe expressions (DWARF-55 Phase 3)
+//     lhs |> rhs is equivalent to rhs(lhs). RHS must evaluate to a function
+//     type, and LHS type must match the function's first parameter type.
+//     The result is the function's return type.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_pipe_simple() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register a function type: Func([Int], Str) at ID 5
+    registry.register(TypeDef::Func(vec![0], 2)); // f: Int -> Str
+    env.bind("f".to_string(), 5);
+
+    // 5 |> f — equivalent to f(5), f returns Str
+    let expr = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(5),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Ok(2) (Str), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(2),
+        "5 |> f where f: Int -> Str should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_pipe_chain() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register f: Int -> Float at ID 5
+    registry.register(TypeDef::Func(vec![0], 1));
+    // Register g: Float -> Bool at ID 6
+    registry.register(TypeDef::Func(vec![1], 3));
+    env.bind("f".to_string(), 5);
+    env.bind("g".to_string(), 6);
+
+    // 5 |> f |> g — equivalent to g(f(5))
+    // inner pipe: 5 |> f → Float (1)
+    // outer pipe: Float |> g → Bool (3)
+    let inner_pipe = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(5),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+    let outer_pipe = Expr::Pipe {
+        lhs: Box::new(inner_pipe),
+        rhs: Box::new(Expr::Variable {
+            name: "g".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&outer_pipe, &env, &mut registry);
+    // Expected: Ok(3) (Bool), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(3),
+        "5 |> f |> g where f: Int->Float, g: Float->Bool should yield Bool (stub fails here)"
+    );
+}
+
+#[test]
+fn test_pipe_type_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register a function type: Func([Int], Int) at ID 5
+    registry.register(TypeDef::Func(vec![0], 0)); // f: Int -> Int
+    env.bind("f".to_string(), 5);
+
+    // "hello" |> f — Str (2) doesn't match Int (0) param
+    let expr = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Err (type mismatch), stub returns Ok(0)
+    assert!(
+        result.is_err(),
+        "Pipe with type mismatch (Str into Int param) should return an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 18. Propagate expressions (DWARF-55 Phase 3)
+//     ?expr unwraps Ok(T) / Some(T) from a union type. If the inner expression
+//     is a union with an Ok/Some variant carrying a payload, the result is the
+//     payload type. If the inner expression is not an appropriate union type,
+//     an error is produced.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+/// Helper: register an `Option<Bool>` union type in the registry.
+///
+/// Creates a union with variants:
+///   - `Some(Bool)` — payload variant
+///   - `None` — unit variant
+///
+/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+fn register_option_bool_type(registry: &mut TypeRegistry) -> TypeId {
+    let some_variant = VariantDef {
+        name: "Some".to_string(),
+        type_id: Some(3), // Bool payload
+    };
+    let none_variant = VariantDef {
+        name: "None".to_string(),
+        type_id: None, // Unit variant
+    };
+    registry.register(TypeDef::Union(vec![some_variant, none_variant]))
+}
+
+#[test]
+fn test_propagate_result() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Bool> at ID 5
+    register_option_bool_type(&mut registry);
+
+    // Some(true) — variant expression returning Option<Bool>
+    let inner_expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+
+    // ?Some(true) — propagate unwraps the inner Bool payload
+    let expr = Expr::Propagate {
+        expr: Box::new(inner_expr),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Ok(3) (Bool), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(3),
+        "?Some(true) where Some has Bool payload should yield Bool (stub fails here)"
+    );
+}
+
+#[test]
+fn test_propagate_on_non_option_result() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // ?42 — propagate on a literal Int, which is not Result/Option-like
+    let expr = Expr::Propagate {
+        expr: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Err, stub returns Ok(0)
+    assert!(
+        result.is_err(),
+        "Propagate on non-union type (Int) should produce an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 19. For loop inference (DWARF-55 Phase 4)
+//     `for x in iterable { body }` binds the loop variable to the element
+//     type of a list, infers the body in a scoped environment, and returns
+//     Null (unit). Iterating over a non-list type produces a type error.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_for_loop_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in [1, 2, 3] { x }
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Array {
+            items: vec![
+                Expr::Literal {
+                    value: LiteralValue::Int(1),
+                    span: dummy_span(),
+                },
+                Expr::Literal {
+                    value: LiteralValue::Int(2),
+                    span: dummy_span(),
+                },
+                Expr::Literal {
+                    value: LiteralValue::Int(3),
+                    span: dummy_span(),
+                },
+            ],
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but for loop should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "For loop over a list should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "For loop should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the loop itself should be Null (4)
+}
+
+#[test]
+fn test_for_loop_empty_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in [] { null }
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Array {
+            items: vec![],
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Literal {
+            value: LiteralValue::Null,
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but for loop should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "For loop over an empty list should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "For loop over empty list should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: the loop itself should be Null (4)
+}
+
+#[test]
+fn test_for_loop_non_list() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // for x in 42 { x } — iterating over Int (not a List)
+    let expr = Expr::For {
+        binding: Pat::Variable("x".to_string()),
+        iterable: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        body: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but iterating over a non-list should error
+    assert!(
+        result.is_err(),
+        "For loop over non-list type (Int) should produce an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 20. Assign expression inference (DWARF-55 Phase 4)
+//     `target = value` checks that the target and value types are compatible
+//     and returns Null (unit). A type mismatch produces a type error.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_assign_simple() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+    env.bind("x".to_string(), 0); // x: Int
+
+    // x = 42
+    let expr = Expr::Assign {
+        target: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but assign should NOT infer to Int
+    assert!(
+        result.is_ok(),
+        "Assign with matching types should infer successfully"
+    );
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "Assign should NOT infer to Int (stub fails here)"
+    );
+
+    // After implementation: assignment should be Null (4)
+}
+
+#[test]
+fn test_assign_type_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+    env.bind("x".to_string(), 0); // x: Int
+
+    // x = "hello" — Int vs Str mismatch
+    let expr = Expr::Assign {
+        target: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    // Stub returns Ok(0), but type mismatch should error
+    assert!(
+        result.is_err(),
+        "Assign with type mismatch (Int vs Str) should produce an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 21. ForAll and AssertConsistent inference (DWARF-55 Phase 5)
+//     ForAll: forAll(x: Int) { property } binds a variable with an explicit
+//     type annotation and requires the property expression to be Bool.
+//     AssertConsistent: assertConsistent(expr) is a pass-through that returns
+//     the inner expression's type.
+//     Both are currently stubbed to return Ok(0) — these tests fail under
+//     the stub.
+// ===========================================================================
+
+#[test]
+fn test_forall_valid_property() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // forAll(x: Int) { x == x }
+    // The property `x == x` compares two Ints, producing Bool.
+    // After implementation: Ok(3) (Bool).
+    let expr = Expr::ForAll {
+        type_: Type::Named("Int".to_string()),
+        binding: Pat::Variable("x".to_string()),
+        property: Box::new(Expr::Binary {
+            op: BinaryOp::Eq,
+            lhs: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(Expr::Variable {
+                name: "x".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but ForAll with a Bool property should yield Bool
+    assert_ne!(
+        result.unwrap_or(0),
+        0,
+        "ForAll with valid Bool property should NOT infer to Int (stub fails here)"
+    );
+}
+
+#[test]
+fn test_forall_invalid_property() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // forAll(x: Int) { 42 }
+    // The property is an Int literal, which is not Bool — should error.
+    let expr = Expr::ForAll {
+        type_: Type::Named("Int".to_string()),
+        binding: Pat::Variable("x".to_string()),
+        property: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but a non-Bool property should produce an error
+    assert!(
+        result.is_err(),
+        "ForAll with non-Bool property should produce an error (stub fails here)"
+    );
+}
+
+#[test]
+fn test_assert_consistent_custom_type() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // assertConsistent({}) — pass-through on an empty record expression.
+    // The record expression produces a unique TypeId > 0 (not the stub Int),
+    // so assert_ne!(..., 0) properly verifies the pass-through delegates to
+    // infer_expr rather than returning the blanket stub.
+    let expr = Expr::AssertConsistent {
+        expr: Box::new(Expr::Record {
+            fields: vec![],
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert!(result.is_ok(), "assertConsistent({{}}) should not fail");
+    let type_id = result.unwrap();
+    assert_ne!(
+        type_id, 0,
+        "assertConsistent({{}}) should pass through the record type (which is != Int), stub fails here"
+    );
+
+    // Verify it's actually a Record type (pass-through property)
+    match registry.get(type_id) {
+        Some(TypeDef::Record(fields)) => {
+            assert!(fields.is_empty(), "Empty record should have no fields");
+        }
+        other => {
+            panic!(
+                "assertConsistent should pass through the inner Record type, got {:?}",
+                other
+            );
+        }
+    }
+}
+
+#[test]
+fn test_assert_consistent_bool() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // assertConsistent(true) — pass-through, should return Bool (3)
+    let expr = Expr::AssertConsistent {
+        expr: Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Stub returns Ok(0), but assertConsistent(true) should yield Bool
+    assert_ne!(
+        result.unwrap_or(0),
+        0,
+        "assertConsistent(true) should NOT infer to Int (stub fails here)"
+    );
+}

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use dwarf_syntax::hir::Type as HirType;
 use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt, UnaryOp};
 
+use crate::compat;
 use crate::registry::TypeRegistry;
 use crate::types::{FieldDef, TypeDef, TypeId};
 
@@ -142,16 +143,42 @@ pub fn infer_expr(
         // 11. Match expressions
         Expr::Match { expr, arms, .. } => infer_match(expr, arms, env, registry),
 
-        // 12. Other expressions (placeholder stubs)
-        Expr::Pipe { .. }
-        | Expr::Propagate { .. }
-        | Expr::For { .. }
-        | Expr::ForAll { .. }
-        | Expr::Assign { .. }
-        | Expr::Array { .. }
-        | Expr::Wildcard { .. }
-        | Expr::Variant { .. }
-        | Expr::AssertConsistent { .. } => Ok(0),
+        // 12. Array expressions (List<T>)
+        Expr::Array { items, .. } => infer_array(items, env, registry),
+
+        // 13. Wildcard expressions (placeholder, infers to Null)
+        Expr::Wildcard { .. } => infer_wildcard(),
+
+        // 14. Variant expressions (e.g. None, Some(42))
+        Expr::Variant { name, arg, .. } => infer_variant(name, arg.as_deref(), env, registry),
+
+        // 15. Pipe expressions (lhs |> rhs)
+        Expr::Pipe { lhs, rhs, .. } => infer_pipe(lhs, rhs, env, registry),
+
+        // 16. Propagate expressions (?expr)
+        Expr::Propagate { expr, .. } => infer_propagate(expr, env, registry),
+
+        // 17. For loop expressions (for x in iterable { body })
+        Expr::For {
+            binding,
+            iterable,
+            body,
+            ..
+        } => infer_for(binding, iterable, body, env, registry),
+
+        // 18. Assign expressions (target = value)
+        Expr::Assign { target, value, .. } => infer_assign(target, value, env, registry),
+
+        // 19. ForAll expression (property-based testing)
+        Expr::ForAll {
+            type_,
+            binding,
+            property,
+            ..
+        } => infer_forall(type_, binding, property, env, registry),
+
+        // 20. AssertConsistent expression (pass-through)
+        Expr::AssertConsistent { expr, .. } => infer_assert_consistent(expr, env, registry),
     }
 }
 
@@ -489,4 +516,399 @@ fn infer_match(
     }
 
     Ok(first_type)
+}
+
+/// Infer the type of an array literal expression.
+///
+/// All elements must have the same type (checked via structural compatibility).
+/// Empty arrays infer to `List<Null>`.
+///
+/// Returns a `GenericInstance` with `base = List` (lazily registered empty
+/// record) and `args = [element_type]`.
+fn infer_array(
+    items: &[Expr],
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let list_base = registry.get_or_create_list_base();
+
+    if items.is_empty() {
+        // Empty array: List<Null>
+        return Ok(registry.register(TypeDef::GenericInstance {
+            base: list_base,
+            args: vec![4], // Null as element type
+        }));
+    }
+
+    // Infer first element type
+    let elem_type = infer_expr(&items[0], env, registry)?;
+
+    // Check remaining elements are compatible with the first
+    for item in &items[1..] {
+        let t = infer_expr(item, env, registry)?;
+        if !compat::check(registry, elem_type, t).compatible {
+            return Err(format!(
+                "Type mismatch in array literal: expected type {}, got {}",
+                elem_type, t
+            ));
+        }
+    }
+
+    // Return List<elem_type>
+    Ok(registry.register(TypeDef::GenericInstance {
+        base: list_base,
+        args: vec![elem_type],
+    }))
+}
+
+/// Infer the type of a wildcard expression `_`.
+///
+/// A wildcard is a placeholder that always infers to the Null type (4).
+fn infer_wildcard() -> Result<TypeId, String> {
+    Ok(4) // Null type
+}
+
+/// Infer the type of a variant expression (e.g. `None`, `Some(42)`).
+///
+/// Searches all registered types in the registry for a `TypeDef::Union`
+/// containing a variant with the matching `name`. If found, validates the
+/// argument (payload) against the variant's expected type and returns the
+/// union's `TypeId`.
+///
+/// # Errors
+///
+/// - `"Unknown variant '{name}'"` if no registered union contains a variant
+///   with the given name.
+/// - `"Variant '{name}' does not accept an argument"` if `arg` is `Some` but
+///   the variant definition has no expected payload type.
+/// - `"Variant '{name}' requires an argument"` if `arg` is `None` but the
+///   variant definition expects a payload type.
+/// - Compat check errors if the inferred arg type does not match the expected
+///   payload type.
+fn infer_variant(
+    name: &str,
+    arg: Option<&Expr>,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Search every type in the registry for a Union containing this variant.
+    // We extract variant info first to avoid holding a borrow on registry
+    // while calling infer_expr (which needs &mut registry).
+    for id in 0..registry.len() {
+        let resolved_id = registry.resolve(id);
+
+        // Look for a matching variant and extract its expected payload type.
+        // The borrow on registry is dropped before we call infer_expr below.
+        let expected_type = match registry.get(resolved_id) {
+            Some(TypeDef::Union(variants)) => {
+                variants.iter().find(|v| v.name == name).map(|v| v.type_id)
+            }
+            _ => None,
+        };
+
+        if let Some(expected_type) = expected_type {
+            match (arg, expected_type) {
+                (Some(arg_expr), Some(expected)) => {
+                    // Variant with payload: validate arg type
+                    let inferred_arg_type = infer_expr(arg_expr, env, registry)?;
+                    let compat_result = compat::check(registry, expected, inferred_arg_type);
+                    if !compat_result.compatible {
+                        return Err(format!(
+                            "type mismatch for variant '{}': expected type {}, got {}",
+                            name, expected, inferred_arg_type
+                        ));
+                    }
+                    return Ok(resolved_id);
+                }
+                (Some(_), None) => {
+                    // Variant is unit (no payload) but an argument was provided
+                    return Err(format!("Variant '{}' does not accept an argument", name));
+                }
+                (None, Some(_)) => {
+                    // Variant expects a payload but no argument was provided
+                    return Err(format!("Variant '{}' requires an argument", name));
+                }
+                (None, None) => {
+                    // Unit variant without argument: valid
+                    return Ok(resolved_id);
+                }
+            }
+        }
+    }
+
+    // No union found containing this variant name
+    Err(format!("Unknown variant '{}'", name))
+}
+
+// ---------------------------------------------------------------------------
+// Pipe and Propagate inference
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a pipe expression `lhs |> rhs`.
+///
+/// The pipe operator is syntactic sugar for `rhs(lhs)`:
+/// 1. Infer `lhs` type — this is the argument value.
+/// 2. Infer `rhs` — it must be a `TypeDef::Func(param_types, return_type)`.
+/// 3. Validate that `lhs` type is compatible with the first parameter of `rhs`.
+/// 4. Return `rhs`'s return type.
+fn infer_pipe(
+    lhs: &Expr,
+    rhs: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let arg_type = infer_expr(lhs, env, registry)?;
+    let rhs_type = infer_expr(rhs, env, registry)?;
+    let resolved = registry.resolve(rhs_type);
+
+    // Clone param data to avoid holding an immutable borrow on registry
+    let (param_types, return_type) = match registry.get(resolved) {
+        Some(TypeDef::Func(params, ret)) => (params.clone(), *ret),
+        Some(_) => return Err("Pipe target must be a function".to_string()),
+        None => return Err("Pipe target type not found in registry".to_string()),
+    };
+
+    if param_types.is_empty() {
+        return Err("Pipe target must accept at least one parameter".to_string());
+    }
+
+    let compat_result = compat::check(registry, param_types[0], arg_type);
+    if !compat_result.compatible {
+        return Err(
+            "Type mismatch in pipe: expected argument type compatible with parameter type"
+                .to_string(),
+        );
+    }
+
+    Ok(return_type)
+}
+
+/// Infer the type of a propagate expression `?expr`.
+///
+/// The propagate operator unwraps a `Result<T, E>` or `Option<T>`:
+/// 1. Infer the inner `expr` type.
+/// 2. Look it up — it must be a `TypeDef::Union` with variants that follow
+///    the Result/Option pattern.
+/// 3. Find the "success" variant (`Ok` or `Some`) and extract its payload type.
+/// 4. Return the payload type.
+/// 5. If it's not a union (or doesn't have Ok/Some variants), return an error.
+fn infer_propagate(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let inner_type = infer_expr(expr, env, registry)?;
+    let resolved = registry.resolve(inner_type);
+
+    match registry.get(resolved) {
+        Some(TypeDef::Union(variants)) => {
+            // Look for a "success" variant (Ok or Some) with a payload
+            for variant in variants {
+                let success_names = ["Ok", "Some"];
+                if success_names.contains(&variant.name.as_str()) {
+                    if let Some(payload_type) = variant.type_id {
+                        return Ok(payload_type);
+                    }
+                }
+            }
+            // Check for unit success variants (no payload)
+            for variant in variants {
+                let success_names = ["Ok", "Some"];
+                if success_names.contains(&variant.name.as_str()) {
+                    return Err("Cannot propagate a unit variant (no payload)".to_string());
+                }
+            }
+            Err("Propagate target must be a Result or Option type".to_string())
+        }
+        Some(_) => Err("Propagate target must be a union type (Result/Option)".to_string()),
+        None => Err("Propagate target type not found".to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// For loop and Assign inference (Phase 4)
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a for loop expression `for binding in iterable { body }`.
+///
+/// Semantics:
+/// 1. Infer the `iterable` type — it must be a `List<T>` (GenericInstance
+///    with base == List base and args containing the element type).
+/// 2. Extract the element type `T` from the List's generic arguments.
+/// 3. Create a new scope with the `binding` variable mapped to `T`.
+/// 4. Infer the `body` expression in the new scope.
+/// 5. Return Null (4) — for loops are control-flow expressions that don't
+///    produce a meaningful value.
+///
+/// # Errors
+///
+/// - If the iterable is not a `List<T>`, returns an error.
+/// - If the binding pattern is unsupported (not Variable or Wildcard),
+///   returns an error.
+fn infer_for(
+    binding: &Pat,
+    iterable: &Expr,
+    body: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Infer the iterable type
+    let iter_type = infer_expr(iterable, env, registry)?;
+    let resolved = registry.resolve(iter_type);
+
+    // Get the list base before matching to avoid conflicting borrows
+    let list_base = registry.get_or_create_list_base();
+
+    match registry.get(resolved) {
+        Some(TypeDef::GenericInstance { base, args }) => {
+            if *base != list_base {
+                return Err("For loop iterable must be a List".to_string());
+            }
+            if args.is_empty() {
+                return Err("For loop iterable List has no element type".to_string());
+            }
+            let elem_type = args[0];
+
+            // Create new scope with binding
+            let mut inner_env = env.clone();
+            match binding {
+                Pat::Variable(name) => {
+                    inner_env.bind(name.clone(), elem_type);
+                }
+                Pat::Wildcard => {
+                    // Binding ignored
+                }
+                _ => {
+                    return Err("Unsupported binding pattern in for loop".to_string());
+                }
+            }
+
+            // Infer body in new scope
+            infer_expr(body, &inner_env, registry)?;
+
+            // For loops return Null (unit / control-flow)
+            Ok(4)
+        }
+        Some(_) => Err("For loop iterable must be a List".to_string()),
+        None => Err("For loop iterable type not found".to_string()),
+    }
+}
+
+/// Infer the type of an assignment expression `target = value`.
+///
+/// Semantics:
+/// 1. Infer the `target` type (e.g. looking up a variable in the environment).
+/// 2. Infer the `value` type.
+/// 3. Check that the two types are structurally compatible.
+/// 4. Return Null (4) — assignment is a statement whose value is discarded.
+///
+/// # Errors
+///
+/// - If the target type and value type are incompatible, returns an error.
+fn infer_assign(
+    target: &Expr,
+    value: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Infer the target type (e.g. resolves a variable reference)
+    let target_type = infer_expr(target, env, registry)?;
+
+    // Infer the value type
+    let value_type = infer_expr(value, env, registry)?;
+
+    // Check compatibility: value must be assignable to target
+    if !compat::check(registry, target_type, value_type).compatible {
+        return Err(
+            "Assignment type mismatch: target and value types are incompatible".to_string(),
+        );
+    }
+
+    // Assignment returns Null (unit)
+    Ok(4)
+}
+
+// ---------------------------------------------------------------------------
+// ForAll and AssertConsistent inference (Phase 5)
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a forAll expression `forAll(x: Int) { property }`.
+///
+/// Semantics:
+/// 1. Resolve the HIR type annotation to a TypeId (via `resolve_hir_type_name`).
+/// 2. Bind the variable to that type in a new scope.
+/// 3. Infer the property expression in the new scope.
+/// 4. Verify the property type is Bool (TypeId 3).
+/// 5. Return Bool.
+///
+/// # Errors
+///
+/// - If the type annotation is unknown or unsupported, returns an error.
+/// - If the binding pattern is unsupported (not Variable or Wildcard),
+///   returns an error.
+/// - If the property does not evaluate to Bool, returns an error.
+fn infer_forall(
+    type_: &HirType,
+    binding: &Pat,
+    property: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Resolve the type annotation (only named types supported for now)
+    let bound_type = match type_ {
+        HirType::Named(name) => resolve_hir_type_name(name.as_str())
+            .ok_or_else(|| format!("Unknown type '{}' in forAll", name)),
+        HirType::Refined { base, .. } => {
+            // Refined types like `Int(0..100)` delegate to their base
+            match base.as_ref() {
+                HirType::Named(name) => resolve_hir_type_name(name.as_str())
+                    .ok_or_else(|| format!("Unknown base type '{}' in forAll", name)),
+                _ => Err(
+                    "Only named base types are supported in forAll refined bindings".to_string(),
+                ),
+            }
+        }
+        _ => Err("Only named types are supported in forAll bindings".to_string()),
+    }?;
+
+    // Create new scope with binding
+    let mut inner_env = env.clone();
+    match binding {
+        Pat::Variable(name) => {
+            inner_env.bind(name.clone(), bound_type);
+        }
+        Pat::Wildcard => {
+            // Binding ignored
+        }
+        _ => {
+            return Err("Unsupported binding pattern in forAll".to_string());
+        }
+    }
+
+    // Infer property in the new scope
+    let property_type = infer_expr(property, &inner_env, registry)?;
+
+    // Property must be Bool
+    if property_type != 3 {
+        return Err("forAll property must evaluate to Bool".to_string());
+    }
+
+    Ok(3) // Bool
+}
+
+/// Infer the type of an assertConsistent expression `assertConsistent(expr)`.
+///
+/// Semantics:
+/// - Pure pass-through: infer the inner expression and return its type unchanged.
+///
+/// This is a no-op from the type system's perspective — it's a hint to the
+/// compiler that the expression should produce consistent results across all
+/// targets.
+fn infer_assert_consistent(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    // Pure pass-through — defer to inner expression's type
+    infer_expr(expr, env, registry)
 }
