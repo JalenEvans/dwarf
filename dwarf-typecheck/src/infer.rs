@@ -10,7 +10,7 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, STR_TYPE_ID};
+use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -193,13 +193,6 @@ pub fn infer_expr(
         Expr::Throw { expr, .. } => infer_throw(expr, env, registry),
     }
 }
-
-/// Sentinel TypeId representing the bottom/never type produced by `throw`.
-///
-/// `throw` does not produce a value at runtime, so its static type is
-/// compatible with any expected type. `usize::MAX` can never collide with a
-/// real registered type ID.
-const NEVER_TYPE_ID: TypeId = TypeId::MAX;
 
 // ---------------------------------------------------------------------------
 // Inference helpers

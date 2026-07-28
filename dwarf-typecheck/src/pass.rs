@@ -38,6 +38,7 @@ impl TypeCheckPass {
         // Phase 1: Register all type declarations (RecordDef, UnionDef, TypeDef, Extern)
         let result = resolve::register_decls(&mut registry, decls);
         let extern_map = result.extern_map;
+        errors.extend(result.errors);
         // TODO: Thread name_map from resolve into Phase 2 so param type
         // annotations can resolve user-defined types (not just primitives).
 

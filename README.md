@@ -128,8 +128,12 @@ Each backend emits native import statements for its own externs and ignores exte
 
 - **TypeScript** → `import { express } from 'express'`
 - **Python** → `import json`
-- **Java** → `import java.util.*`
+- **Java** → `import java.util.ArrayList;` (specific class import)
 
 ### The `Any` Type
 
 `Any` is compatible with all types. Use it in extern signatures when the parameter or return type is dynamic or unknown at compile time. It maps to `any` in TypeScript, `Any` in Python, and `Object` in Java.
+
+### Security Note
+
+Extern source strings and function names are injected directly into generated code without sanitization (e.g., `import { name } from 'module'`). This is safe because `.kzd` source files are trusted input — the programmer authored them. As with any compiler, only compile source files from trusted authors.
