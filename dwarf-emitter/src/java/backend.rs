@@ -648,7 +648,14 @@ impl EmitterBackend for JavaBackend {
             }
             LirExpr::Throw { expr, .. } => {
                 let expr_str = self.emit_expr(expr)?;
-                Ok(format!("throw new {}", expr_str))
+                match expr.as_ref() {
+                    // In Dwarf, error constructors are emitted as call expressions
+                    // (e.g. `Error("msg")`). In Java these must be prefixed with
+                    // `new`. For any other expression (variable, literal, etc.)
+                    // emit it unchanged.
+                    LirExpr::Call { .. } => Ok(format!("throw new {}", expr_str)),
+                    _ => Ok(format!("throw {}", expr_str)),
+                }
             }
             LirExpr::Propagate { expr, .. } => {
                 let expr_str = self.emit_expr(expr)?;

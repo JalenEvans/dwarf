@@ -3,6 +3,17 @@
 /// A handle/index into the TypeRegistry.
 pub type TypeId = usize;
 
+/// TypeId for the built-in `Int` primitive type.
+pub const INT_TYPE_ID: TypeId = 0;
+/// TypeId for the built-in `Float` primitive type.
+pub const FLOAT_TYPE_ID: TypeId = 1;
+/// TypeId for the built-in `Str` primitive type.
+pub const STR_TYPE_ID: TypeId = 2;
+/// TypeId for the built-in `Bool` primitive type.
+pub const BOOL_TYPE_ID: TypeId = 3;
+/// TypeId for the built-in `Null` primitive type.
+pub const NULL_TYPE_ID: TypeId = 4;
+
 /// Built-in primitive types.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PrimitiveType {

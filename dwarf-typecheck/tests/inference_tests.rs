@@ -1792,7 +1792,6 @@ fn test_assert_consistent_bool() {
 // 22. Try/Catch/Throw inference (DWARF-57 Phase 2)
 //     try { body } catch e { handler } infers to the common type of body and
 //     handler. throw expr is well-typed if expr is well-typed.
-//     Currently stubbed to return Err — these tests fail under the stub.
 // ===========================================================================
 
 /// Helper: register a `Result<{ value: Str }, Int>` union type in the registry.

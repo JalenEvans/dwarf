@@ -1,15 +1,11 @@
-//! RED-phase tests for TypeScript error-handling codegen.
+//! TypeScript error-handling codegen tests.
 //!
-//! These tests assert the desired TypeScript output for Dwarf `try/catch`,
-//! `throw`, and `?` propagation. They reference `LirExpr::Try`,
-//! `LirExpr::Throw`, and `LirExpr::Propagate` variants, which do not yet
-//! exist in the LIR, so this file is expected to fail to compile in the
-//! RED phase. The implementation agent will add the LIR variants and the
-//! corresponding TS emitter arms to make them green.
+//! These tests verify the generated TypeScript output for Dwarf `try/catch`,
+//! `throw`, and `?` propagation.
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::ts::backend::TypeScriptBackend;
-use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, TargetHint};
+use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, TargetHint};
 use dwarf_syntax::span::Span;
 
 // ------------------------------------------------------------------
@@ -116,6 +112,50 @@ fn emit_try_catch() {
     assert!(
         result.contains("\"ok\""),
         "try body should emit the original expression, got: {result}"
+    );
+    assert!(
+        result.contains("\"fallback\""),
+        "catch handler should emit the fallback expression, got: {result}"
+    );
+}
+
+#[test]
+fn emit_try_catch_block_body() {
+    let body = LirExpr::Block {
+        stmts: vec![
+            LirStmt::Let {
+                pat: LirPat::Variable("x".to_string()),
+                value: int_lit(1),
+            },
+            LirStmt::Expr(str_lit("ok")),
+        ],
+        hint: no_hint(),
+        span: s(),
+    };
+    let expr = LirExpr::Try {
+        body: Box::new(body),
+        binding: LirPat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(str_lit("fallback")),
+        hint: no_hint(),
+        span: s(),
+    };
+    let result = emit_expr(&expr);
+    assert!(
+        result.contains("try {"),
+        "try/catch should emit a try block, got: {result}"
+    );
+    assert!(
+        result.contains("catch (e)"),
+        "try/catch should emit a catch clause with the binding, got: {result}"
+    );
+    assert!(
+        result.contains("let x = 1"),
+        "try body should emit the let statement, got: {result}"
+    );
+    assert!(
+        result.contains("; return \"ok\";"),
+        "try body should emit semicolon-separated statements ending with return, got: {result}"
     );
     assert!(
         result.contains("\"fallback\""),

@@ -10,7 +10,7 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId};
+use crate::types::{FieldDef, TypeDef, TypeId, STR_TYPE_ID};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -964,8 +964,9 @@ fn infer_try(
     }
 
     let mut handler_env = env.clone();
-    // Catch binding defaults to Str for now.
-    bind_pat(binding, 2, &mut handler_env);
+    // Catch binding defaults to Str: error values are represented as strings
+    // until the type system supports a dedicated error type.
+    bind_pat(binding, STR_TYPE_ID, &mut handler_env);
 
     let handler_type = infer_expr(handler, &handler_env, registry)?;
 

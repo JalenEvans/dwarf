@@ -1,16 +1,11 @@
-//! RED-phase tests for Java error-handling codegen.
+//! Java error-handling codegen tests.
 //!
-//! These tests assert the desired Java output for Dwarf `try/catch`,
-//! `throw`, and `?` propagation. They reference `LirExpr::Try`,
-//! `LirExpr::Throw`, and `LirExpr::Propagate` variants.
-//!
-//! The Java backend currently returns `UnsupportedFeature` for `Try` and
-//! `Propagate`, and emits `throw Error(...)` without `new`, so these tests
-//! are expected to fail until the emitter is extended.
+//! These tests verify the generated Java output for Dwarf `try/catch`,
+//! `throw`, and `?` propagation.
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::java::backend::JavaBackend;
-use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, TargetHint};
+use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, TargetHint};
 use dwarf_syntax::span::Span;
 
 // ------------------------------------------------------------------
@@ -125,6 +120,50 @@ fn java_emit_try_catch() {
 }
 
 #[test]
+fn java_emit_try_catch_block_body() {
+    let body = LirExpr::Block {
+        stmts: vec![
+            LirStmt::Let {
+                pat: LirPat::Variable("x".to_string()),
+                value: int_lit(1),
+            },
+            LirStmt::Expr(str_lit("ok")),
+        ],
+        hint: no_hint(),
+        span: s(),
+    };
+    let expr = LirExpr::Try {
+        body: Box::new(body),
+        binding: LirPat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(str_lit("fallback")),
+        hint: no_hint(),
+        span: s(),
+    };
+    let result = emit_expr(&expr);
+    assert!(
+        result.contains("try {"),
+        "try/catch should emit a try block, got: {result}"
+    );
+    assert!(
+        result.contains("catch (Exception e)"),
+        "try/catch should emit a catch clause with Exception binding, got: {result}"
+    );
+    assert!(
+        result.contains("x = 1"),
+        "try body should emit the let statement, got: {result}"
+    );
+    assert!(
+        result.contains("return \"ok\""),
+        "try body should end with the return statement, got: {result}"
+    );
+    assert!(
+        result.contains("\"fallback\""),
+        "catch handler should emit the fallback expression, got: {result}"
+    );
+}
+
+#[test]
 fn java_emit_try_catch_with_guard() {
     let guard = LirExpr::Binary {
         op: LirBinaryOp::Eq,
@@ -174,7 +213,22 @@ fn java_emit_throw() {
     let result = emit_expr(&expr);
     assert!(
         result.contains("throw new Error(\"msg\")"),
-        "throw should emit a throw new statement, got: {result}"
+        "throw should emit a throw new statement for constructor calls, got: {result}"
+    );
+
+    let var_expr = LirExpr::Throw {
+        expr: Box::new(var("e")),
+        hint: no_hint(),
+        span: s(),
+    };
+    let var_result = emit_expr(&var_expr);
+    assert!(
+        var_result.contains("throw e"),
+        "throw should emit a plain throw statement for variables, got: {var_result}"
+    );
+    assert!(
+        !var_result.contains("throw new e"),
+        "throw should not emit `new` for variable expressions, got: {var_result}"
     );
 }
 

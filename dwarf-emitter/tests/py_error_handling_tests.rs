@@ -1,16 +1,11 @@
-//! RED-phase tests for Python error-handling codegen.
+//! Python error-handling codegen tests.
 //!
-//! These tests assert the desired Python output for Dwarf `try/catch`,
-//! `throw`, and `?` propagation. They reference `LirExpr::Try`,
-//! `LirExpr::Throw`, and `LirExpr::Propagate` variants.
-//!
-//! The Python backend currently returns `UnsupportedFeature` for `Try` and
-//! `Propagate`, so these tests are expected to fail until the emitter is
-//! extended.
+//! These tests verify the generated Python output for Dwarf `try/catch`,
+//! `throw`, and `?` propagation.
 
 use dwarf_emitter::backend::EmitterBackend;
 use dwarf_emitter::py::backend::PythonBackend;
-use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, TargetHint};
+use dwarf_lir::{Effect, LirBinaryOp, LirDecl, LirExpr, LirLiteral, LirPat, LirStmt, TargetHint};
 use dwarf_syntax::span::Span;
 
 // ------------------------------------------------------------------
@@ -121,6 +116,54 @@ fn py_emit_try_catch() {
     assert!(
         result.contains("\"fallback\""),
         "catch handler should emit the fallback expression, got: {result}"
+    );
+}
+
+#[test]
+fn py_emit_try_catch_block_body() {
+    let body = LirExpr::Block {
+        stmts: vec![
+            LirStmt::Let {
+                pat: LirPat::Variable("x".to_string()),
+                value: int_lit(1),
+            },
+            LirStmt::Expr(str_lit("ok")),
+        ],
+        hint: no_hint(),
+        span: s(),
+    };
+    let expr = LirExpr::Try {
+        body: Box::new(body),
+        binding: LirPat::Variable("e".to_string()),
+        guard: None,
+        handler: Box::new(str_lit("fallback")),
+        hint: no_hint(),
+        span: s(),
+    };
+    let result = emit_expr(&expr);
+    assert!(
+        result.contains("try:"),
+        "try/catch should emit a try block, got: {result}"
+    );
+    assert!(
+        result.contains("except Exception as e:"),
+        "try/catch should emit an except clause with the binding, got: {result}"
+    );
+    assert!(
+        result.contains("    x = 1"),
+        "try body should emit the indented let statement, got: {result}"
+    );
+    assert!(
+        result.contains("    return \"ok\""),
+        "try body should emit the indented return statement, got: {result}"
+    );
+    assert!(
+        !result.contains('{') && !result.contains('}'),
+        "Python try/catch should not emit curly braces, got: {result}"
+    );
+    assert!(
+        result.contains("\"fallback\""),
+        "except handler should emit the fallback expression, got: {result}"
     );
 }
 

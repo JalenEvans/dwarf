@@ -104,6 +104,67 @@ impl PythonBackend {
         Ok(format!("{{ {}; }}", parts.join("; ")))
     }
 
+    /// Emit the body or handler of a try/catch as indented Python statements.
+    ///
+    /// If `expr` is a `Block`, its statements are expanded onto separate lines.
+    /// The last expression in a block is prefixed with `return`. Bare expressions
+    /// are emitted as a single indented line. Multi-line expressions are indented
+    /// line-by-line.
+    fn emit_try_body(
+        &mut self,
+        expr: &LirExpr,
+        indent_levels: usize,
+    ) -> Result<String, EmitterError> {
+        let indent = PY_INDENT.repeat(indent_levels);
+        match expr {
+            LirExpr::Block { stmts, .. } => {
+                if stmts.is_empty() {
+                    return Ok(format!("{}pass", indent));
+                }
+                let mut lines: Vec<String> = Vec::new();
+                for (i, stmt) in stmts.iter().enumerate() {
+                    let is_last = i == stmts.len() - 1;
+                    match stmt {
+                        LirStmt::Let { pat, value } => {
+                            let val_str = self.emit_expr(value)?;
+                            let pat_str = self.emit_pat(pat)?;
+                            lines.push(format!("{}{} = {}", indent, pat_str, val_str));
+                        }
+                        LirStmt::Expr(expr) => {
+                            let expr_str = self.emit_expr(expr)?;
+                            if is_last {
+                                if expr_str.contains('\n') {
+                                    for line in expr_str.lines() {
+                                        lines.push(format!("{}{}", indent, line));
+                                    }
+                                } else {
+                                    lines.push(format!("{}return {}", indent, expr_str));
+                                }
+                            } else {
+                                for line in expr_str.lines() {
+                                    lines.push(format!("{}{}", indent, line));
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(lines.join("\n"))
+            }
+            other => {
+                let expr_str = self.emit_expr(other)?;
+                if expr_str.contains('\n') {
+                    let mut lines: Vec<String> = Vec::new();
+                    for line in expr_str.lines() {
+                        lines.push(format!("{}{}", indent, line));
+                    }
+                    Ok(lines.join("\n"))
+                } else {
+                    Ok(format!("{}{}", indent, expr_str))
+                }
+            }
+        }
+    }
+
     /// Emit the body of a function declaration (multi-line with Python indentation).
     ///
     /// Handles `Block` bodies by inlining statements, and wraps bare expressions
@@ -762,21 +823,24 @@ impl EmitterBackend for PythonBackend {
                 handler,
                 ..
             } => {
-                let body_str = self.emit_expr(body)?;
+                let body_str = self.emit_try_body(body, 1)?;
                 let binding_str = self.emit_pat(binding)?;
-                let handler_str = self.emit_expr(handler)?;
                 match guard {
                     Some(guard_expr) => {
                         let guard_str = self.emit_expr(guard_expr)?;
+                        let handler_str = self.emit_try_body(handler, 2)?;
                         Ok(format!(
-                            "try:\n    {}\nexcept Exception as {}:\n    if {}:\n        {}\n    else:\n        raise {}",
+                            "try:\n{}\nexcept Exception as {}:\n    if {}:\n{}\n    else:\n        raise {}",
                             body_str, binding_str, guard_str, handler_str, binding_str
                         ))
                     }
-                    None => Ok(format!(
-                        "try:\n    {}\nexcept Exception as {}:\n    {}",
-                        body_str, binding_str, handler_str
-                    )),
+                    None => {
+                        let handler_str = self.emit_try_body(handler, 1)?;
+                        Ok(format!(
+                            "try:\n{}\nexcept Exception as {}:\n{}",
+                            body_str, binding_str, handler_str
+                        ))
+                    }
                 }
             }
             LirExpr::Throw { expr, .. } => {
