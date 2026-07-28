@@ -1,13 +1,28 @@
 {
   "name": "dwarf",
   "displayName": "Dwarf Language Support",
-  "description": "Syntax highlighting and snippets for Dwarf (.kzd) files",
+  "description": "Syntax highlighting, snippets, and language server support for Dwarf (.kzd) files",
   "version": "0.0.1",
   "publisher": "JalenEvans",
+  "main": "./out/extension.js",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:dwarf"
+  ],
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "vscode-languageclient": "^9.0.1"
+  },
   "contributes": {
     "languages": [{
       "id": "dwarf",
@@ -23,6 +38,16 @@
     "snippets": [{
       "language": "dwarf",
       "path": "./snippets/dwarf.json"
-    }]
+    }],
+    "configuration": {
+      "title": "Dwarf",
+      "properties": {
+        "dwarf.lsp.path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Path to the dwarf-lsp server binary. If null, the extension will use the bundled server. Relative paths are resolved from the extension directory."
+        }
+      }
+    }
   }
 }
