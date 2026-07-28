@@ -204,6 +204,7 @@ impl PythonBackend {
                     "Option" => self.needs_option = true,
                     "Result" => self.needs_result = true,
                     "List" => self.needs_list_utils = true,
+                    "Math" => self.needs_math_utils = true,
                     _ => {}
                 }
                 for arg in args {
@@ -241,6 +242,7 @@ impl PythonBackend {
                         match name.as_str() {
                             "String" => self.needs_string_utils = true,
                             "List" => self.needs_list_utils = true,
+                            "Math" => self.needs_math_utils = true,
                             _ => {}
                         }
                     }

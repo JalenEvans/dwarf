@@ -123,7 +123,12 @@ impl EmitterBackend for JavaBackend {
                         );
                     }
                     // Also scan expression for stdlib calls
-                    Self::scan_expr_for_stdlib(body, &mut self.needs_io_utils);
+                    Self::scan_expr_for_stdlib(
+                        body,
+                        &mut self.needs_io_utils,
+                        &mut self.needs_string_utils,
+                        &mut self.needs_math_utils,
+                    );
                 }
                 LirDecl::RecordDef { fields, .. } => {
                     for field in fields {
@@ -828,8 +833,13 @@ impl JavaBackend {
         }
     }
 
-    /// Scan an expression for stdlib calls (I/O, String, etc.)
-    fn scan_expr_for_stdlib(expr: &LirExpr, needs_io: &mut bool) {
+    /// Scan an expression for stdlib calls (I/O, String, Math, etc.)
+    fn scan_expr_for_stdlib(
+        expr: &LirExpr,
+        needs_io: &mut bool,
+        needs_string: &mut bool,
+        needs_math: &mut bool,
+    ) {
         match expr {
             LirExpr::Call { func, args, .. } => {
                 if let LirExpr::Variable { name, .. } = func.as_ref() {
@@ -840,61 +850,63 @@ impl JavaBackend {
                 }
                 if let LirExpr::Member { obj, .. } = func.as_ref() {
                     if let LirExpr::Variable { name, .. } = obj.as_ref() {
-                        if name.as_str() == "String" {
-                            // String functions will need string utils
+                        match name.as_str() {
+                            "String" => *needs_string = true,
+                            "Math" => *needs_math = true,
+                            _ => {}
                         }
                     }
                 }
                 for arg in args {
-                    Self::scan_expr_for_stdlib(arg, needs_io);
+                    Self::scan_expr_for_stdlib(arg, needs_io, needs_string, needs_math);
                 }
             }
             LirExpr::Block { stmts, .. } => {
                 for stmt in stmts {
                     match stmt {
                         LirStmt::Let { value, .. } => {
-                            Self::scan_expr_for_stdlib(value, needs_io)
+                            Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math)
                         }
-                        LirStmt::Expr(e) => Self::scan_expr_for_stdlib(e, needs_io),
+                        LirStmt::Expr(e) => Self::scan_expr_for_stdlib(e, needs_io, needs_string, needs_math),
                     }
                 }
             }
-            LirExpr::Lambda { body, .. } => Self::scan_expr_for_stdlib(body, needs_io),
+            LirExpr::Lambda { body, .. } => Self::scan_expr_for_stdlib(body, needs_io, needs_string, needs_math),
             LirExpr::If {
                 cond, then, else_, ..
             } => {
-                Self::scan_expr_for_stdlib(cond, needs_io);
-                Self::scan_expr_for_stdlib(then, needs_io);
+                Self::scan_expr_for_stdlib(cond, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(then, needs_io, needs_string, needs_math);
                 if let Some(el) = else_ {
-                    Self::scan_expr_for_stdlib(el, needs_io);
+                    Self::scan_expr_for_stdlib(el, needs_io, needs_string, needs_math);
                 }
             }
             LirExpr::Binary { lhs, rhs, .. } => {
-                Self::scan_expr_for_stdlib(lhs, needs_io);
-                Self::scan_expr_for_stdlib(rhs, needs_io);
+                Self::scan_expr_for_stdlib(lhs, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(rhs, needs_io, needs_string, needs_math);
             }
-            LirExpr::Unary { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io),
+            LirExpr::Unary { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math),
             LirExpr::Assign { target, value, .. } => {
-                Self::scan_expr_for_stdlib(target, needs_io);
-                Self::scan_expr_for_stdlib(value, needs_io);
+                Self::scan_expr_for_stdlib(target, needs_io, needs_string, needs_math);
+                Self::scan_expr_for_stdlib(value, needs_io, needs_string, needs_math);
             }
-            LirExpr::Member { obj, .. } => Self::scan_expr_for_stdlib(obj, needs_io),
+            LirExpr::Member { obj, .. } => Self::scan_expr_for_stdlib(obj, needs_io, needs_string, needs_math),
             LirExpr::Record { fields, .. } => {
                 for (_, val) in fields {
-                    Self::scan_expr_for_stdlib(val, needs_io);
+                    Self::scan_expr_for_stdlib(val, needs_io, needs_string, needs_math);
                 }
             }
             LirExpr::Array { items, .. } => {
                 for item in items {
-                    Self::scan_expr_for_stdlib(item, needs_io);
+                    Self::scan_expr_for_stdlib(item, needs_io, needs_string, needs_math);
                 }
             }
             LirExpr::Variant {
                 arg: Some(a), ..
-            } => Self::scan_expr_for_stdlib(a, needs_io),
+            } => Self::scan_expr_for_stdlib(a, needs_io, needs_string, needs_math),
             LirExpr::Variant { arg: None, .. } => {}
-            LirExpr::ForAll { property, .. } => Self::scan_expr_for_stdlib(property, needs_io),
-            LirExpr::AssertConsistent { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io),
+            LirExpr::ForAll { property, .. } => Self::scan_expr_for_stdlib(property, needs_io, needs_string, needs_math),
+            LirExpr::AssertConsistent { expr, .. } => Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math),
             _ => {}
         }
     }

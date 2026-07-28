@@ -222,9 +222,9 @@ fn main() {
             target,
             passes,
             skip_passes,
-            stdlib_path: _,
+            stdlib_path,
         }) => {
-            run::run_run(files, target, passes, skip_passes);
+            run::run_run(files, target, passes, skip_passes, stdlib_path);
         }
         Some(Commands::Check {
             files,
@@ -232,9 +232,9 @@ fn main() {
             passes,
             skip_passes,
             list_passes,
-            stdlib_path: _,
+            stdlib_path,
         }) => {
-            check::run_check(files, json, passes, skip_passes, list_passes);
+            check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
         }
         Some(Commands::Emit {
             files,
@@ -251,9 +251,9 @@ fn main() {
             target,
             passes,
             skip_passes,
-            stdlib_path: _,
+            stdlib_path,
         }) => {
-            dev::run_dev(files, target, passes, skip_passes);
+            dev::run_dev(files, target, passes, skip_passes, stdlib_path);
         }
         Some(Commands::Build {
             files,
