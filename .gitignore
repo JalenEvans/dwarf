@@ -5,3 +5,7 @@
 # Build output
 /dist
 **/dist
+
+# VS Code extension
+vscode-dwarf/node_modules/
+vscode-dwarf/out/
