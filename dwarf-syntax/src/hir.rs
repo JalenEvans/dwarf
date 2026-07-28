@@ -141,6 +141,16 @@ pub enum Expr {
     },
     /// Propagate operator (?)
     Propagate { expr: Box<Expr>, span: Span },
+    /// Try expression with catch handler
+    Try {
+        body: Box<Expr>,
+        binding: Pat,
+        guard: Option<Box<Expr>>,
+        handler: Box<Expr>,
+        span: Span,
+    },
+    /// Throw expression
+    Throw { expr: Box<Expr>, span: Span },
     /// For loop
     For {
         binding: Pat,
@@ -212,6 +222,8 @@ impl Expr {
             Expr::Block { span, .. } => *span,
             Expr::Pipe { span, .. } => *span,
             Expr::Propagate { span, .. } => *span,
+            Expr::Try { span, .. } => *span,
+            Expr::Throw { span, .. } => *span,
             Expr::For { span, .. } => *span,
             Expr::Assign { span, .. } => *span,
             Expr::Lambda { span, .. } => *span,

@@ -821,6 +821,8 @@ impl Parser {
             }
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Match => self.parse_match_expr(),
+            TokenKind::Try => self.parse_try_expr(),
+            TokenKind::Throw => self.parse_throw_expr(),
             TokenKind::For => self.parse_for_expr(),
             TokenKind::ForAll => self.parse_forall_expr(),
             TokenKind::Pipe => self.parse_lambda(),
@@ -856,6 +858,36 @@ impl Parser {
             cond: Box::new(cond),
             then: Box::new(then),
             else_,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    fn parse_try_expr(&mut self) -> Result<Expr, ParseError> {
+        let start = self.advance().span; // consume 'try'
+        let body = self.parse_expression()?;
+        self.consume(TokenKind::Catch, "expected 'catch' after try body")?;
+        let binding = self.parse_catch_binding()?;
+        let guard = if self.match_token(TokenKind::If) {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+        let handler = self.parse_expression()?;
+        let body = Self::unwrap_single_try_block(body);
+        Ok(Expr::Try {
+            body: Box::new(body),
+            binding,
+            guard,
+            handler: Box::new(handler),
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    fn parse_throw_expr(&mut self) -> Result<Expr, ParseError> {
+        let start = self.advance().span; // consume 'throw'
+        let expr = self.parse_expression()?;
+        Ok(Expr::Throw {
+            expr: Box::new(expr),
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
     }
@@ -1103,6 +1135,52 @@ impl Parser {
                 }
             }
             _ => Err(self.error("expected pattern")),
+        }
+    }
+
+    /// Parse a catch binding, stopping before the handler body so that `e { ... }`
+    /// is interpreted as a variable binding `e` followed by the handler block
+    /// rather than a record pattern.
+    /// If `expr` is a block containing a single `try` expression, return that
+    /// inner expression directly; otherwise return the original expression.
+    /// This normalizes the HIR for nested try/catch without changing the meaning
+    /// of the parsed syntax.
+    fn unwrap_single_try_block(expr: Expr) -> Expr {
+        match expr {
+            Expr::Block { stmts, span } => {
+                let mut stmts = stmts;
+                if stmts.len() == 1 {
+                    if let Stmt::Expr(inner) = stmts.remove(0) {
+                        if matches!(inner, Expr::Try { .. }) {
+                            return inner;
+                        }
+                    }
+                }
+                Expr::Block { stmts, span }
+            }
+            other => other,
+        }
+    }
+
+    fn parse_catch_binding(&mut self) -> Result<Pat, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Ident(name) if !name.starts_with(|c: char| c.is_uppercase()) => {
+                let name = name.clone();
+                // A simple variable binding followed directly by `{` (or `if`)
+                // is the catch binding; do not treat `e { ... }` as a record pattern.
+                if self.position + 1 < self.tokens.len()
+                    && matches!(
+                        self.tokens[self.position + 1].kind,
+                        TokenKind::LBrace | TokenKind::If
+                    )
+                {
+                    self.advance();
+                    Ok(Pat::Variable(name))
+                } else {
+                    self.parse_pattern()
+                }
+            }
+            _ => self.parse_pattern(),
         }
     }
 
@@ -1997,5 +2075,134 @@ mod tests {
             }
             _ => panic!("Expected decorator declaration"),
         }
+    }
+}
+
+#[cfg(test)]
+mod error_handling_tests {
+    use super::*;
+    use dwarf_lexer::Lexer;
+
+    fn tokenize(input: &str) -> Vec<Token> {
+        let mut lexer = Lexer::new(input);
+        let mut tokens = Vec::new();
+        loop {
+            let token = lexer.next_token().unwrap();
+            let is_eof = token.kind == TokenKind::Eof;
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+        tokens
+    }
+
+    fn parse_single_body(input: &str) -> Expr {
+        let tokens = tokenize(input);
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert_eq!(program.len(), 1, "expected one synthetic top-level decl");
+        match &program[0] {
+            Decl::Function { body, .. } => body.clone(),
+            other => panic!("expected synthetic function, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_try_catch_string() {
+        let body = parse_single_body("try { \"ok\" } catch e { \"fallback\" }");
+        match body {
+            Expr::Try {
+                body,
+                binding,
+                guard,
+                handler,
+                ..
+            } => {
+                assert!(matches!(body.as_ref(), Expr::Block { .. }));
+                assert_eq!(binding, Pat::Variable("e".to_string()));
+                assert!(guard.is_none());
+                assert!(matches!(handler.as_ref(), Expr::Block { .. }));
+            }
+            other => panic!("expected Expr::Try, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_try_catch_int() {
+        let body = parse_single_body("try { 42 } catch e { \"oops\" }");
+        match body {
+            Expr::Try { body, .. } => {
+                assert!(matches!(body.as_ref(), Expr::Block { .. }));
+            }
+            other => panic!("expected Expr::Try, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_throw_call() {
+        let body = parse_single_body("throw Error(\"msg\")");
+        match body {
+            Expr::Throw { expr, .. } => match expr.as_ref() {
+                Expr::Call { func, args, .. } => {
+                    assert!(
+                        matches!(func.as_ref(), Expr::Variable { name, .. } if name == "Error"),
+                        "expected Error constructor call"
+                    );
+                    assert_eq!(args.len(), 1);
+                    assert!(
+                        matches!(args[0], Expr::Literal { value: LiteralValue::Str(ref s), .. } if s == "msg"),
+                        "expected string argument"
+                    );
+                }
+                other => panic!("expected call inside throw, got {other:?}"),
+            },
+            other => panic!("expected Expr::Throw, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_guarded_catch() {
+        let body = parse_single_body("try { body } catch e if e.code == 1 { handler }");
+        match body {
+            Expr::Try { guard, .. } => {
+                assert!(guard.is_some(), "expected guard expression");
+                assert!(
+                    matches!(
+                        guard.as_ref().unwrap().as_ref(),
+                        Expr::Binary {
+                            op: BinaryOp::Eq,
+                            ..
+                        }
+                    ),
+                    "expected equality guard"
+                );
+            }
+            other => panic!("expected Expr::Try, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_nested_try_catch() {
+        let body = parse_single_body("try { try { inner } catch e { mid } } catch e { outer }");
+        match body {
+            Expr::Try { body, .. } => {
+                assert!(
+                    matches!(body.as_ref(), Expr::Try { .. }),
+                    "expected nested try/catch in body"
+                );
+            }
+            other => panic!("expected Expr::Try, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_try_without_catch_reports_error() {
+        let tokens = tokenize("try { 42 }");
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(!errors.is_empty(), "expected parse error for malformed try");
+        assert!(program.is_empty(), "expected no declarations on error");
     }
 }

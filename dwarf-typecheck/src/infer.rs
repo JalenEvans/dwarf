@@ -179,6 +179,11 @@ pub fn infer_expr(
 
         // 20. AssertConsistent expression (pass-through)
         Expr::AssertConsistent { expr, .. } => infer_assert_consistent(expr, env, registry),
+
+        // 21. Try/Throw expressions (not yet type-checked)
+        Expr::Try { .. } | Expr::Throw { .. } => {
+            Err("try/throw expressions are not yet type-checked".to_string())
+        }
     }
 }
 

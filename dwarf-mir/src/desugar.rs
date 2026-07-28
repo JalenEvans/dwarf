@@ -334,6 +334,10 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             expr: Box::new(desugar_pipe(expr)),
             span: *span,
         },
+
+        // Try/Throw expressions are not desugared here; they are handled by
+        // a dedicated pass once their semantics are defined.
+        Expr::Try { span, .. } | Expr::Throw { span, .. } => MirExpr::Wildcard { span: *span },
     }
 }
 
