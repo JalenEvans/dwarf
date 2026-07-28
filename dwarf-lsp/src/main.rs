@@ -75,6 +75,11 @@ async fn run_stdio_server() -> Result<(), Box<dyn Error>> {
     // Server capabilities: declare what features this LSP server supports.
     let server_capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        completion_provider: Some(CompletionOptions {
+            resolve_provider: Some(false),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
