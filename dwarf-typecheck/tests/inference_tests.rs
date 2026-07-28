@@ -1281,3 +1281,199 @@ fn test_variant_unknown_name() {
         "Unknown variant name 'Foo' should produce an error (stub fails here)"
     );
 }
+
+// ===========================================================================
+// 17. Pipe expressions (DWARF-55 Phase 3)
+//     lhs |> rhs is equivalent to rhs(lhs). RHS must evaluate to a function
+//     type, and LHS type must match the function's first parameter type.
+//     The result is the function's return type.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+#[test]
+fn test_pipe_simple() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register a function type: Func([Int], Str) at ID 5
+    registry.register(TypeDef::Func(vec![0], 2)); // f: Int -> Str
+    env.bind("f".to_string(), 5);
+
+    // 5 |> f — equivalent to f(5), f returns Str
+    let expr = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(5),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Ok(2) (Str), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(2),
+        "5 |> f where f: Int -> Str should yield Str (stub fails here)"
+    );
+}
+
+#[test]
+fn test_pipe_chain() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register f: Int -> Float at ID 5
+    registry.register(TypeDef::Func(vec![0], 1));
+    // Register g: Float -> Bool at ID 6
+    registry.register(TypeDef::Func(vec![1], 3));
+    env.bind("f".to_string(), 5);
+    env.bind("g".to_string(), 6);
+
+    // 5 |> f |> g — equivalent to g(f(5))
+    // inner pipe: 5 |> f → Float (1)
+    // outer pipe: Float |> g → Bool (3)
+    let inner_pipe = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Int(5),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+    let outer_pipe = Expr::Pipe {
+        lhs: Box::new(inner_pipe),
+        rhs: Box::new(Expr::Variable {
+            name: "g".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&outer_pipe, &env, &mut registry);
+    // Expected: Ok(3) (Bool), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(3),
+        "5 |> f |> g where f: Int->Float, g: Float->Bool should yield Bool (stub fails here)"
+    );
+}
+
+#[test]
+fn test_pipe_type_mismatch() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register a function type: Func([Int], Int) at ID 5
+    registry.register(TypeDef::Func(vec![0], 0)); // f: Int -> Int
+    env.bind("f".to_string(), 5);
+
+    // "hello" |> f — Str (2) doesn't match Int (0) param
+    let expr = Expr::Pipe {
+        lhs: Box::new(Expr::Literal {
+            value: LiteralValue::Str("hello".to_string()),
+            span: dummy_span(),
+        }),
+        rhs: Box::new(Expr::Variable {
+            name: "f".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Err (type mismatch), stub returns Ok(0)
+    assert!(
+        result.is_err(),
+        "Pipe with type mismatch (Str into Int param) should return an error (stub fails here)"
+    );
+}
+
+// ===========================================================================
+// 18. Propagate expressions (DWARF-55 Phase 3)
+//     ?expr unwraps Ok(T) / Some(T) from a union type. If the inner expression
+//     is a union with an Ok/Some variant carrying a payload, the result is the
+//     payload type. If the inner expression is not an appropriate union type,
+//     an error is produced.
+//     Currently stubbed to return Ok(0) — these tests fail under the stub.
+// ===========================================================================
+
+/// Helper: register an `Option<Bool>` union type in the registry.
+///
+/// Creates a union with variants:
+///   - `Some(Bool)` — payload variant
+///   - `None` — unit variant
+///
+/// Returns the assigned TypeId (typically 5, after the 5 primitives).
+fn register_option_bool_type(registry: &mut TypeRegistry) -> TypeId {
+    let some_variant = VariantDef {
+        name: "Some".to_string(),
+        type_id: Some(3), // Bool payload
+    };
+    let none_variant = VariantDef {
+        name: "None".to_string(),
+        type_id: None, // Unit variant
+    };
+    registry.register(TypeDef::Union(vec![some_variant, none_variant]))
+}
+
+#[test]
+fn test_propagate_result() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // Register Option<Bool> at ID 5
+    register_option_bool_type(&mut registry);
+
+    // Some(true) — variant expression returning Option<Bool>
+    let inner_expr = Expr::Variant {
+        name: "Some".to_string(),
+        arg: Some(Box::new(Expr::Literal {
+            value: LiteralValue::Bool(true),
+            span: dummy_span(),
+        })),
+        span: dummy_span(),
+    };
+
+    // ?Some(true) — propagate unwraps the inner Bool payload
+    let expr = Expr::Propagate {
+        expr: Box::new(inner_expr),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Ok(3) (Bool), stub returns Ok(0) (Int)
+    assert_eq!(
+        result,
+        Ok(3),
+        "?Some(true) where Some has Bool payload should yield Bool (stub fails here)"
+    );
+}
+
+#[test]
+fn test_propagate_on_non_option_result() {
+    let mut registry = TypeRegistry::new();
+    let env = TypeEnv::new();
+
+    // ?42 — propagate on a literal Int, which is not Result/Option-like
+    let expr = Expr::Propagate {
+        expr: Box::new(Expr::Literal {
+            value: LiteralValue::Int(42),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    // Expected: Err, stub returns Ok(0)
+    assert!(
+        result.is_err(),
+        "Propagate on non-union type (Int) should produce an error (stub fails here)"
+    );
+}

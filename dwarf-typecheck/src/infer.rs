@@ -152,10 +152,14 @@ pub fn infer_expr(
         // 14. Variant expressions (e.g. None, Some(42))
         Expr::Variant { name, arg, .. } => infer_variant(name, arg.as_deref(), env, registry),
 
-        // 15. Other expressions (placeholder stubs)
-        Expr::Pipe { .. }
-        | Expr::Propagate { .. }
-        | Expr::For { .. }
+        // 15. Pipe expressions (lhs |> rhs)
+        Expr::Pipe { lhs, rhs, .. } => infer_pipe(lhs, rhs, env, registry),
+
+        // 16. Propagate expressions (?expr)
+        Expr::Propagate { expr, .. } => infer_propagate(expr, env, registry),
+
+        // 17. Other expressions (placeholder stubs)
+        Expr::For { .. }
         | Expr::ForAll { .. }
         | Expr::Assign { .. }
         | Expr::AssertConsistent { .. } => Ok(0),
@@ -626,4 +630,89 @@ fn infer_variant(
 
     // No union found containing this variant name
     Err(format!("Unknown variant '{}'", name))
+}
+
+// ---------------------------------------------------------------------------
+// Pipe and Propagate inference
+// ---------------------------------------------------------------------------
+
+/// Infer the type of a pipe expression `lhs |> rhs`.
+///
+/// The pipe operator is syntactic sugar for `rhs(lhs)`:
+/// 1. Infer `lhs` type — this is the argument value.
+/// 2. Infer `rhs` — it must be a `TypeDef::Func(param_types, return_type)`.
+/// 3. Validate that `lhs` type is compatible with the first parameter of `rhs`.
+/// 4. Return `rhs`'s return type.
+fn infer_pipe(
+    lhs: &Expr,
+    rhs: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let arg_type = infer_expr(lhs, env, registry)?;
+    let rhs_type = infer_expr(rhs, env, registry)?;
+    let resolved = registry.resolve(rhs_type);
+
+    // Clone param data to avoid holding an immutable borrow on registry
+    let (param_types, return_type) = match registry.get(resolved) {
+        Some(TypeDef::Func(params, ret)) => (params.clone(), *ret),
+        Some(_) => return Err("Pipe target must be a function".to_string()),
+        None => return Err("Pipe target type not found in registry".to_string()),
+    };
+
+    if param_types.is_empty() {
+        return Err("Pipe target must accept at least one parameter".to_string());
+    }
+
+    let compat_result = compat::check(registry, param_types[0], arg_type);
+    if !compat_result.compatible {
+        return Err(
+            "Type mismatch in pipe: expected argument type compatible with parameter type"
+                .to_string(),
+        );
+    }
+
+    Ok(return_type)
+}
+
+/// Infer the type of a propagate expression `?expr`.
+///
+/// The propagate operator unwraps a `Result<T, E>` or `Option<T>`:
+/// 1. Infer the inner `expr` type.
+/// 2. Look it up — it must be a `TypeDef::Union` with variants that follow
+///    the Result/Option pattern.
+/// 3. Find the "success" variant (`Ok` or `Some`) and extract its payload type.
+/// 4. Return the payload type.
+/// 5. If it's not a union (or doesn't have Ok/Some variants), return an error.
+fn infer_propagate(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let inner_type = infer_expr(expr, env, registry)?;
+    let resolved = registry.resolve(inner_type);
+
+    match registry.get(resolved) {
+        Some(TypeDef::Union(variants)) => {
+            // Look for a "success" variant (Ok or Some) with a payload
+            for variant in variants {
+                let success_names = ["Ok", "Some"];
+                if success_names.contains(&variant.name.as_str()) {
+                    if let Some(payload_type) = variant.type_id {
+                        return Ok(payload_type);
+                    }
+                }
+            }
+            // Check for unit success variants (no payload)
+            for variant in variants {
+                let success_names = ["Ok", "Some"];
+                if success_names.contains(&variant.name.as_str()) {
+                    return Err("Cannot propagate a unit variant (no payload)".to_string());
+                }
+            }
+            Err("Propagate target must be a Result or Option type".to_string())
+        }
+        Some(_) => Err("Propagate target must be a union type (Result/Option)".to_string()),
+        None => Err("Propagate target type not found".to_string()),
+    }
 }
