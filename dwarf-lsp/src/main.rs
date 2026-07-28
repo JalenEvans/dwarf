@@ -74,18 +74,17 @@ async fn run_stdio_server() -> Result<(), Box<dyn Error>> {
 
     // Server capabilities: declare what features this LSP server supports.
     let server_capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::INCREMENTAL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         ..Default::default()
     };
 
     let init_params = connection.initialize(serde_json::to_value(&server_capabilities)?)?;
 
-    // Create the LSP handler with the initialized client capabilities.
+    // Create the LSP handler with the initialized client capabilities and
+    // the outbound message channel so it can publish diagnostics.
     let client_capabilities: ClientCapabilities =
         serde_json::from_value(init_params).unwrap_or_default();
-    let mut handler = DwarfLspHandler::new(client_capabilities);
+    let mut handler = DwarfLspHandler::new(client_capabilities, connection.sender.clone());
 
     // Main message loop: process incoming requests, notifications, and
     // shutdown requests.
@@ -96,10 +95,7 @@ async fn run_stdio_server() -> Result<(), Box<dyn Error>> {
 }
 
 /// Process incoming LSP messages until a shutdown request is received.
-fn main_loop(
-    connection: &Connection,
-    handler: &mut DwarfLspHandler,
-) -> Result<(), Box<dyn Error>> {
+fn main_loop(connection: &Connection, handler: &mut DwarfLspHandler) -> Result<(), Box<dyn Error>> {
     for msg in &connection.receiver {
         match msg {
             Message::Request(req) => {

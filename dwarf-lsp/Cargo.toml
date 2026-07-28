@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+crossbeam-channel = "0.5"
 dwarf-lib = { path = "../dwarf-lib" }
 dwarf-parser = { path = "../dwarf-parser" }
 dwarf-syntax = { path = "../dwarf-syntax" }

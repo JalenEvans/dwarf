@@ -498,6 +498,7 @@ name = "dwarf-lsp"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "crossbeam-channel",
  "dwarf-lib",
  "dwarf-parser",
  "dwarf-syntax",
