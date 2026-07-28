@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use dwarf_syntax::hir::{Decl, Type as HirType};
 
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, VariantDef};
+use crate::types::{FieldDef, TypeDef, TypeId, VariantDef, ANY_TYPE_ID};
 
 /// The result of resolving HIR declarations into a TypeRegistry.
 #[derive(Debug, Clone)]
@@ -20,6 +20,8 @@ pub struct ResolutionResult {
     /// Maps user-defined type names to their TypeIds.
     /// Does NOT include built-in primitive names.
     pub name_map: HashMap<String, TypeId>,
+    /// Maps extern function names to their registered Func TypeIds.
+    pub extern_map: HashMap<String, TypeId>,
 }
 
 /// Register all type declarations from parsed HIR into a TypeRegistry.
@@ -34,10 +36,17 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     // Internal name map includes built-in primitives for resolution.
     let mut name_map: HashMap<String, TypeId> = HashMap::new();
     name_map.insert("int".to_string(), 0);
+    name_map.insert("Int".to_string(), 0);
     name_map.insert("float".to_string(), 1);
+    name_map.insert("Float".to_string(), 1);
     name_map.insert("str".to_string(), 2);
+    name_map.insert("Str".to_string(), 2);
     name_map.insert("bool".to_string(), 3);
+    name_map.insert("Bool".to_string(), 3);
+    name_map.insert("null".to_string(), 4);
+    name_map.insert("Null".to_string(), 4);
     name_map.insert("string".to_string(), 2); // alias for str
+    name_map.insert("String".to_string(), 2); // alias for str
 
     // Built-in generic type constructors
     name_map.insert("Option".to_string(), 5);
@@ -50,8 +59,13 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     name_map.insert("list".to_string(), 7);
     name_map.insert("map".to_string(), 8);
 
+    // The Any type (virtual, not registered in registry but used as a TypeId)
+    name_map.insert("Any".to_string(), ANY_TYPE_ID);
+    name_map.insert("any".to_string(), ANY_TYPE_ID);
+
     // The returned name_map will only contain user-defined names.
     let mut user_name_map: HashMap<String, TypeId> = HashMap::new();
+    let mut extern_map: HashMap<String, TypeId> = HashMap::new();
 
     for decl in decls {
         match decl {
@@ -118,6 +132,32 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                 // Decorator wrapping ... wrapping a function).
                 let inner_result = register_decls(registry, std::slice::from_ref(target.as_ref()));
                 user_name_map.extend(inner_result.name_map);
+                extern_map.extend(inner_result.extern_map);
+            }
+            Decl::Extern {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                // Resolve each parameter's type and the return type,
+                // then register a Func type for this extern declaration.
+                let resolved_params: Vec<TypeId> = params
+                    .iter()
+                    .map(|p| {
+                        p.type_
+                            .as_ref()
+                            .map(|t| resolve_hir_type(t, registry, &mut name_map))
+                            .unwrap_or(4) // Null for untyped params
+                    })
+                    .collect();
+                let resolved_return = return_type
+                    .as_ref()
+                    .map(|t| resolve_hir_type(t, registry, &mut name_map))
+                    .unwrap_or(4); // Null for void return
+                let func_type = TypeDef::Func(resolved_params, resolved_return);
+                let func_id = registry.register(func_type);
+                extern_map.insert(name.clone(), func_id);
             }
             _ => {}
         }
@@ -126,6 +166,7 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     ResolutionResult {
         registry: registry.clone(),
         name_map: user_name_map,
+        extern_map,
     }
 }
 

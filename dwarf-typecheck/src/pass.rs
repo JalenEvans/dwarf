@@ -9,6 +9,7 @@ use crate::error::{TypeCheckError, TYPE_ERROR_CODES};
 use crate::infer::{infer_expr, TypeEnv};
 use crate::registry::TypeRegistry;
 use crate::resolve;
+use crate::types::ANY_TYPE_ID;
 
 /// The type-checking compilation pass.
 ///
@@ -34,8 +35,9 @@ impl TypeCheckPass {
         let mut registry = TypeRegistry::new();
         let mut errors = Vec::new();
 
-        // Phase 1: Register all type declarations (RecordDef, UnionDef, TypeDef)
-        let _result = resolve::register_decls(&mut registry, decls);
+        // Phase 1: Register all type declarations (RecordDef, UnionDef, TypeDef, Extern)
+        let result = resolve::register_decls(&mut registry, decls);
+        let extern_map = result.extern_map;
         // TODO: Thread name_map from resolve into Phase 2 so param type
         // annotations can resolve user-defined types (not just primitives).
 
@@ -52,6 +54,11 @@ impl TypeCheckPass {
             {
                 let mut env = TypeEnv::new();
 
+                // Bind extern function names so they're available in function bodies
+                for (extern_name, extern_type_id) in &extern_map {
+                    env.bind(extern_name.clone(), *extern_type_id);
+                }
+
                 // Bind parameter types from type annotations
                 for param in params {
                     if let Some(ref hir_type) = param.type_ {
@@ -63,6 +70,7 @@ impl TypeCheckPass {
                                 "str" | "Str" | "string" | "String" => 2,
                                 "bool" | "Bool" => 3,
                                 "null" | "Null" => 4,
+                                "any" | "Any" => ANY_TYPE_ID,
                                 unknown => {
                                     errors.push(TypeCheckError::new(
                                         "DWARF-E-TYPE-0002",
@@ -376,6 +384,535 @@ mod tests {
         assert!(
             errors.is_empty(),
             "Option<Int> annotation should be valid: {:?}",
+            errors
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Extern function type-checking tests (DWARF-FFI Phase 2)
+    //
+    // WILL FAIL — RED PHASE
+    //
+    // These tests verify that Decl::Extern declarations are registered in
+    // the TypeRegistry as Func types and that calls to extern functions are
+    // type-checked for argument count, argument types, and return types.
+    //
+    // They will fail until:
+    //   1. resolve::register_decls handles Decl::Extern by registering a
+    //      TypeDef::Func in the registry for each extern declaration
+    //   2. TypeCheckPass::check() binds extern names in the TypeEnv so
+    //      function bodies can reference them
+    //   3. infer_call validates argument types against the extern's signature
+    // ------------------------------------------------------------------
+
+    #[test]
+    /// An extern declaration should register the function's signature in the
+    /// TypeRegistry so that calls to it type-check correctly.
+    ///
+    /// Setup:
+    ///   extern "npm:math" fn add(a: Int, b: Int) -> Int
+    ///   fn main() { add(1, 2) }
+    ///
+    /// Expected: no errors (extern is registered, call matches signature).
+    ///
+    /// Failure mode: Decl::Extern is ignored by register_decls and
+    /// TypeCheckPass, so the call `add(1, 2)` produces "unknown variable: add".
+    fn test_extern_function_registered_in_registry() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        let extern_decl = Decl::Extern {
+            source: "npm:math".to_string(),
+            name: "add".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+                Param {
+                    name: "b".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".to_string())),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // A function that calls the extern with correct argument types
+        let caller = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "add".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![
+                    Expr::Literal {
+                        value: LiteralValue::Int(1),
+                        span: dummy_span(),
+                    },
+                    Expr::Literal {
+                        value: LiteralValue::Int(2),
+                        span: dummy_span(),
+                    },
+                ],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, caller];
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "Extern function 'add' should be registered and callable with \
+             correct argument types, but got errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// Calling an extern with a wrong argument type should produce a type
+    /// mismatch error, not an "unknown variable" error.
+    ///
+    /// Setup:
+    ///   extern "npm:math" fn add(a: Int, b: Int) -> Int
+    ///   fn bad() { add(42, "hello") }
+    ///
+    /// Expected: error mentioning argument type mismatch (arg 1 is Str, expected Int).
+    ///
+    /// Failure mode: The extern is not registered, so the error is
+    /// "unknown variable: add" instead of a type mismatch on the second argument.
+    fn test_extern_wrong_argument_type_error() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        let extern_decl = Decl::Extern {
+            source: "npm:math".to_string(),
+            name: "add".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+                Param {
+                    name: "b".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".to_string())),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // Call add(42, "hello") — second arg is Str, expected Int
+        let caller = Decl::Function {
+            name: "bad".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "add".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![
+                    Expr::Literal {
+                        value: LiteralValue::Int(42),
+                        span: dummy_span(),
+                    },
+                    Expr::Literal {
+                        value: LiteralValue::Str("hello".to_string()),
+                        span: dummy_span(),
+                    },
+                ],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, caller];
+        let (_registry, errors) = pass.check(&decls);
+
+        assert!(
+            !errors.is_empty(),
+            "Calling extern with wrong argument type should produce errors"
+        );
+
+        // The error should be about argument type mismatch, NOT "unknown variable".
+        // This assertion fails in RED phase because the extern is not registered,
+        // so the only error is "unknown variable: add".
+        let has_type_error = errors
+            .iter()
+            .any(|e| e.message.contains("mismatch") || e.message.contains("argument"));
+        assert!(
+            has_type_error,
+            "Expected a type mismatch or argument error for extern call with \
+             wrong argument type, but got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// An extern function with generic type parameters should support type
+    /// inference at call sites.
+    ///
+    /// Setup:
+    ///   extern "npm:lodash" fn map<T, U>(arr: List<T>, f: Func<T, U>) -> List<U>
+    ///   fn main() { map([1, 2, 3], fn(x: Int) -> Int { x * 2 }) }
+    ///
+    /// Expected: no errors — T and U are inferred as Int.
+    ///
+    /// Failure mode: Generic extern declarations are not supported. The
+    /// type parameters <T, U> cannot be resolved, and the Func type
+    /// annotation in parameters is not supported by resolve_hir_type_param.
+    fn test_extern_generic_function_inference() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        // extern "npm:lodash" fn map(arr: List, f: Func) -> List
+        // Note: HIR doesn't yet have a way to express type params on decls,
+        // so we use the base generic names. The full generic inference is
+        // aspirational — this test specifies the desired end state.
+        let extern_decl = Decl::Extern {
+            source: "npm:lodash".to_string(),
+            name: "map".to_string(),
+            params: vec![
+                Param {
+                    name: "arr".to_string(),
+                    type_: Some(Type::Generic {
+                        base: "List".to_string(),
+                        args: vec![Type::Named("Int".to_string())],
+                    }),
+                },
+                Param {
+                    name: "f".to_string(),
+                    type_: Some(Type::Func {
+                        params: vec![Type::Named("Int".to_string())],
+                        return_: Box::new(Type::Named("Int".to_string())),
+                    }),
+                },
+            ],
+            return_type: Some(Type::Generic {
+                base: "List".to_string(),
+                args: vec![Type::Named("Int".to_string())],
+            }),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // fn main() { map([1, 2, 3], fn(x: Int) -> Int { x * 2 }) }
+        let lambda = Expr::Lambda {
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Named("Int".to_string())),
+            }],
+            body: Box::new(Expr::Binary {
+                op: BinaryOp::Mul,
+                lhs: Box::new(Expr::Variable {
+                    name: "x".to_string(),
+                    span: dummy_span(),
+                }),
+                rhs: Box::new(Expr::Literal {
+                    value: LiteralValue::Int(2),
+                    span: dummy_span(),
+                }),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        };
+
+        let caller = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "map".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![
+                    Expr::Array {
+                        items: vec![
+                            Expr::Literal {
+                                value: LiteralValue::Int(1),
+                                span: dummy_span(),
+                            },
+                            Expr::Literal {
+                                value: LiteralValue::Int(2),
+                                span: dummy_span(),
+                            },
+                            Expr::Literal {
+                                value: LiteralValue::Int(3),
+                                span: dummy_span(),
+                            },
+                        ],
+                        span: dummy_span(),
+                    },
+                    lambda,
+                ],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, caller];
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "Generic extern 'map' should support type inference at call sites: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// An extern parameter typed as `Any` should accept values of any type.
+    ///
+    /// Setup:
+    ///   extern "npm:console" fn log(msg: Any) -> ()
+    ///   fn main() { log(42) }
+    ///
+    /// Expected: no errors — Any is compatible with Int, Str, Bool, etc.
+    ///
+    /// Failure mode: The `Any` type does not exist in the type system.
+    /// resolve_hir_type_name("Any") returns None, producing an "unknown type"
+    /// error during parameter resolution.
+    fn test_any_type_accepts_any_value() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        let extern_decl = Decl::Extern {
+            source: "npm:console".to_string(),
+            name: "log".to_string(),
+            params: vec![Param {
+                name: "msg".to_string(),
+                type_: Some(Type::Named("Any".to_string())),
+            }],
+            return_type: Some(Type::Named("Null".to_string())),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // Call log(42) — Int should be accepted by Any
+        let caller = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "log".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Int(42),
+                    span: dummy_span(),
+                }],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, caller];
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "Any-typed extern parameter should accept Int values: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// Calling a function name that was NOT declared as an extern should
+    /// produce an error, while a declared extern should type-check fine.
+    ///
+    /// Setup:
+    ///   extern "npm:math" fn add(a: Int, b: Int) -> Int
+    ///   fn good() { add(1, 2) }     — should pass
+    ///   fn bad()  { subtract(1, 2) } — should fail (not declared)
+    ///
+    /// Expected: exactly one error, mentioning "subtract".
+    ///
+    /// Failure mode: Neither extern registration nor name resolution works,
+    /// so BOTH calls produce "unknown variable" errors. The test expects
+    /// only one error (for "subtract"), but gets two.
+    fn test_extern_not_found_error() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        let extern_decl = Decl::Extern {
+            source: "npm:math".to_string(),
+            name: "add".to_string(),
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+                Param {
+                    name: "b".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".to_string())),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // fn good() { add(1, 2) } — declared extern, should type-check
+        let good_caller = Decl::Function {
+            name: "good".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "add".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![
+                    Expr::Literal {
+                        value: LiteralValue::Int(1),
+                        span: dummy_span(),
+                    },
+                    Expr::Literal {
+                        value: LiteralValue::Int(2),
+                        span: dummy_span(),
+                    },
+                ],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // fn bad() { subtract(1, 2) } — NOT declared, should error
+        let bad_caller = Decl::Function {
+            name: "bad".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "subtract".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![
+                    Expr::Literal {
+                        value: LiteralValue::Int(1),
+                        span: dummy_span(),
+                    },
+                    Expr::Literal {
+                        value: LiteralValue::Int(2),
+                        span: dummy_span(),
+                    },
+                ],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, good_caller, bad_caller];
+        let (_registry, errors) = pass.check(&decls);
+
+        // Should have exactly one error: for "subtract" (not declared)
+        assert!(
+            !errors.is_empty(),
+            "Calling an undeclared extern should produce at least one error"
+        );
+
+        // The error should mention "subtract", not "add"
+        let mentions_subtract = errors.iter().any(|e| e.message.contains("subtract"));
+        let mentions_add = errors.iter().any(|e| e.message.contains("add"));
+
+        assert!(
+            mentions_subtract,
+            "Error should mention the undeclared function 'subtract': {:?}",
+            errors
+        );
+        assert!(
+            !mentions_add,
+            "Error should NOT mention the declared extern 'add' — it should \
+             type-check successfully: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// Calling an extern with the wrong number of arguments should produce
+    /// an argument count mismatch error.
+    ///
+    /// Setup:
+    ///   extern "npm:math" fn pow(base: Int, exp: Int) -> Int
+    ///   fn bad() { pow(2) }  — missing second argument
+    ///
+    /// Expected: error mentioning argument count mismatch.
+    ///
+    /// Failure mode: The extern is not registered, so the error is
+    /// "unknown variable: pow" instead of an argument count error.
+    fn test_extern_wrong_arg_count_error() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+
+        let extern_decl = Decl::Extern {
+            source: "npm:math".to_string(),
+            name: "pow".to_string(),
+            params: vec![
+                Param {
+                    name: "base".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+                Param {
+                    name: "exp".to_string(),
+                    type_: Some(Type::Named("Int".to_string())),
+                },
+            ],
+            return_type: Some(Type::Named("Int".to_string())),
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        // Call pow(2) — missing second argument
+        let caller = Decl::Function {
+            name: "bad".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "pow".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Int(2),
+                    span: dummy_span(),
+                }],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        };
+
+        let decls = vec![extern_decl, caller];
+        let (_registry, errors) = pass.check(&decls);
+
+        assert!(
+            !errors.is_empty(),
+            "Calling extern with wrong arg count should produce errors"
+        );
+
+        // The error should mention argument count, NOT "unknown variable"
+        let has_count_error = errors.iter().any(|e| {
+            e.message.contains("count")
+                || e.message.contains("argument")
+                || e.message.contains("expected")
+        });
+        assert!(
+            has_count_error,
+            "Expected an argument count mismatch error for extern call with \
+             too few arguments, but got: {:?}",
             errors
         );
     }

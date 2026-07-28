@@ -10,7 +10,7 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, STR_TYPE_ID};
+use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, STR_TYPE_ID};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -63,6 +63,7 @@ fn resolve_hir_type_name(name: &str) -> Option<TypeId> {
         "str" | "Str" | "string" | "String" => Some(2),
         "bool" | "Bool" => Some(3),
         "null" | "Null" => Some(4),
+        "any" | "Any" => Some(ANY_TYPE_ID),
         _ => None,
     }
 }
@@ -446,7 +447,7 @@ fn infer_call(
 
     for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
         let arg_type = infer_expr(arg, env, registry)?;
-        if arg_type != *param_type {
+        if !compat::check(registry, *param_type, arg_type).compatible {
             return Err(format!(
                 "argument {} type mismatch: expected {}, got {}",
                 i, param_type, arg_type

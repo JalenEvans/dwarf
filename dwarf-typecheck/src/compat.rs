@@ -5,7 +5,7 @@
 //! after resolving all aliases.
 
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, PrimitiveType, TypeDef, TypeId};
+use crate::types::{FieldDef, PrimitiveType, TypeDef, TypeId, ANY_TYPE_ID};
 use std::collections::{BTreeSet, HashMap};
 
 /// The result of a structural compatibility check.
@@ -57,9 +57,26 @@ pub enum CompatDetail {
 /// Check whether two types are structurally compatible.
 ///
 /// Aliases are resolved before comparison (see [`TypeRegistry::resolve`]).
+/// The `Any` type (ANY_TYPE_ID) is compatible with all types.
 pub fn check(registry: &TypeRegistry, expected: TypeId, actual: TypeId) -> CompatibilityResult {
+    // Any is compatible with everything (both directions)
+    if expected == ANY_TYPE_ID || actual == ANY_TYPE_ID {
+        return CompatibilityResult {
+            compatible: true,
+            details: vec![],
+        };
+    }
+
     let expected_id = registry.resolve(expected);
     let actual_id = registry.resolve(actual);
+
+    // Also check after alias resolution (in case an alias resolves to Any)
+    if expected_id == ANY_TYPE_ID || actual_id == ANY_TYPE_ID {
+        return CompatibilityResult {
+            compatible: true,
+            details: vec![],
+        };
+    }
 
     let expected_def = registry.get(expected_id);
     let actual_def = registry.get(actual_id);
