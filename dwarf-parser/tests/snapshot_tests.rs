@@ -58,3 +58,29 @@ fn snapshot_pipe_expression() {
     let decls = parse_ok("fn pipe(x: i32) { x |> add(1) |> mul(2) }");
     assert_json_snapshot!(decls);
 }
+
+// ============================================================================
+// Extern declaration snapshots (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because extern parsing is not yet
+// implemented. They capture the expected HIR shape for extern declarations
+// across different FFI sources.
+// ============================================================================
+
+#[test]
+fn snapshot_extern_npm() {
+    let decls = parse_ok(r#"extern "npm:express" fn listen(port: Int) -> String"#);
+    assert_json_snapshot!(decls);
+}
+
+#[test]
+fn snapshot_extern_python() {
+    let decls = parse_ok(r#"extern "py:json" fn dumps(obj: Any) -> String"#);
+    assert_json_snapshot!(decls);
+}
+
+#[test]
+fn snapshot_extern_java_generic() {
+    let decls = parse_ok(r#"extern "java:java.util" fn ArrayList() -> List<any>"#);
+    assert_json_snapshot!(decls);
+}

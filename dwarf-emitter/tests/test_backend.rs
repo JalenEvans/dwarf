@@ -129,6 +129,9 @@ impl EmitterBackend for MockBackend {
                     variants_str.join(" | ")
                 ))
             }
+            LirDecl::Extern { source, name, .. } => {
+                Ok(format!("extern \"{}\" fn {}", source, name))
+            }
         }
     }
 

@@ -8,6 +8,7 @@ mod check;
 mod dev;
 mod emit;
 mod fmt;
+mod install;
 mod output;
 mod run;
 mod test;
@@ -204,6 +205,13 @@ enum Commands {
         #[arg(long)]
         fix: bool,
     },
+
+    /// Install a package and generate an extern declaration stub
+    Install {
+        /// Package identifier in the form '<prefix>:<name>' (e.g. 'npm:express', 'py:json', 'java:java.util.ArrayList')
+        #[arg(required = true)]
+        package: String,
+    },
 }
 
 fn main() {
@@ -293,6 +301,9 @@ fn main() {
             fix,
         }) => {
             test::run_test(files, target, json, diff, fix);
+        }
+        Some(Commands::Install { package }) => {
+            install::run_install(&package);
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");

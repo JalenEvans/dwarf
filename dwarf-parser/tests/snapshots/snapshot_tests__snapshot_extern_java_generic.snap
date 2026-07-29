@@ -1,0 +1,29 @@
+---
+source: dwarf-parser/tests/snapshot_tests.rs
+expression: decls
+---
+[
+  {
+    "Extern": {
+      "source": "java:java.util",
+      "name": "ArrayList",
+      "params": [],
+      "return_type": {
+        "Generic": {
+          "base": "List",
+          "args": [
+            {
+              "Named": "any"
+            }
+          ]
+        }
+      },
+      "is_pub": false,
+      "span": {
+        "file_id": 0,
+        "start": 0,
+        "end": 51
+      }
+    }
+  }
+]

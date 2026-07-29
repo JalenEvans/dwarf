@@ -80,6 +80,19 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 is_pub: *is_pub,
                 span: *span,
             }),
+            MirDecl::Extern {
+                source,
+                name,
+                params,
+                return_type,
+                is_pub,
+            } => Some(LirDecl::Extern {
+                source: source.clone(),
+                name: name.clone(),
+                params: lower_params(params),
+                return_type: return_type.clone(),
+                is_pub: *is_pub,
+            }),
         })
         .collect()
 }

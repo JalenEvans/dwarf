@@ -37,6 +37,7 @@ pub struct PythonBackend {
     needs_string_utils: bool,
     needs_math_utils: bool,
     needs_io_utils: bool,
+    py_extern_imports: Vec<String>,
 }
 
 impl PythonBackend {
@@ -55,6 +56,7 @@ impl PythonBackend {
             needs_string_utils: false,
             needs_math_utils: false,
             needs_io_utils: false,
+            py_extern_imports: Vec::new(),
         }
     }
 
@@ -428,6 +430,15 @@ impl EmitterBackend for PythonBackend {
                         self.needs_hypothesis = true;
                     }
                 }
+                LirDecl::Extern { source, .. } => {
+                    // Register Python imports for py: extern sources.
+                    // Non-py sources (e.g. npm:, java:) are silently ignored.
+                    if let Some(module) = source.strip_prefix("py:") {
+                        if !self.py_extern_imports.contains(&module.to_string()) {
+                            self.py_extern_imports.push(module.to_string());
+                        }
+                    }
+                }
             }
         }
 
@@ -462,6 +473,7 @@ impl EmitterBackend for PythonBackend {
                         }
                     }
                 }
+                LirDecl::Extern { .. } => {}
             }
         }
 
@@ -510,6 +522,10 @@ impl EmitterBackend for PythonBackend {
             imports.push(
                 "from dwarf_runtime.io_utils import print_out, read_file, write_file".to_string(),
             );
+        }
+        // FFI imports from py: extern declarations
+        for module in &self.py_extern_imports {
+            imports.push(format!("import {}", module));
         }
 
         if !imports.is_empty() {
@@ -659,6 +675,12 @@ impl EmitterBackend for PythonBackend {
                     union_name,
                     variants_str.join(", ")
                 ))
+            }
+
+            LirDecl::Extern { .. } => {
+                // The import statement (emitted in emit_module) handles visibility.
+                // Emit nothing for the declaration itself, regardless of source.
+                Ok(String::new())
             }
         }
     }

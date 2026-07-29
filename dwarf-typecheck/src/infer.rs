@@ -10,7 +10,7 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, STR_TYPE_ID};
+use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -63,6 +63,7 @@ fn resolve_hir_type_name(name: &str) -> Option<TypeId> {
         "str" | "Str" | "string" | "String" => Some(2),
         "bool" | "Bool" => Some(3),
         "null" | "Null" => Some(4),
+        "any" | "Any" => Some(ANY_TYPE_ID),
         _ => None,
     }
 }
@@ -192,13 +193,6 @@ pub fn infer_expr(
         Expr::Throw { expr, .. } => infer_throw(expr, env, registry),
     }
 }
-
-/// Sentinel TypeId representing the bottom/never type produced by `throw`.
-///
-/// `throw` does not produce a value at runtime, so its static type is
-/// compatible with any expected type. `usize::MAX` can never collide with a
-/// real registered type ID.
-const NEVER_TYPE_ID: TypeId = TypeId::MAX;
 
 // ---------------------------------------------------------------------------
 // Inference helpers
@@ -446,7 +440,7 @@ fn infer_call(
 
     for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
         let arg_type = infer_expr(arg, env, registry)?;
-        if arg_type != *param_type {
+        if !compat::check(registry, *param_type, arg_type).compatible {
             return Err(format!(
                 "argument {} type mismatch: expected {}, got {}",
                 i, param_type, arg_type

@@ -35,6 +35,7 @@ pub struct JavaBackend {
     needs_string_utils: bool,
     needs_math_utils: bool,
     needs_io_utils: bool,
+    java_extern_imports: Vec<String>,
 }
 
 impl JavaBackend {
@@ -55,6 +56,7 @@ impl JavaBackend {
             needs_string_utils: false,
             needs_math_utils: false,
             needs_io_utils: false,
+            java_extern_imports: Vec::new(),
         }
     }
 
@@ -157,6 +159,16 @@ impl EmitterBackend for JavaBackend {
                         }
                     }
                 }
+                LirDecl::Extern { source, name, .. } => {
+                    // Register Java imports for java: extern sources.
+                    // Non-java sources (e.g. npm:, py:) are silently ignored.
+                    if let Some(package) = source.strip_prefix("java:") {
+                        let import_line = format!("import {}.{};", package, name);
+                        if !self.java_extern_imports.contains(&import_line) {
+                            self.java_extern_imports.push(import_line);
+                        }
+                    }
+                }
             }
             // Detect ForAll declarations for jqwik import and class name
             if let LirDecl::Function { body, .. } = decl {
@@ -208,6 +220,10 @@ impl EmitterBackend for JavaBackend {
         if self.needs_io_utils {
             buf.push_line("import dwarf.gen.IOUtils;");
         }
+        // FFI imports from java: extern declarations
+        for import_line in &self.java_extern_imports {
+            buf.push_line(import_line);
+        }
         if self.needs_completable_future
             || self.needs_optional
             || self.needs_jqwik
@@ -217,6 +233,7 @@ impl EmitterBackend for JavaBackend {
             || self.needs_string_utils
             || self.needs_math_utils
             || self.needs_io_utils
+            || !self.java_extern_imports.is_empty()
         {
             buf.push_empty();
         }
@@ -448,6 +465,11 @@ impl EmitterBackend for JavaBackend {
                 }
 
                 Ok(result)
+            }
+            LirDecl::Extern { .. } => {
+                // The import statement (emitted in emit_module) handles visibility.
+                // Emit nothing for the declaration itself, regardless of source.
+                Ok(String::new())
             }
         }
     }
@@ -1059,7 +1081,7 @@ impl JavaBackend {
                 }
                 Self::scan_expr_for_imports(body, needs_cf, needs_opt);
             }
-            LirDecl::RecordDef { .. } | LirDecl::UnionDef { .. } => {}
+            LirDecl::RecordDef { .. } | LirDecl::UnionDef { .. } | LirDecl::Extern { .. } => {}
         }
     }
 

@@ -774,6 +774,7 @@ impl<'a> Lexer<'a> {
             "try" => TokenKind::Try,
             "catch" => TokenKind::Catch,
             "throw" => TokenKind::Throw,
+            "extern" => TokenKind::Extern,
             _ => TokenKind::Ident(word.to_string()),
         };
         Ok(Token::new(

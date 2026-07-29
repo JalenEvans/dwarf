@@ -992,3 +992,65 @@ fn test_snapshot_string_escapes() {
     }
     insta::assert_debug_snapshot!("string_escapes", tokens);
 }
+
+// =======================================================================
+// EXTERN KEYWORD (RED Phase — expected to fail)
+//
+// TokenKind::Extern does not exist yet. These tests specify the expected
+// lexing behavior for the `extern` keyword in Phase 1 extern/FFI support.
+// =======================================================================
+
+#[test]
+fn test_keyword_extern() {
+    assert_token_kind("extern", TokenKind::Extern);
+}
+
+#[test]
+fn test_sequence_extern_fn() {
+    assert_token_sequence("extern fn", &[TokenKind::Extern, TokenKind::Fn]);
+}
+
+#[test]
+fn test_sequence_extern_with_source_and_fn() {
+    assert_token_sequence(
+        r#"extern "npm:express" fn express"#,
+        &[
+            TokenKind::Extern,
+            TokenKind::Str("npm:express".to_string()),
+            TokenKind::Fn,
+            TokenKind::Ident("express".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_extern_full_declaration() {
+    assert_token_sequence(
+        r#"extern "py:json" fn dumps(obj: Any) -> String"#,
+        &[
+            TokenKind::Extern,
+            TokenKind::Str("py:json".to_string()),
+            TokenKind::Fn,
+            TokenKind::Ident("dumps".to_string()),
+            TokenKind::LParen,
+            TokenKind::Ident("obj".to_string()),
+            TokenKind::Colon,
+            TokenKind::Ident("Any".to_string()),
+            TokenKind::RParen,
+            TokenKind::Arrow,
+            TokenKind::Ident("String".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_extern_not_an_identifier() {
+    // After implementation, `extern` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("extern");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("extern".to_string()),
+        "`extern` should be lexed as a keyword, not an identifier"
+    );
+}

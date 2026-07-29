@@ -10,8 +10,9 @@ use std::collections::HashMap;
 
 use dwarf_syntax::hir::{Decl, Type as HirType};
 
+use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, VariantDef};
+use crate::types::{FieldDef, TypeDef, TypeId, VariantDef, ANY_TYPE_ID};
 
 /// The result of resolving HIR declarations into a TypeRegistry.
 #[derive(Debug, Clone)]
@@ -20,6 +21,11 @@ pub struct ResolutionResult {
     /// Maps user-defined type names to their TypeIds.
     /// Does NOT include built-in primitive names.
     pub name_map: HashMap<String, TypeId>,
+    /// Maps extern function names to their registered Func TypeIds.
+    pub extern_map: HashMap<String, TypeId>,
+    /// Type errors discovered during resolution (e.g. unknown type names in
+    /// extern signatures).
+    pub errors: Vec<TypeCheckError>,
 }
 
 /// Register all type declarations from parsed HIR into a TypeRegistry.
@@ -34,10 +40,17 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     // Internal name map includes built-in primitives for resolution.
     let mut name_map: HashMap<String, TypeId> = HashMap::new();
     name_map.insert("int".to_string(), 0);
+    name_map.insert("Int".to_string(), 0);
     name_map.insert("float".to_string(), 1);
+    name_map.insert("Float".to_string(), 1);
     name_map.insert("str".to_string(), 2);
+    name_map.insert("Str".to_string(), 2);
     name_map.insert("bool".to_string(), 3);
+    name_map.insert("Bool".to_string(), 3);
+    name_map.insert("null".to_string(), 4);
+    name_map.insert("Null".to_string(), 4);
     name_map.insert("string".to_string(), 2); // alias for str
+    name_map.insert("String".to_string(), 2); // alias for str
 
     // Built-in generic type constructors
     name_map.insert("Option".to_string(), 5);
@@ -50,8 +63,14 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     name_map.insert("list".to_string(), 7);
     name_map.insert("map".to_string(), 8);
 
+    // The Any type (virtual, not registered in registry but used as a TypeId)
+    name_map.insert("Any".to_string(), ANY_TYPE_ID);
+    name_map.insert("any".to_string(), ANY_TYPE_ID);
+
     // The returned name_map will only contain user-defined names.
     let mut user_name_map: HashMap<String, TypeId> = HashMap::new();
+    let mut extern_map: HashMap<String, TypeId> = HashMap::new();
+    let mut errors: Vec<TypeCheckError> = Vec::new();
 
     for decl in decls {
         match decl {
@@ -118,6 +137,58 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                 // Decorator wrapping ... wrapping a function).
                 let inner_result = register_decls(registry, std::slice::from_ref(target.as_ref()));
                 user_name_map.extend(inner_result.name_map);
+                extern_map.extend(inner_result.extern_map);
+                errors.extend(inner_result.errors);
+            }
+            Decl::Extern {
+                name,
+                params,
+                return_type,
+                span,
+                ..
+            } => {
+                // Resolve each parameter's type and the return type,
+                // then register a Func type for this extern declaration.
+                // Unknown type names in extern signatures are reported as
+                // errors (rather than silently falling back to Null) so that
+                // typos like `Itn` instead of `Int` are caught early.
+                let mut resolved_params: Vec<TypeId> = Vec::with_capacity(params.len());
+                for p in params {
+                    match p.type_.as_ref() {
+                        Some(t) => match resolve_hir_type_strict(t, registry, &mut name_map) {
+                            Ok(id) => resolved_params.push(id),
+                            Err(msg) => {
+                                errors.push(TypeCheckError::new(
+                                    "DWARF-E-TYPE-0002",
+                                    format!(
+                                        "unknown type in extern '{}' parameter '{}': {}",
+                                        name, p.name, msg
+                                    ),
+                                    *span,
+                                ));
+                                resolved_params.push(4); // Null fallback
+                            }
+                        },
+                        None => resolved_params.push(4), // Null for untyped params
+                    }
+                }
+                let resolved_return = match return_type.as_ref() {
+                    Some(t) => match resolve_hir_type_strict(t, registry, &mut name_map) {
+                        Ok(id) => id,
+                        Err(msg) => {
+                            errors.push(TypeCheckError::new(
+                                "DWARF-E-TYPE-0002",
+                                format!("unknown type in extern '{}' return type: {}", name, msg),
+                                *span,
+                            ));
+                            4 // Null fallback
+                        }
+                    },
+                    None => 4, // Null for void return
+                };
+                let func_type = TypeDef::Func(resolved_params, resolved_return);
+                let func_id = registry.register(func_type);
+                extern_map.insert(name.clone(), func_id);
             }
             _ => {}
         }
@@ -126,6 +197,8 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
     ResolutionResult {
         registry: registry.clone(),
         name_map: user_name_map,
+        extern_map,
+        errors,
     }
 }
 
@@ -193,5 +266,68 @@ fn resolve_hir_type(
             None => 4,
         },
         HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
+    }
+}
+
+/// Strict variant of [`resolve_hir_type`] that reports unknown type names as
+/// errors instead of silently falling back to Null (ID 4).
+///
+/// Used when resolving extern signatures, where a typo like `Itn` instead of
+/// `Int` must be surfaced to the user rather than masked by a Null default.
+fn resolve_hir_type_strict(
+    hir_type: &HirType,
+    registry: &mut TypeRegistry,
+    name_map: &mut HashMap<String, TypeId>,
+) -> Result<TypeId, String> {
+    match hir_type {
+        HirType::Named(name) => name_map
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("unknown type: {}", name)),
+        HirType::Record(fields) => {
+            let mut resolved_fields = Vec::with_capacity(fields.len());
+            for (name, type_) in fields {
+                let type_id = resolve_hir_type_strict(type_, registry, name_map)?;
+                resolved_fields.push(FieldDef {
+                    name: name.clone(),
+                    type_id,
+                });
+            }
+            Ok(registry.register(TypeDef::Record(resolved_fields)))
+        }
+        HirType::Union(types) => {
+            let mut resolved_variants = Vec::with_capacity(types.len());
+            for (i, t) in types.iter().enumerate() {
+                let type_id = resolve_hir_type_strict(t, registry, name_map)?;
+                resolved_variants.push(VariantDef {
+                    name: format!("V{}", i),
+                    type_id: Some(type_id),
+                });
+            }
+            Ok(registry.register(TypeDef::Union(resolved_variants)))
+        }
+        HirType::Func { params, return_ } => {
+            let mut resolved_params = Vec::with_capacity(params.len());
+            for p in params {
+                resolved_params.push(resolve_hir_type_strict(p, registry, name_map)?);
+            }
+            let resolved_return = resolve_hir_type_strict(return_, registry, name_map)?;
+            Ok(registry.register(TypeDef::Func(resolved_params, resolved_return)))
+        }
+        HirType::Generic { base, args } => {
+            let base_id = name_map
+                .get(base)
+                .copied()
+                .ok_or_else(|| format!("unknown type: {}", base))?;
+            let mut resolved_args = Vec::with_capacity(args.len());
+            for arg in args {
+                resolved_args.push(resolve_hir_type_strict(arg, registry, name_map)?);
+            }
+            Ok(registry.register(TypeDef::GenericInstance {
+                base: base_id,
+                args: resolved_args,
+            }))
+        }
+        HirType::Refined { base, .. } => resolve_hir_type_strict(base, registry, name_map),
     }
 }

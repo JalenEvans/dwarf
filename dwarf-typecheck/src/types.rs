@@ -22,6 +22,10 @@ pub const RESULT_TYPE_ID: TypeId = 6;
 pub const LIST_TYPE_ID: TypeId = 7;
 /// TypeId for the built-in `Map` generic type constructor.
 pub const MAP_TYPE_ID: TypeId = 8;
+/// TypeId for the built-in `Any` type (compatible with all types).
+/// This is a virtual type not registered in the TypeRegistry.
+/// Uses a high value to avoid collision with dynamically registered types.
+pub const ANY_TYPE_ID: TypeId = TypeId::MAX - 1;
 
 /// Sentinel TypeId representing the bottom/never type (produced by `throw`).
 pub const NEVER_TYPE_ID: TypeId = TypeId::MAX;

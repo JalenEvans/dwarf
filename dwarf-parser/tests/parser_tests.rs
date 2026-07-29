@@ -1113,3 +1113,334 @@ fn test_parse_error_has_code() {
     };
     assert_eq!(err.code, "DWARF-E-PARSE-0001");
 }
+
+// ============================================================================
+// Extern declaration parsing tests (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because TokenKind::Extern and
+// Decl::Extern do not exist yet. They define the expected behavior for
+// Phase 1 of extern/FFI support: parsing extern declarations with source,
+// name, params, and return type.
+//
+// Expected Decl::Extern shape:
+//   Decl::Extern {
+//       source: String,      // e.g. "npm:express"
+//       name: String,        // e.g. "express"
+//       params: Vec<Param>,
+//       return_type: Option<Type>,
+//       is_pub: bool,
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_parse_extern_npm() {
+    let tokens = tokenize(r#"extern "npm:express" fn express() -> Any"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "npm:express");
+            assert_eq!(name, "express");
+            assert!(params.is_empty(), "Expected no params");
+            assert!(
+                matches!(return_type, Some(Type::Named(ref n)) if n == "Any"),
+                "Expected return type Named(\"Any\"), got {:?}",
+                return_type
+            );
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extern_python() {
+    let tokens = tokenize(r#"extern "py:json" fn dumps(obj: Any) -> String"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "py:json");
+            assert_eq!(name, "dumps");
+            assert_eq!(params.len(), 1, "Expected one param");
+            assert_eq!(params[0].name, "obj");
+            assert!(
+                matches!(&params[0].type_, Some(Type::Named(n)) if n == "Any"),
+                "Expected param type Named(\"Any\")"
+            );
+            assert!(
+                matches!(return_type, Some(Type::Named(ref n)) if n == "String"),
+                "Expected return type Named(\"String\"), got {:?}",
+                return_type
+            );
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extern_java_generic_return() {
+    let tokens = tokenize(r#"extern "java:java.util" fn ArrayList() -> List<any>"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern {
+            source,
+            name,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "java:java.util");
+            assert_eq!(name, "ArrayList");
+            match return_type {
+                Some(Type::Generic { base, args }) => {
+                    assert_eq!(base, "List");
+                    assert_eq!(args.len(), 1);
+                    assert!(
+                        matches!(&args[0], Type::Named(n) if n == "any"),
+                        "Expected generic arg Named(\"any\"), got {:?}",
+                        &args[0]
+                    );
+                }
+                other => panic!("Expected Generic return type List<any>, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extern_multiple_params() {
+    let tokens =
+        tokenize(r#"extern "npm:fs" fn readFileSync(path: String, encoding: String) -> String"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern { name, params, .. } => {
+            assert_eq!(name, "readFileSync");
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "path");
+            assert_eq!(params[1].name, "encoding");
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extern_no_return_type() {
+    let tokens = tokenize(r#"extern "npm:console" fn log(msg: String)"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern {
+            name, return_type, ..
+        } => {
+            assert_eq!(name, "log");
+            assert!(return_type.is_none(), "Expected no return type");
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_extern_invalid_no_source() {
+    // `extern` without a source string should produce a parse error
+    let tokens = tokenize("extern fn foo() -> Int");
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(
+        !errors.is_empty(),
+        "Should error when extern has no source string"
+    );
+}
+
+#[test]
+fn test_parse_extern_invalid_no_fn_keyword() {
+    // `extern "source"` without the `fn` keyword should produce a parse error
+    let tokens = tokenize(r#"extern "npm:express" express() -> Any"#);
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(
+        !errors.is_empty(),
+        "Should error when extern is missing 'fn' keyword"
+    );
+}
+
+// ============================================================================
+// Multiple extern declarations test
+//
+// Verifies that the parser can handle multiple extern declarations in a
+// single source file, each with distinct sources, names, and signatures.
+// This is critical for FFI interop where a module may import functions
+// from several host packages.
+// ============================================================================
+
+#[test]
+fn test_parse_multiple_extern_declarations() {
+    let source = r#"
+        extern "npm:express" fn express() -> Any
+        extern "npm:fs" fn readFileSync(path: String, encoding: String) -> String
+        extern "py:json" fn dumps(obj: Any) -> String
+    "#;
+    let tokens = tokenize(source);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for multiple externs: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 3, "Should parse three extern declarations");
+
+    // First extern: npm:express
+    match &decls[0] {
+        Decl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "npm:express");
+            assert_eq!(name, "express");
+            assert!(params.is_empty(), "express should have no params");
+            assert!(
+                matches!(return_type, Some(Type::Named(ref n)) if n == "Any"),
+                "Expected return type Named(\"Any\"), got {:?}",
+                return_type
+            );
+        }
+        other => panic!("Expected Extern declaration for decl[0], got {:?}", other),
+    }
+
+    // Second extern: npm:fs with two params
+    match &decls[1] {
+        Decl::Extern {
+            source,
+            name,
+            params,
+            ..
+        } => {
+            assert_eq!(source, "npm:fs");
+            assert_eq!(name, "readFileSync");
+            assert_eq!(params.len(), 2, "readFileSync should have two params");
+            assert_eq!(params[0].name, "path");
+            assert_eq!(params[1].name, "encoding");
+        }
+        other => panic!("Expected Extern declaration for decl[1], got {:?}", other),
+    }
+
+    // Third extern: py:json
+    match &decls[2] {
+        Decl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "py:json");
+            assert_eq!(name, "dumps");
+            assert_eq!(params.len(), 1, "dumps should have one param");
+            assert_eq!(params[0].name, "obj");
+            assert!(
+                matches!(return_type, Some(Type::Named(ref n)) if n == "String"),
+                "Expected return type Named(\"String\"), got {:?}",
+                return_type
+            );
+        }
+        other => panic!("Expected Extern declaration for decl[2], got {:?}", other),
+    }
+}
+
+// ============================================================================
+// pub extern visibility test
+//
+// Verifies that `pub extern "source" fn name()` parses correctly with
+// is_pub = true. This is needed so that extern declarations can be
+// re-exported from modules, allowing downstream consumers to call
+// host-provided functions.
+// ============================================================================
+
+#[test]
+fn test_parse_pub_extern_visibility() {
+    let tokens = tokenize(r#"pub extern "npm:express" fn express() -> Any"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for pub extern: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1, "Should parse one pub extern declaration");
+
+    match &decls[0] {
+        Decl::Extern {
+            source,
+            name,
+            is_pub,
+            params,
+            return_type,
+            ..
+        } => {
+            assert_eq!(source, "npm:express");
+            assert_eq!(name, "express");
+            assert!(is_pub, "pub extern should have is_pub = true");
+            assert!(params.is_empty(), "Expected no params");
+            assert!(
+                matches!(return_type, Some(Type::Named(ref n)) if n == "Any"),
+                "Expected return type Named(\"Any\"), got {:?}",
+                return_type
+            );
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_private_extern_visibility() {
+    // Sanity check: extern without `pub` should have is_pub = false
+    let tokens = tokenize(r#"extern "npm:fs" fn readFileSync(path: String) -> String"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Extern { name, is_pub, .. } => {
+            assert_eq!(name, "readFileSync");
+            assert!(!is_pub, "extern without pub should have is_pub = false");
+        }
+        other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
