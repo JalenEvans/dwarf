@@ -32,6 +32,30 @@ pub fn run_install(package: &str) {
             let source = package;
             let fn_name = name;
             println!(r#"extern "{source}" fn {fn_name}() -> ()"#);
+
+            // Run the package manager (npm or pip) to install the package.
+            // This is best-effort: the extern stub is already printed above,
+            // so package manager failures only produce warnings.
+            let pm = if prefix == "npm" { "npm" } else { "pip" };
+            let result = process::Command::new(pm).arg("install").arg(name).status();
+
+            match result {
+                Ok(status) if status.success() => {
+                    eprintln!("Installed {name}");
+                }
+                Ok(status) => {
+                    eprintln!(
+                        "Warning: {pm} install {name} failed with exit code {:?}",
+                        status.code()
+                    );
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!("Warning: {pm} not found. Please install the package manually.");
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to run {pm}: {e}");
+                }
+            }
         }
         "java" => {
             // For java, split name by dots: package path → source, last segment → fn name

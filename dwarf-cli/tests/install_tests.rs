@@ -1,21 +1,25 @@
-//! RED-phase tests for the `dwarf install` CLI subcommand (Chunk 5).
+//! Tests for the `dwarf install` CLI subcommand (Chunk 5).
 //!
-//! These tests verify the MVP behavior of `dwarf install`:
+//! These tests verify the behavior of `dwarf install`:
 //! - The subcommand exists and shows help
 //! - It generates extern declaration stubs for supported package sources
 //! - It rejects unknown source prefixes
+//! - For npm/py, it also attempts to run the package manager (best-effort)
 //!
-//! EXPECTED: All tests FAIL because the `install` subcommand does not yet exist.
-//! Once Chunk 5 is implemented, these tests should pass (GREEN phase).
+//! The extern stub is ALWAYS printed to stdout, even if the package manager
+//! fails or is not found. Package manager output goes to stderr.
 
 use std::path::PathBuf;
 use std::process::Command;
 
 /// Helper to run the dwarf binary with given args.
+/// Runs in a temp directory to avoid side effects from package manager execution.
 fn dwarf(args: &[&str]) -> std::process::Output {
     let bin_path = get_binary_path();
+    let temp_dir = std::env::temp_dir();
     Command::new(bin_path)
         .args(args)
+        .current_dir(&temp_dir)
         .output()
         .expect("Failed to run dwarf binary")
 }
