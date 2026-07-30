@@ -186,6 +186,12 @@ enum Commands {
         #[arg(long)]
         fix: bool,
     },
+
+    /// Initialize a new Dwarf project
+    Init {
+        /// Project name (optional — defaults to directory name)
+        name: Option<String>,
+    },
 }
 
 fn main() {
@@ -258,11 +264,109 @@ fn main() {
         }) => {
             test::run_test(files, target, json, diff, fix);
         }
+        Some(Commands::Init { name }) => {
+            match run_init(None, name.as_deref()) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
             std::process::exit(1);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// forge init — project scaffolding
+// ---------------------------------------------------------------------------
+
+/// Initialize a new Dwarf project by creating `forge.toml` and `dwarf.toml`.
+///
+/// - `project_dir`: target directory (created if absent). `None` = current dir.
+/// - `name`: project name. `None` = derive from directory name.
+///
+/// Returns `Err` if `forge.toml` already exists in the target directory.
+pub fn run_init(project_dir: Option<&std::path::Path>, name: Option<&str>) -> Result<(), String> {
+    let target_dir = match project_dir {
+        Some(dir) => {
+            if !dir.exists() {
+                std::fs::create_dir_all(dir)
+                    .map_err(|e| format!("Failed to create directory '{}': {}", dir.display(), e))?;
+            }
+            dir.to_path_buf()
+        }
+        None => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("Failed to get current directory: {}", e))?;
+            
+            // If name is provided, create a directory with that name in current dir
+            if let Some(project_name) = name {
+                let dir = cwd.join(project_name);
+                if !dir.exists() {
+                    std::fs::create_dir_all(&dir)
+                        .map_err(|e| format!("Failed to create directory '{}': {}", dir.display(), e))?;
+                }
+                dir
+            } else {
+                // No name, no dir - use current directory
+                cwd
+            }
+        }
+    };
+
+    let forge_toml_path = target_dir.join("forge.toml");
+    if forge_toml_path.exists() {
+        return Err(format!(
+            "forge.toml already exists in '{}'. Refusing to overwrite an existing project.",
+            target_dir.display()
+        ));
+    }
+
+    // Determine project name: explicit > directory name > fallback
+    let project_name = match name {
+        Some(n) => n.to_string(),
+        None => target_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unnamed")
+            .to_string(),
+    };
+
+    // Generate forge.toml
+    let forge_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+description = "A Dwarf project"
+
+[dependencies]
+# npm, py, java dependencies go here
+"#,
+        name = project_name
+    );
+
+    // Generate dwarf.toml
+    let dwarf_toml = r#"[target]
+# Target languages: ts, py, java
+typescript = true
+python = true
+java = true
+
+[compiler]
+# Standard library path (optional)
+# stdlib_path = "./stdlib"
+"#;
+
+    std::fs::write(&forge_toml_path, forge_toml)
+        .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
+    std::fs::write(target_dir.join("dwarf.toml"), dwarf_toml)
+        .map_err(|e| format!("Failed to write dwarf.toml: {}", e))?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -567,5 +671,166 @@ mod cli_passthrough_tests {
             }
             other => panic!("Expected Commands::Test, got {:?}", other),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI init tests — RED phase
+//
+// These tests verify that `forge init` parses correctly and creates the
+// expected project files (forge.toml, dwarf.toml). They MUST FAIL right now
+// because:
+//   1. The `Commands::Init` variant does not exist in the Commands enum.
+//   2. The `run_init` function does not exist.
+//   3. No project scaffolding logic has been implemented.
+//
+// Once `forge init` is implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_init_tests {
+    use super::*;
+    use clap::Parser;
+    use std::fs;
+
+    // ── CLI Parsing Tests ─────────────────────────────────────────────────
+    // These test that clap recognizes `forge init` and its arguments.
+    // They will fail to compile until Commands::Init { name: Option<String> }
+    // is added to the Commands enum.
+
+    #[test]
+    fn test_forge_init_parses() {
+        let cli = Cli::try_parse_from(["forge", "init"]);
+        assert!(cli.is_ok(), "forge init with no args should parse");
+        match cli.unwrap().command {
+            Some(Commands::Init { name }) => {
+                assert!(name.is_none(), "name should be None when not provided");
+            }
+            other => panic!("Expected Commands::Init, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_init_with_name_parses() {
+        let cli = Cli::try_parse_from(["forge", "init", "my-project"]);
+        assert!(cli.is_ok(), "forge init my-project should parse");
+        match cli.unwrap().command {
+            Some(Commands::Init { name }) => {
+                assert_eq!(name.as_deref(), Some("my-project"));
+            }
+            other => panic!("Expected Commands::Init, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_init_help() {
+        // --help causes clap to return a DisplayHelp error (controlled exit).
+        // We verify the subcommand is recognized, not rejected as unknown.
+        let result = Cli::try_parse_from(["forge", "init", "--help"]);
+        let is_recognized = match &result {
+            Ok(_) => true,
+            Err(e) => matches!(e.kind(), clap::error::ErrorKind::DisplayHelp),
+        };
+        assert!(is_recognized, "forge init --help should be recognized");
+    }
+
+    // ── Integration Tests ─────────────────────────────────────────────────
+    // These test the actual scaffolding behavior of `forge init`.
+    // They will fail to compile until `run_init` is implemented and exported.
+    //
+    // Expected signature:
+    //   fn run_init(project_dir: Option<&Path>, name: Option<&str>) -> Result<(), String>
+    //
+    // Behavior:
+    //   - If project_dir is None, use current directory.
+    //   - If project_dir is Some, create the directory (fail if it already
+    //     contains a forge.toml).
+    //   - Write forge.toml with [package] name, version, description.
+    //   - Write dwarf.toml with compiler target configuration.
+
+    #[test]
+    fn test_forge_init_creates_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("new-proj");
+
+        let result = run_init(Some(project_dir.as_path()), None);
+        assert!(result.is_ok(), "forge init should succeed: {:?}", result.err());
+        assert!(
+            project_dir.join("forge.toml").exists(),
+            "forge.toml should be created in the project directory"
+        );
+    }
+
+    #[test]
+    fn test_forge_init_creates_dwarf_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("new-proj");
+
+        let result = run_init(Some(project_dir.as_path()), None);
+        assert!(result.is_ok(), "forge init should succeed: {:?}", result.err());
+        assert!(
+            project_dir.join("dwarf.toml").exists(),
+            "dwarf.toml should be created in the project directory"
+        );
+    }
+
+    #[test]
+    fn test_forge_init_forge_toml_has_required_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("my-app");
+
+        run_init(Some(project_dir.as_path()), Some("my-app"))
+            .expect("forge init should succeed");
+
+        let contents = fs::read_to_string(project_dir.join("forge.toml"))
+            .expect("forge.toml should be readable");
+
+        assert!(
+            contents.contains("[package]"),
+            "forge.toml must have a [package] section"
+        );
+        assert!(
+            contents.contains("name"),
+            "forge.toml [package] must have a name field"
+        );
+        assert!(
+            contents.contains("version"),
+            "forge.toml [package] must have a version field"
+        );
+    }
+
+    #[test]
+    fn test_forge_init_dwarf_toml_has_target_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("my-app");
+
+        run_init(Some(project_dir.as_path()), Some("my-app"))
+            .expect("forge init should succeed");
+
+        let contents = fs::read_to_string(project_dir.join("dwarf.toml"))
+            .expect("dwarf.toml should be readable");
+
+        assert!(
+            contents.contains("target"),
+            "dwarf.toml must have target configuration"
+        );
+    }
+
+    #[test]
+    fn test_forge_init_fails_if_directory_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("existing");
+        fs::create_dir(&project_dir).unwrap();
+        // Pre-create forge.toml to simulate an existing project
+        fs::write(
+            project_dir.join("forge.toml"),
+            "[package]\nname = \"existing\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let result = run_init(Some(project_dir.as_path()), None);
+        assert!(
+            result.is_err(),
+            "forge init should fail when directory already contains a forge.toml"
+        );
     }
 }
