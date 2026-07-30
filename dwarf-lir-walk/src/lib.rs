@@ -7,7 +7,8 @@
 use std::fmt::Debug;
 
 use dwarf_lir::{
-    Effect, LirBinaryOp, LirField, LirLiteral, LirParam, LirUnaryOp, LirVariant, TargetHint,
+    Effect, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
+    LirUnaryOp, LirVariant, TargetHint,
 };
 use dwarf_syntax::hir::Type;
 use dwarf_syntax::span::Span;
@@ -283,6 +284,323 @@ pub trait LirBackend<R: Debug> {
     fn enter_function(&mut self, name: &str) -> Result<(), BackendError>;
 
     fn exit_function(&mut self, name: &str, body: R) -> Result<R, BackendError>;
+}
+
+// ---------------------------------------------------------------------------
+// Tree walker engine
+// ---------------------------------------------------------------------------
+
+/// Walk a pattern node, reducing it bottom-up.
+fn walk_pat<R: Debug>(backend: &mut impl LirBackend<R>, pat: &LirPat) -> Result<R, BackendError> {
+    match pat {
+        LirPat::Wildcard => backend.visit_pat_wildcard(),
+        LirPat::Literal(value) => backend.visit_pat_literal(value),
+        LirPat::Variable(name) => backend.visit_pat_variable(name),
+        LirPat::Variant { name, arg } => {
+            let reduced_arg = match arg {
+                Some(inner) => Some(walk_pat(backend, inner)?),
+                None => None,
+            };
+            backend.visit_pat_variant(name, reduced_arg)
+        }
+        LirPat::Record { fields, rest } => {
+            let mut reduced_fields = Vec::with_capacity(fields.len());
+            for (name, field_pat) in fields {
+                let reduced = walk_pat(backend, field_pat)?;
+                reduced_fields.push((name.clone(), reduced));
+            }
+            backend.visit_pat_record(reduced_fields, *rest)
+        }
+    }
+}
+
+/// Walk a statement node, reducing children first.
+fn walk_stmt<R: Debug>(
+    backend: &mut impl LirBackend<R>,
+    stmt: &LirStmt,
+) -> Result<R, BackendError> {
+    match stmt {
+        LirStmt::Let { pat, value } => {
+            let reduced_value = walk_expr(backend, value)?;
+            let reduced_pat = walk_pat(backend, pat)?;
+            backend.visit_stmt_let(reduced_pat, reduced_value)
+        }
+        LirStmt::Expr(expr) => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_stmt_expr(reduced_expr)
+        }
+    }
+}
+
+/// Walk an expression node, recursively reducing children first (bottom-up).
+pub fn walk_expr<R: Debug>(
+    backend: &mut impl LirBackend<R>,
+    expr: &LirExpr,
+) -> Result<R, BackendError> {
+    match expr {
+        LirExpr::Literal { value, hint, span } => backend.visit_expr_literal(value, hint, *span),
+        LirExpr::Variable { name, hint, span } => backend.visit_expr_variable(name, hint, *span),
+        LirExpr::Call {
+            func,
+            args,
+            hint,
+            span,
+        } => {
+            let reduced_func = walk_expr(backend, func)?;
+            let mut reduced_args = Vec::with_capacity(args.len());
+            for arg in args {
+                reduced_args.push(walk_expr(backend, arg)?);
+            }
+            backend.visit_expr_call(reduced_func, reduced_args, hint, *span)
+        }
+        LirExpr::Member {
+            obj,
+            field,
+            hint,
+            span,
+        } => {
+            let reduced_obj = walk_expr(backend, obj)?;
+            backend.visit_expr_member(reduced_obj, field, hint, *span)
+        }
+        LirExpr::If {
+            cond,
+            then,
+            else_,
+            hint,
+            span,
+        } => {
+            let reduced_cond = walk_expr(backend, cond)?;
+            let reduced_then = walk_expr(backend, then)?;
+            let reduced_else = match else_ {
+                Some(e) => Some(walk_expr(backend, e)?),
+                None => None,
+            };
+            backend.visit_expr_if(reduced_cond, reduced_then, reduced_else, hint, *span)
+        }
+        LirExpr::Match {
+            expr,
+            arms,
+            hint,
+            span,
+        } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            let mut reduced_arms = Vec::with_capacity(arms.len());
+            for arm in arms {
+                let reduced_pattern = walk_pat(backend, &arm.pattern)?;
+                let reduced_guard = match &arm.guard {
+                    Some(g) => Some(walk_expr(backend, g)?),
+                    None => None,
+                };
+                let reduced_body = walk_expr(backend, &arm.body)?;
+                reduced_arms.push(ReducedArm {
+                    pattern: reduced_pattern,
+                    guard: reduced_guard,
+                    body: reduced_body,
+                });
+            }
+            backend.visit_expr_match(reduced_expr, reduced_arms, hint, *span)
+        }
+        LirExpr::Block { stmts, hint, span } => {
+            let mut reduced_stmts = Vec::with_capacity(stmts.len());
+            for stmt in stmts {
+                reduced_stmts.push(walk_stmt(backend, stmt)?);
+            }
+            backend.visit_expr_block(reduced_stmts, hint, *span)
+        }
+        LirExpr::Assign {
+            target,
+            value,
+            hint,
+            span,
+        } => {
+            let reduced_target = walk_expr(backend, target)?;
+            let reduced_value = walk_expr(backend, value)?;
+            backend.visit_expr_assign(reduced_target, reduced_value, hint, *span)
+        }
+        LirExpr::Lambda {
+            params,
+            body,
+            hint,
+            span,
+        } => {
+            let reduced_body = walk_expr(backend, body)?;
+            backend.visit_expr_lambda(params, reduced_body, hint, *span)
+        }
+        LirExpr::Record { fields, hint, span } => {
+            let mut reduced_fields = Vec::with_capacity(fields.len());
+            for (name, field_expr) in fields {
+                let reduced = walk_expr(backend, field_expr)?;
+                reduced_fields.push((name.clone(), reduced));
+            }
+            backend.visit_expr_record(reduced_fields, hint, *span)
+        }
+        LirExpr::Variant {
+            name,
+            arg,
+            hint,
+            span,
+        } => {
+            let reduced_arg = match arg {
+                Some(a) => Some(walk_expr(backend, a)?),
+                None => None,
+            };
+            backend.visit_expr_variant(name, reduced_arg, hint, *span)
+        }
+        LirExpr::Array { items, hint, span } => {
+            let mut reduced_items = Vec::with_capacity(items.len());
+            for item in items {
+                reduced_items.push(walk_expr(backend, item)?);
+            }
+            backend.visit_expr_array(reduced_items, hint, *span)
+        }
+        LirExpr::Binary {
+            op,
+            lhs,
+            rhs,
+            hint,
+            span,
+        } => {
+            let reduced_lhs = walk_expr(backend, lhs)?;
+            let reduced_rhs = walk_expr(backend, rhs)?;
+            backend.visit_expr_binary(*op, reduced_lhs, reduced_rhs, hint, *span)
+        }
+        LirExpr::Unary {
+            op,
+            expr,
+            hint,
+            span,
+        } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_unary(*op, reduced_expr, hint, *span)
+        }
+        LirExpr::Wildcard { hint, span } => backend.visit_expr_wildcard(hint, *span),
+        LirExpr::ForAll {
+            type_,
+            binding,
+            property,
+            hint,
+            span,
+        } => {
+            let reduced_binding = walk_pat(backend, binding)?;
+            let reduced_property = walk_expr(backend, property)?;
+            backend.visit_expr_for_all(type_, reduced_binding, reduced_property, hint, *span)
+        }
+        LirExpr::AssertConsistent { expr, hint, span } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_assert_consistent(reduced_expr, hint, *span)
+        }
+        LirExpr::Try {
+            body,
+            binding,
+            guard,
+            handler,
+            hint,
+            span,
+        } => {
+            let reduced_body = walk_expr(backend, body)?;
+            let reduced_binding = walk_pat(backend, binding)?;
+            let reduced_guard = match guard {
+                Some(g) => Some(walk_expr(backend, g)?),
+                None => None,
+            };
+            let reduced_handler = walk_expr(backend, handler)?;
+            backend.visit_expr_try(
+                reduced_body,
+                reduced_binding,
+                reduced_guard,
+                reduced_handler,
+                hint,
+                *span,
+            )
+        }
+        LirExpr::Throw { expr, hint, span } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_throw(reduced_expr, hint, *span)
+        }
+        LirExpr::Propagate { expr, hint, span } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_propagate(reduced_expr, hint, *span)
+        }
+    }
+}
+
+/// Walk a single declaration. Function decls are wrapped in module lifecycle hooks.
+pub fn walk_decl<R: Debug>(
+    backend: &mut impl LirBackend<R>,
+    decl: &LirDecl,
+) -> Result<R, BackendError> {
+    match decl {
+        LirDecl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            effect,
+            hint,
+            is_pub,
+            is_generator,
+            span,
+        } => {
+            backend.enter_module()?;
+            backend.enter_function(name)?;
+            let reduced_body = walk_expr(backend, body)?;
+            let exited_body = backend.exit_function(name, reduced_body)?;
+            let r = backend.visit_decl_function(
+                name,
+                params,
+                return_type,
+                exited_body,
+                effect,
+                hint,
+                *is_pub,
+                *is_generator,
+                *span,
+            )?;
+            backend.exit_module(vec![r])
+        }
+        LirDecl::RecordDef {
+            name,
+            fields,
+            is_pub,
+            span,
+        } => backend.visit_decl_record_def(name, fields, *is_pub, *span),
+        LirDecl::UnionDef {
+            name,
+            variants,
+            is_pub,
+            span,
+        } => backend.visit_decl_union_def(name, variants, *is_pub, *span),
+        LirDecl::Extern {
+            source,
+            name,
+            params,
+            return_type,
+            is_pub,
+        } => backend.visit_decl_extern(source, name, params, return_type, *is_pub),
+    }
+}
+
+/// Enter module lifecycle (free function wrapper).
+pub fn enter_module<R: Debug>(backend: &mut impl LirBackend<R>) -> Result<(), BackendError> {
+    backend.enter_module()
+}
+
+/// Exit module lifecycle (free function wrapper, passes empty decls).
+pub fn exit_module<R: Debug>(backend: &mut impl LirBackend<R>) -> Result<R, BackendError> {
+    backend.exit_module(vec![])
+}
+
+/// Walk a complete module (slice of declarations).
+pub fn walk_module<R: Debug>(
+    backend: &mut impl LirBackend<R>,
+    decls: &[LirDecl],
+) -> Result<R, BackendError> {
+    backend.enter_module()?;
+    let mut results = Vec::with_capacity(decls.len());
+    for decl in decls {
+        results.push(walk_decl(backend, decl)?);
+    }
+    backend.exit_module(results)
 }
 
 // ------ Tests (RED phase — these must fail to compile) ------
@@ -1633,5 +1951,1121 @@ mod tests {
         // Function/module exit.
         b.exit_function("main", ()).unwrap();
         b.exit_module(vec![()]).unwrap();
+    }
+
+    // ==================================================================
+    // RED PHASE — Walker engine tests
+    // These tests call walk_decl and walk_expr which do NOT exist yet.
+    // They must fail to compile until the walker engine is implemented.
+    // ==================================================================
+
+    // ------------------------------------------------------------------
+    // SpyBackend — records which hooks were called for verification
+    // ------------------------------------------------------------------
+
+    struct SpyBackend {
+        calls: Vec<String>,
+    }
+
+    impl SpyBackend {
+        fn new() -> Self {
+            Self { calls: Vec::new() }
+        }
+
+        fn record(&mut self, name: &str) {
+            self.calls.push(name.to_string());
+        }
+    }
+
+    impl LirBackend<String> for SpyBackend {
+        // ------ Expression hooks ------
+
+        fn visit_expr_literal(
+            &mut self,
+            value: &LirLiteral,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_literal");
+            Ok(format!("literal({value:?})"))
+        }
+
+        fn visit_expr_variable(
+            &mut self,
+            name: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_variable");
+            Ok(format!("var({name})"))
+        }
+
+        fn visit_expr_call(
+            &mut self,
+            func: String,
+            args: Vec<String>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_call");
+            Ok(format!("call({func}, [{}])", args.join(", ")))
+        }
+
+        fn visit_expr_member(
+            &mut self,
+            obj: String,
+            field: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_member");
+            Ok(format!("{obj}.{field}"))
+        }
+
+        fn visit_expr_if(
+            &mut self,
+            cond: String,
+            then: String,
+            else_: Option<String>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_if");
+            match else_ {
+                Some(e) => Ok(format!("if {cond} then {then} else {e}")),
+                None => Ok(format!("if {cond} then {then}")),
+            }
+        }
+
+        fn visit_expr_match(
+            &mut self,
+            expr: String,
+            arms: Vec<ReducedArm<String>>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_match");
+            Ok(format!("match {expr} with {} arms", arms.len()))
+        }
+
+        fn visit_expr_block(
+            &mut self,
+            stmts: Vec<String>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_block");
+            Ok(format!("block({} stmts)", stmts.len()))
+        }
+
+        fn visit_expr_assign(
+            &mut self,
+            target: String,
+            value: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_assign");
+            Ok(format!("{target} = {value}"))
+        }
+
+        fn visit_expr_lambda(
+            &mut self,
+            params: &[LirParam],
+            body: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_lambda");
+            Ok(format!("lambda({} params, {body})", params.len()))
+        }
+
+        fn visit_expr_record(
+            &mut self,
+            fields: Vec<(String, String)>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_record");
+            Ok(format!("record({} fields)", fields.len()))
+        }
+
+        fn visit_expr_variant(
+            &mut self,
+            name: &str,
+            arg: Option<String>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_variant");
+            match arg {
+                Some(a) => Ok(format!("{name}({a})")),
+                None => Ok(name.to_string()),
+            }
+        }
+
+        fn visit_expr_array(
+            &mut self,
+            items: Vec<String>,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_array");
+            Ok(format!("[{} items]", items.len()))
+        }
+
+        fn visit_expr_binary(
+            &mut self,
+            op: LirBinaryOp,
+            lhs: String,
+            rhs: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_binary");
+            Ok(format!("({lhs} {op:?} {rhs})"))
+        }
+
+        fn visit_expr_unary(
+            &mut self,
+            op: LirUnaryOp,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_unary");
+            Ok(format!("({op:?} {expr})"))
+        }
+
+        fn visit_expr_wildcard(
+            &mut self,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_wildcard");
+            Ok("_".to_string())
+        }
+
+        fn visit_expr_for_all(
+            &mut self,
+            _type_: &Type,
+            binding: String,
+            property: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_for_all");
+            Ok(format!("forAll {binding} -> {property}"))
+        }
+
+        fn visit_expr_assert_consistent(
+            &mut self,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_assert_consistent");
+            Ok(format!("assertConsistent({expr})"))
+        }
+
+        fn visit_expr_try(
+            &mut self,
+            body: String,
+            binding: String,
+            guard: Option<String>,
+            handler: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_try");
+            match guard {
+                Some(g) => Ok(format!("try {body} catch {binding} if {g} => {handler}")),
+                None => Ok(format!("try {body} catch {binding} => {handler}")),
+            }
+        }
+
+        fn visit_expr_throw(
+            &mut self,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_throw");
+            Ok(format!("throw {expr}"))
+        }
+
+        fn visit_expr_propagate(
+            &mut self,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_propagate");
+            Ok(format!("{expr}?"))
+        }
+
+        // ------ Statement hooks ------
+
+        fn visit_stmt_let(&mut self, pat: String, value: String) -> Result<String, BackendError> {
+            self.record("visit_stmt_let");
+            Ok(format!("let {pat} = {value}"))
+        }
+
+        fn visit_stmt_expr(&mut self, expr: String) -> Result<String, BackendError> {
+            self.record("visit_stmt_expr");
+            Ok(expr)
+        }
+
+        // ------ Pattern hooks ------
+
+        fn visit_pat_wildcard(&mut self) -> Result<String, BackendError> {
+            self.record("visit_pat_wildcard");
+            Ok("_".into())
+        }
+
+        fn visit_pat_literal(&mut self, value: &LirLiteral) -> Result<String, BackendError> {
+            self.record("visit_pat_literal");
+            Ok(format!("pat_lit({value:?})"))
+        }
+
+        fn visit_pat_variable(&mut self, name: &str) -> Result<String, BackendError> {
+            self.record("visit_pat_variable");
+            Ok(name.into())
+        }
+
+        fn visit_pat_variant(
+            &mut self,
+            name: &str,
+            arg: Option<String>,
+        ) -> Result<String, BackendError> {
+            self.record("visit_pat_variant");
+            match arg {
+                Some(a) => Ok(format!("{name}({a})")),
+                None => Ok(name.into()),
+            }
+        }
+
+        fn visit_pat_record(
+            &mut self,
+            fields: Vec<(String, String)>,
+            rest: bool,
+        ) -> Result<String, BackendError> {
+            self.record("visit_pat_record");
+            Ok(format!("pat_record({} fields, rest={rest})", fields.len()))
+        }
+
+        // ------ Declaration hooks ------
+
+        #[allow(clippy::too_many_arguments)]
+        fn visit_decl_function(
+            &mut self,
+            name: &str,
+            _params: &[LirParam],
+            _return_type: &Option<Type>,
+            body: String,
+            _effect: &Effect,
+            _hint: &TargetHint,
+            _is_pub: bool,
+            _is_generator: bool,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_decl_function");
+            Ok(format!("fn {name} = {body}"))
+        }
+
+        fn visit_decl_record_def(
+            &mut self,
+            name: &str,
+            _fields: &[LirField],
+            _is_pub: bool,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_decl_record_def");
+            Ok(format!("record {name}"))
+        }
+
+        fn visit_decl_union_def(
+            &mut self,
+            name: &str,
+            _variants: &[LirVariant],
+            _is_pub: bool,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_decl_union_def");
+            Ok(format!("union {name}"))
+        }
+
+        fn visit_decl_extern(
+            &mut self,
+            source: &str,
+            name: &str,
+            _params: &[LirParam],
+            _return_type: &Option<Type>,
+            _is_pub: bool,
+        ) -> Result<String, BackendError> {
+            self.record("visit_decl_extern");
+            Ok(format!("extern {source} {name}"))
+        }
+
+        // ------ Lifecycle hooks ------
+
+        fn enter_module(&mut self) -> Result<(), BackendError> {
+            self.record("enter_module");
+            Ok(())
+        }
+
+        fn exit_module(&mut self, decls: Vec<String>) -> Result<String, BackendError> {
+            self.record("exit_module");
+            Ok(format!("module({} decls)", decls.len()))
+        }
+
+        fn enter_function(&mut self, name: &str) -> Result<(), BackendError> {
+            self.record(&format!("enter_function({name})"));
+            Ok(())
+        }
+
+        fn exit_function(&mut self, name: &str, body: String) -> Result<String, BackendError> {
+            self.record(&format!("exit_function({name})"));
+            Ok(body)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Test 1: walk_decl on Function calls enter_module and exit_module
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_decl_function_calls_enter_exit() {
+        let mut spy = SpyBackend::new();
+        let func_decl = LirDecl::Function {
+            name: "main".into(),
+            params: vec![],
+            return_type: None,
+            body: make_literal(0),
+            effect: Effect::Pure,
+            hint: hint(),
+            is_pub: true,
+            is_generator: false,
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_decl doesn't exist yet.
+        let result = crate::walk_decl(&mut spy, &func_decl);
+        assert!(result.is_ok());
+
+        // Verify lifecycle hooks were called.
+        assert!(
+            spy.calls.contains(&"enter_module".to_string()),
+            "enter_module should have been called"
+        );
+        assert!(
+            spy.calls.contains(&"exit_module".to_string()),
+            "exit_module should have been called"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 2: walk_expr on Literal reaches the hook
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_literal_reaches_hook() {
+        let mut spy = SpyBackend::new();
+        let lit_expr = make_literal(42);
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &lit_expr);
+        assert!(result.is_ok());
+
+        // Verify the literal hook was called.
+        assert!(
+            spy.calls.contains(&"visit_expr_literal".to_string()),
+            "visit_expr_literal should have been called"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 3: walk_expr on Binary walks children before parent (bottom-up)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_binary_recursion() {
+        let mut spy = SpyBackend::new();
+        let binary_expr = LirExpr::Binary {
+            op: LirBinaryOp::Add,
+            lhs: Box::new(make_literal(1)),
+            rhs: Box::new(make_literal(2)),
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &binary_expr);
+        assert!(result.is_ok());
+
+        // Verify bottom-up walk: literals must be visited BEFORE binary.
+        let lit_positions: Vec<usize> = spy
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| *c == "visit_expr_literal")
+            .map(|(i, _)| i)
+            .collect();
+        let bin_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_binary")
+            .expect("visit_expr_binary should have been called");
+
+        assert_eq!(
+            lit_positions.len(),
+            2,
+            "both literal children should be visited"
+        );
+        for &lit_pos in &lit_positions {
+            assert!(
+                lit_pos < bin_position,
+                "literal hooks should be called before binary hook (bottom-up walk)"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Test 4: walk_expr on Call walks func and args before call hook
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_call_with_args() {
+        let mut spy = SpyBackend::new();
+        let call_expr = LirExpr::Call {
+            func: Box::new(make_var("f")),
+            args: vec![make_literal(10), make_literal(20)],
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &call_expr);
+        assert!(result.is_ok());
+
+        // Verify all children walked before call hook.
+        let call_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_call")
+            .expect("visit_expr_call should have been called");
+
+        let var_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_variable")
+            .expect("visit_expr_variable should have been called for func");
+
+        let lit_positions: Vec<usize> = spy
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| *c == "visit_expr_literal")
+            .map(|(i, _)| i)
+            .collect();
+
+        assert!(
+            var_position < call_position,
+            "func variable should be walked before call hook"
+        );
+        assert_eq!(
+            lit_positions.len(),
+            2,
+            "both arg literals should be visited"
+        );
+        for &lit_pos in &lit_positions {
+            assert!(
+                lit_pos < call_position,
+                "arg literals should be walked before call hook"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Test 5: walk_expr on Block walks statements in order
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_block_statement_order() {
+        let mut spy = SpyBackend::new();
+        let block_expr = LirExpr::Block {
+            stmts: vec![
+                LirStmt::Let {
+                    pat: LirPat::Variable("x".into()),
+                    value: make_literal(1),
+                },
+                LirStmt::Expr(make_literal(2)),
+            ],
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &block_expr);
+        assert!(result.is_ok());
+
+        // Verify statements walked in order: let before expr.
+        let let_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_stmt_let")
+            .expect("visit_stmt_let should have been called");
+        let expr_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_stmt_expr")
+            .expect("visit_stmt_expr should have been called");
+        let block_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_block")
+            .expect("visit_expr_block should have been called");
+
+        assert!(
+            let_position < expr_position,
+            "let statement should be walked before expr statement"
+        );
+        assert!(
+            expr_position < block_position,
+            "all statements should be walked before block hook"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 6: walk_expr on If walks both branches
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_if_both_branches() {
+        let mut spy = SpyBackend::new();
+        let if_expr = LirExpr::If {
+            cond: Box::new(make_literal(1)),
+            then: Box::new(make_literal(2)),
+            else_: Some(Box::new(make_literal(3))),
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &if_expr);
+        assert!(result.is_ok());
+
+        // Verify all three sub-expressions walked before if hook.
+        let if_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_if")
+            .expect("visit_expr_if should have been called");
+
+        let lit_positions: Vec<usize> = spy
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| *c == "visit_expr_literal")
+            .map(|(i, _)| i)
+            .collect();
+
+        assert_eq!(
+            lit_positions.len(),
+            3,
+            "cond, then, and else literals should all be visited"
+        );
+        for &lit_pos in &lit_positions {
+            assert!(
+                lit_pos < if_position,
+                "all branch literals should be walked before if hook"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Test 7: walk_expr on Match walks all arms (pattern, guard, body)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_expr_match_arms() {
+        let mut spy = SpyBackend::new();
+        let match_expr = LirExpr::Match {
+            expr: Box::new(make_var("x")),
+            arms: vec![
+                LirArm {
+                    pattern: LirPat::Literal(LirLiteral::Int(1)),
+                    guard: Some(make_literal(10)),
+                    body: make_literal(100),
+                },
+                LirArm {
+                    pattern: LirPat::Wildcard,
+                    guard: None,
+                    body: make_literal(200),
+                },
+            ],
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut spy, &match_expr);
+        assert!(result.is_ok());
+
+        // Verify match hook was called.
+        let match_position = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_expr_match")
+            .expect("visit_expr_match should have been called");
+
+        // Verify patterns were walked.
+        let pat_lit_count = spy
+            .calls
+            .iter()
+            .filter(|c| *c == "visit_pat_literal")
+            .count();
+        let pat_wild_count = spy
+            .calls
+            .iter()
+            .filter(|c| *c == "visit_pat_wildcard")
+            .count();
+
+        assert_eq!(
+            pat_lit_count, 1,
+            "first arm's literal pattern should be walked"
+        );
+        assert_eq!(
+            pat_wild_count, 1,
+            "second arm's wildcard pattern should be walked"
+        );
+
+        // Verify guard was walked (only first arm has guard).
+        let guard_count = spy
+            .calls
+            .iter()
+            .filter(|c| *c == "visit_expr_literal")
+            .count();
+        // Should have: guard literal (10) + body literal (100) + body literal (200) = 3
+        assert_eq!(
+            guard_count, 3,
+            "guard and body literals should all be walked"
+        );
+
+        // All arm components should be walked before match hook.
+        let pat_lit_pos = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_pat_literal")
+            .expect("visit_pat_literal should have been called");
+        assert!(
+            pat_lit_pos < match_position,
+            "arm patterns should be walked before match hook"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 8: walk_decl on Extern calls visit_decl_extern directly
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_decl_extern_direct() {
+        let mut spy = SpyBackend::new();
+        let extern_decl = LirDecl::Extern {
+            source: "libc".into(),
+            name: "read".into(),
+            params: vec![],
+            return_type: None,
+            is_pub: false,
+        };
+
+        // This call should fail to compile — walk_decl doesn't exist yet.
+        let result = crate::walk_decl(&mut spy, &extern_decl);
+        assert!(result.is_ok());
+
+        // Verify visit_decl_extern was called.
+        assert!(
+            spy.calls.contains(&"visit_decl_extern".to_string()),
+            "visit_decl_extern should have been called"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 9: walk_decl on full module (RecordDef + Function)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_full_module() {
+        let mut spy = SpyBackend::new();
+        let module = vec![
+            LirDecl::RecordDef {
+                name: "Point".into(),
+                fields: vec![LirField {
+                    name: "x".into(),
+                    type_: Type::Named("Int".into()),
+                }],
+                is_pub: true,
+                span: s(),
+            },
+            LirDecl::Function {
+                name: "main".into(),
+                params: vec![],
+                return_type: None,
+                body: LirExpr::Block {
+                    stmts: vec![
+                        LirStmt::Let {
+                            pat: LirPat::Variable("x".into()),
+                            value: make_literal(1),
+                        },
+                        LirStmt::Expr(make_literal(2)),
+                    ],
+                    hint: hint(),
+                    span: s(),
+                },
+                effect: Effect::Pure,
+                hint: hint(),
+                is_pub: true,
+                is_generator: false,
+                span: s(),
+            },
+        ];
+
+        // This call should fail to compile — walk_decl doesn't exist yet.
+        // We need to wrap the module in a synthetic decl or call a different function.
+        // For now, let's assume walk_decl can handle a Vec<LirDecl> or we create a wrapper.
+        // Actually, let's just walk each decl and verify the lifecycle.
+        crate::enter_module(&mut spy).unwrap();
+        for decl in &module {
+            crate::walk_decl(&mut spy, decl).unwrap();
+        }
+        crate::exit_module(&mut spy).unwrap();
+
+        // Verify lifecycle order: enter_module → record_def → enter_function → ... → exit_function → exit_module
+        let enter_mod_pos = spy
+            .calls
+            .iter()
+            .position(|c| c == "enter_module")
+            .expect("enter_module should have been called");
+        let record_pos = spy
+            .calls
+            .iter()
+            .position(|c| c == "visit_decl_record_def")
+            .expect("visit_decl_record_def should have been called");
+        let enter_func_pos = spy
+            .calls
+            .iter()
+            .position(|c| c.starts_with("enter_function"))
+            .expect("enter_function should have been called");
+        let exit_func_pos = spy
+            .calls
+            .iter()
+            .position(|c| c.starts_with("exit_function"))
+            .expect("exit_function should have been called");
+        let exit_mod_pos = spy
+            .calls
+            .iter()
+            .position(|c| c == "exit_module")
+            .expect("exit_module should have been called");
+
+        assert!(enter_mod_pos < record_pos, "enter_module before record_def");
+        assert!(
+            record_pos < enter_func_pos,
+            "record_def before enter_function"
+        );
+        assert!(
+            enter_func_pos < exit_func_pos,
+            "enter_function before exit_function"
+        );
+        assert!(
+            exit_func_pos < exit_mod_pos,
+            "exit_function before exit_module"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 10: walk preserves reduced types (R=i32)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_walk_preserves_reduced_types() {
+        // Use a CountBackend that returns i32 (node count).
+        struct CountBackend;
+
+        impl LirBackend<i32> for CountBackend {
+            fn visit_expr_literal(
+                &mut self,
+                _v: &LirLiteral,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(1)
+            }
+            fn visit_expr_variable(
+                &mut self,
+                _n: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(1)
+            }
+            fn visit_expr_call(
+                &mut self,
+                f: i32,
+                args: Vec<i32>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(f + args.into_iter().sum::<i32>())
+            }
+            fn visit_expr_member(
+                &mut self,
+                obj: i32,
+                _f: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(obj)
+            }
+            fn visit_expr_if(
+                &mut self,
+                c: i32,
+                t: i32,
+                e: Option<i32>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(c + t + e.unwrap_or(0))
+            }
+            fn visit_expr_match(
+                &mut self,
+                expr: i32,
+                _arms: Vec<ReducedArm<i32>>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(expr)
+            }
+            fn visit_expr_block(
+                &mut self,
+                stmts: Vec<i32>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(stmts.into_iter().sum())
+            }
+            fn visit_expr_assign(
+                &mut self,
+                t: i32,
+                v: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(t + v)
+            }
+            fn visit_expr_lambda(
+                &mut self,
+                _p: &[LirParam],
+                body: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(body)
+            }
+            fn visit_expr_record(
+                &mut self,
+                fields: Vec<(String, i32)>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(fields.into_iter().map(|(_, v)| v).sum())
+            }
+            fn visit_expr_variant(
+                &mut self,
+                _n: &str,
+                arg: Option<i32>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(arg.unwrap_or(0))
+            }
+            fn visit_expr_array(
+                &mut self,
+                items: Vec<i32>,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(items.into_iter().sum())
+            }
+            fn visit_expr_binary(
+                &mut self,
+                _op: LirBinaryOp,
+                l: i32,
+                r: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(l + r + 1)
+            }
+            fn visit_expr_unary(
+                &mut self,
+                _op: LirUnaryOp,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_wildcard(
+                &mut self,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(0)
+            }
+            fn visit_expr_for_all(
+                &mut self,
+                _t: &Type,
+                _b: i32,
+                p: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(p)
+            }
+            fn visit_expr_assert_consistent(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_try(
+                &mut self,
+                body: i32,
+                _b: i32,
+                _g: Option<i32>,
+                h: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(body + h)
+            }
+            fn visit_expr_throw(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_propagate(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_stmt_let(&mut self, _p: i32, v: i32) -> Result<i32, BackendError> {
+                Ok(v)
+            }
+            fn visit_stmt_expr(&mut self, e: i32) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_pat_wildcard(&mut self) -> Result<i32, BackendError> {
+                Ok(0)
+            }
+            fn visit_pat_literal(&mut self, _v: &LirLiteral) -> Result<i32, BackendError> {
+                Ok(1)
+            }
+            fn visit_pat_variable(&mut self, _n: &str) -> Result<i32, BackendError> {
+                Ok(1)
+            }
+            fn visit_pat_variant(&mut self, _n: &str, a: Option<i32>) -> Result<i32, BackendError> {
+                Ok(a.unwrap_or(0))
+            }
+            fn visit_pat_record(
+                &mut self,
+                fields: Vec<(String, i32)>,
+                _rest: bool,
+            ) -> Result<i32, BackendError> {
+                Ok(fields.into_iter().map(|(_, v)| v).sum())
+            }
+            #[allow(clippy::too_many_arguments)]
+            fn visit_decl_function(
+                &mut self,
+                _n: &str,
+                _p: &[LirParam],
+                _r: &Option<Type>,
+                body: i32,
+                _e: &Effect,
+                _h: &TargetHint,
+                _pub: bool,
+                _gen: bool,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(body)
+            }
+            fn visit_decl_record_def(
+                &mut self,
+                _n: &str,
+                _f: &[LirField],
+                _pub: bool,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(0)
+            }
+            fn visit_decl_union_def(
+                &mut self,
+                _n: &str,
+                _v: &[LirVariant],
+                _pub: bool,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(0)
+            }
+            fn visit_decl_extern(
+                &mut self,
+                _s: &str,
+                _n: &str,
+                _p: &[LirParam],
+                _r: &Option<Type>,
+                _pub: bool,
+            ) -> Result<i32, BackendError> {
+                Ok(0)
+            }
+            fn enter_module(&mut self) -> Result<(), BackendError> {
+                Ok(())
+            }
+            fn exit_module(&mut self, decls: Vec<i32>) -> Result<i32, BackendError> {
+                Ok(decls.into_iter().sum())
+            }
+            fn enter_function(&mut self, _n: &str) -> Result<(), BackendError> {
+                Ok(())
+            }
+            fn exit_function(&mut self, _n: &str, body: i32) -> Result<i32, BackendError> {
+                Ok(body)
+            }
+        }
+
+        let mut backend = CountBackend;
+        // Walk a binary expression: 1 + 2 should reduce to 3 (1 + 2 = 3 nodes).
+        let binary_expr = LirExpr::Binary {
+            op: LirBinaryOp::Add,
+            lhs: Box::new(make_literal(1)),
+            rhs: Box::new(make_literal(2)),
+            hint: hint(),
+            span: s(),
+        };
+
+        // This call should fail to compile — walk_expr doesn't exist yet.
+        let result = crate::walk_expr(&mut backend, &binary_expr);
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            3,
+            "binary with two literals should reduce to 3"
+        );
     }
 }
