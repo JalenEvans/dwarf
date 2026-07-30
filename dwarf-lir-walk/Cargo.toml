@@ -7,4 +7,4 @@ description = "Shared LIR walker trait and tree traversal engine for dwarf backe
 [dependencies]
 dwarf-lir = { path = "../dwarf-lir" }
 dwarf-syntax = { path = "../dwarf-syntax" }
-thiserror = "2"
+

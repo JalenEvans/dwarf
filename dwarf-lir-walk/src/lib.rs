@@ -4,8 +4,6 @@
 //! for traversing LIR (Low-level Intermediate Representation) trees. Backends
 //! implement the trait to process LIR nodes without writing traversal code.
 
-use std::fmt::Debug;
-
 use dwarf_lir::{
     Effect, LirBinaryOp, LirDecl, LirExpr, LirField, LirLiteral, LirParam, LirPat, LirStmt,
     LirUnaryOp, LirVariant, TargetHint,
@@ -45,6 +43,7 @@ impl std::error::Error for BackendError {}
 // ---------------------------------------------------------------------------
 
 /// A match arm after the walker has reduced its sub-expressions.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReducedArm<R> {
     pub pattern: R,
     pub guard: Option<R>,
@@ -61,7 +60,7 @@ pub struct ReducedArm<R> {
 /// is the reduction type — backends choose what each node reduces to (e.g.
 /// `()` for side-effect-only backends, `String` for pretty-printers, an AST
 /// node for code generators, etc.).
-pub trait LirBackend<R: Debug> {
+pub trait LirBackend<R> {
     // ------ Expression hooks (20) ------
 
     fn visit_expr_literal(
@@ -291,7 +290,7 @@ pub trait LirBackend<R: Debug> {
 // ---------------------------------------------------------------------------
 
 /// Walk a pattern node, reducing it bottom-up.
-fn walk_pat<R: Debug>(backend: &mut impl LirBackend<R>, pat: &LirPat) -> Result<R, BackendError> {
+fn walk_pat<R>(backend: &mut impl LirBackend<R>, pat: &LirPat) -> Result<R, BackendError> {
     match pat {
         LirPat::Wildcard => backend.visit_pat_wildcard(),
         LirPat::Literal(value) => backend.visit_pat_literal(value),
@@ -315,10 +314,7 @@ fn walk_pat<R: Debug>(backend: &mut impl LirBackend<R>, pat: &LirPat) -> Result<
 }
 
 /// Walk a statement node, reducing children first.
-fn walk_stmt<R: Debug>(
-    backend: &mut impl LirBackend<R>,
-    stmt: &LirStmt,
-) -> Result<R, BackendError> {
+fn walk_stmt<R>(backend: &mut impl LirBackend<R>, stmt: &LirStmt) -> Result<R, BackendError> {
     match stmt {
         LirStmt::Let { pat, value } => {
             let reduced_value = walk_expr(backend, value)?;
@@ -333,10 +329,7 @@ fn walk_stmt<R: Debug>(
 }
 
 /// Walk an expression node, recursively reducing children first (bottom-up).
-pub fn walk_expr<R: Debug>(
-    backend: &mut impl LirBackend<R>,
-    expr: &LirExpr,
-) -> Result<R, BackendError> {
+pub fn walk_expr<R>(backend: &mut impl LirBackend<R>, expr: &LirExpr) -> Result<R, BackendError> {
     match expr {
         LirExpr::Literal { value, hint, span } => backend.visit_expr_literal(value, hint, *span),
         LirExpr::Variable { name, hint, span } => backend.visit_expr_variable(name, hint, *span),
@@ -524,11 +517,8 @@ pub fn walk_expr<R: Debug>(
     }
 }
 
-/// Walk a single declaration. Function decls are wrapped in module lifecycle hooks.
-pub fn walk_decl<R: Debug>(
-    backend: &mut impl LirBackend<R>,
-    decl: &LirDecl,
-) -> Result<R, BackendError> {
+/// Walk a single declaration. Function decls are wrapped in function lifecycle hooks.
+pub fn walk_decl<R>(backend: &mut impl LirBackend<R>, decl: &LirDecl) -> Result<R, BackendError> {
     match decl {
         LirDecl::Function {
             name,
@@ -541,11 +531,10 @@ pub fn walk_decl<R: Debug>(
             is_generator,
             span,
         } => {
-            backend.enter_module()?;
             backend.enter_function(name)?;
             let reduced_body = walk_expr(backend, body)?;
             let exited_body = backend.exit_function(name, reduced_body)?;
-            let r = backend.visit_decl_function(
+            backend.visit_decl_function(
                 name,
                 params,
                 return_type,
@@ -555,8 +544,7 @@ pub fn walk_decl<R: Debug>(
                 *is_pub,
                 *is_generator,
                 *span,
-            )?;
-            backend.exit_module(vec![r])
+            )
         }
         LirDecl::RecordDef {
             name,
@@ -580,18 +568,8 @@ pub fn walk_decl<R: Debug>(
     }
 }
 
-/// Enter module lifecycle (free function wrapper).
-pub fn enter_module<R: Debug>(backend: &mut impl LirBackend<R>) -> Result<(), BackendError> {
-    backend.enter_module()
-}
-
-/// Exit module lifecycle (free function wrapper, passes empty decls).
-pub fn exit_module<R: Debug>(backend: &mut impl LirBackend<R>) -> Result<R, BackendError> {
-    backend.exit_module(vec![])
-}
-
 /// Walk a complete module (slice of declarations).
-pub fn walk_module<R: Debug>(
+pub fn walk_module<R>(
     backend: &mut impl LirBackend<R>,
     decls: &[LirDecl],
 ) -> Result<R, BackendError> {
@@ -984,7 +962,7 @@ impl LirBackend<String> for DebugBackend {
     }
 }
 
-// ------ Tests (RED phase — these must fail to compile) ------
+// ------ Tests ------
 
 #[cfg(test)]
 mod tests {
@@ -2335,9 +2313,7 @@ mod tests {
     }
 
     // ==================================================================
-    // RED PHASE — Walker engine tests
-    // These tests call walk_decl and walk_expr which do NOT exist yet.
-    // They must fail to compile until the walker engine is implemented.
+    // Walker engine tests
     // ==================================================================
 
     // ------------------------------------------------------------------
@@ -2730,18 +2706,17 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_decl doesn't exist yet.
         let result = crate::walk_decl(&mut spy, &func_decl);
         assert!(result.is_ok());
 
         // Verify lifecycle hooks were called.
         assert!(
-            spy.calls.contains(&"enter_module".to_string()),
-            "enter_module should have been called"
+            spy.calls.iter().any(|c| c.starts_with("enter_function")),
+            "enter_function should have been called"
         );
         assert!(
-            spy.calls.contains(&"exit_module".to_string()),
-            "exit_module should have been called"
+            spy.calls.iter().any(|c| c.starts_with("exit_function")),
+            "exit_function should have been called"
         );
     }
 
@@ -2754,7 +2729,6 @@ mod tests {
         let mut spy = SpyBackend::new();
         let lit_expr = make_literal(42);
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &lit_expr);
         assert!(result.is_ok());
 
@@ -2780,7 +2754,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &binary_expr);
         assert!(result.is_ok());
 
@@ -2825,7 +2798,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &call_expr);
         assert!(result.is_ok());
 
@@ -2886,7 +2858,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &block_expr);
         assert!(result.is_ok());
 
@@ -2932,7 +2903,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &if_expr);
         assert!(result.is_ok());
 
@@ -2989,7 +2959,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut spy, &match_expr);
         assert!(result.is_ok());
 
@@ -3060,7 +3029,6 @@ mod tests {
             is_pub: false,
         };
 
-        // This call should fail to compile — walk_decl doesn't exist yet.
         let result = crate::walk_decl(&mut spy, &extern_decl);
         assert!(result.is_ok());
 
@@ -3111,15 +3079,7 @@ mod tests {
             },
         ];
 
-        // This call should fail to compile — walk_decl doesn't exist yet.
-        // We need to wrap the module in a synthetic decl or call a different function.
-        // For now, let's assume walk_decl can handle a Vec<LirDecl> or we create a wrapper.
-        // Actually, let's just walk each decl and verify the lifecycle.
-        crate::enter_module(&mut spy).unwrap();
-        for decl in &module {
-            crate::walk_decl(&mut spy, decl).unwrap();
-        }
-        crate::exit_module(&mut spy).unwrap();
+        crate::walk_module(&mut spy, &module).unwrap();
 
         // Verify lifecycle order: enter_module → record_def → enter_function → ... → exit_function → exit_module
         let enter_mod_pos = spy
@@ -3440,7 +3400,6 @@ mod tests {
             span: s(),
         };
 
-        // This call should fail to compile — walk_expr doesn't exist yet.
         let result = crate::walk_expr(&mut backend, &binary_expr);
         assert!(result.is_ok());
         assert_eq!(
@@ -3451,9 +3410,7 @@ mod tests {
     }
 
     // ==================================================================
-    // RED PHASE — DebugBackend (reference test backend) tests
-    // These tests reference a `DebugBackend` struct that does NOT exist yet.
-    // They must fail to compile until DebugBackend is implemented.
+    // DebugBackend (reference test backend) tests
     // ==================================================================
 
     // ------------------------------------------------------------------
@@ -3469,7 +3426,6 @@ mod tests {
             span: s(),
         };
 
-        // This should fail to compile — DebugBackend doesn't exist yet.
         let result = crate::walk_expr(&mut backend, &expr);
         assert!(result.is_ok());
 
@@ -3735,7 +3691,6 @@ mod tests {
             },
         ];
 
-        // This should fail to compile — DebugBackend doesn't exist yet.
         let result = crate::walk_module(&mut backend, &decls);
         assert!(result.is_ok());
 

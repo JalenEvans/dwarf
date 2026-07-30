@@ -499,7 +499,6 @@ version = "0.1.0"
 dependencies = [
  "dwarf-lir",
  "dwarf-syntax",
- "thiserror",
 ]
 
 [[package]]
