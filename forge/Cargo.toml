@@ -10,8 +10,8 @@ path = "src/main.rs"
 [dependencies]
 dwarf-cli = { path = "../dwarf-cli" }
 clap = { version = "4", features = ["derive"] }
-# TODO: serde, serde_json, toml will be needed for Phase 2 (config parsing)
+toml = "0.8"
+# TODO: serde, serde_json will be needed for Phase 2 (config parsing)
 
 [dev-dependencies]
 tempfile = "3"
-toml = "0.8"

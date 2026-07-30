@@ -18,6 +18,61 @@ struct Cli {
 fn validate_package_format(s: &str) -> Result<String, String> {
     let parts: Vec<&str> = s.splitn(2, ':').collect();
     if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+        let prefix = parts[0];
+        let name = parts[1];
+
+        // Security: Reject path traversal attempts (C1)
+        // Reject if name contains ".." anywhere
+        if name.contains("..") {
+            return Err(format!(
+                "Invalid package name '{}': must not contain '..'",
+                name
+            ));
+        }
+
+        // Reject if name starts with path separator
+        if name.starts_with('/') || name.starts_with('\\') {
+            return Err(format!(
+                "Invalid package name '{}': must not start with path separator",
+                name
+            ));
+        }
+
+        // Reject backslashes (never valid in package names)
+        if name.contains('\\') {
+            return Err(format!(
+                "Invalid package name '{}': must not contain backslash",
+                name
+            ));
+        }
+
+        // Validate prefix
+        if !["npm", "py", "java"].contains(&prefix) {
+            return Err(format!(
+                "Unknown source prefix '{}'. Supported prefixes: npm, py, java",
+                prefix
+            ));
+        }
+
+        // For npm scoped packages (@scope/name), validate format
+        if prefix == "npm" && name.starts_with('@') {
+            // Must be @scope/name format
+            if !name.contains('/') {
+                return Err(format!(
+                    "Invalid scoped package name '{}': must be in @scope/name format",
+                    name
+                ));
+            }
+            // Check for multiple slashes (path traversal attempt)
+            let slash_count = name.matches('/').count();
+            if slash_count > 1 {
+                return Err(format!(
+                    "Invalid scoped package name '{}': only one slash allowed in @scope/name format",
+                    name
+                ));
+            }
+        }
+
         Ok(s.to_string())
     } else {
         Err("Package must be in format '<prefix>:<name>' (e.g., 'npm:express')".to_string())
@@ -489,7 +544,7 @@ java = true
 ///
 /// Returns the generated extern declaration stub on success.
 pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, String> {
-    // Parse prefix:name
+    // Parse prefix:name (validation already done by clap value_parser)
     let (prefix, name) = package
         .split_once(':')
         .filter(|(p, n)| !p.is_empty() && !n.is_empty())
@@ -529,6 +584,7 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
     };
 
     // Write the extern declaration to externs/{prefix}/{name}.kzd
+    // For scoped npm packages (@scope/name), create subdirectory
     let extern_dir = project_dir.join("externs").join(prefix);
     std::fs::create_dir_all(&extern_dir).map_err(|e| {
         format!(
@@ -539,6 +595,29 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
     })?;
 
     let extern_file = extern_dir.join(format!("{}.kzd", name));
+
+    // Security: Verify the resolved path is within extern_dir (C1)
+    // This catches any edge cases not caught by validate_package_format
+    let canonical_extern_dir = extern_dir.canonicalize().unwrap_or(extern_dir.clone());
+    let parent = extern_file.parent().unwrap_or(&extern_dir);
+    if !parent.exists() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create parent directory '{}': {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Failed to canonicalize path '{}': {}", parent.display(), e))?;
+    if !canonical_parent.starts_with(&canonical_extern_dir) {
+        return Err(
+            "Path traversal detected: extern file path escapes extern directory".to_string(),
+        );
+    }
+
     std::fs::write(&extern_file, &extern_stub).map_err(|e| {
         format!(
             "Failed to write extern file '{}': {}",
@@ -547,28 +626,33 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
         )
     })?;
 
-    // Read forge.toml
+    // Read and parse forge.toml using the toml crate (C2: prevents TOML injection)
     let forge_toml_path = project_dir.join("forge.toml");
-    let mut contents = std::fs::read_to_string(&forge_toml_path)
+    let contents = std::fs::read_to_string(&forge_toml_path)
         .map_err(|e| format!("Failed to read forge.toml: {}", e))?;
 
-    // Add dependency to [dependencies] section
-    let dep_line = format!("\"{}\" = \"*\"", package);
+    let mut doc: toml::Table = contents
+        .parse()
+        .map_err(|e| format!("Failed to parse forge.toml: {}", e))?;
 
-    if let Some(pos) = contents.find("[dependencies]") {
-        let after_header = pos + "[dependencies]".len();
-        // Find end of the [dependencies] line to insert after it
-        let insert_pos = contents[after_header..]
-            .find('\n')
-            .map(|p| after_header + p + 1)
-            .unwrap_or(contents.len());
-        contents.insert_str(insert_pos, &format!("{}\n", dep_line));
-    } else {
-        return Err("forge.toml does not have a [dependencies] section".to_string());
-    }
+    // Get or create [dependencies] table
+    let deps = doc
+        .entry("dependencies")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+
+    let deps_table = deps
+        .as_table_mut()
+        .ok_or_else(|| "forge.toml [dependencies] is not a table".to_string())?;
+
+    // W4: Check for duplicate — overwrite if exists, insert if new
+    deps_table.insert(package.to_string(), toml::Value::String("*".to_string()));
+
+    // Serialize back to TOML
+    let updated_contents = toml::to_string_pretty(&doc)
+        .map_err(|e| format!("Failed to serialize forge.toml: {}", e))?;
 
     // Write updated forge.toml
-    std::fs::write(&forge_toml_path, &contents)
+    std::fs::write(&forge_toml_path, updated_contents)
         .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
 
     // Best-effort install via package manager (npm/pip only)
@@ -610,7 +694,8 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
 /// Update the forge.lock file with a package entry.
 ///
 /// Creates the lock file if it doesn't exist, or appends/updates the entry
-/// in the [packages] section.
+/// in the [packages] section. Uses the `toml` crate for safe parsing and
+/// serialization (C2: prevents TOML injection, C3: section-aware updates).
 fn update_lock_file(
     project_dir: &std::path::Path,
     package: &str,
@@ -618,47 +703,42 @@ fn update_lock_file(
 ) -> Result<(), String> {
     let lock_file_path = project_dir.join("forge.lock");
 
-    let mut contents = if lock_file_path.exists() {
-        std::fs::read_to_string(&lock_file_path)
-            .map_err(|e| format!("Failed to read forge.lock: {}", e))?
+    let mut doc: toml::Table = if lock_file_path.exists() {
+        let contents = std::fs::read_to_string(&lock_file_path)
+            .map_err(|e| format!("Failed to read forge.lock: {}", e))?;
+        contents
+            .parse()
+            .map_err(|e| format!("Failed to parse forge.lock: {}", e))?
     } else {
-        "# forge.lock — auto-generated, do not edit manually\n\n[packages]\n".to_string()
+        toml::Table::new()
     };
 
-    let package_key = format!("\"{}\"", package);
-    let new_line = format!("{} = \"{}\"", package_key, version);
+    // Get or create [packages] table
+    let packages = doc
+        .entry("packages")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
 
-    // Parse existing lines and update or append
-    let mut lines: Vec<String> = contents.lines().map(|l| l.to_string()).collect();
-    let mut found = false;
+    let packages_table = packages
+        .as_table_mut()
+        .ok_or_else(|| "forge.lock [packages] is not a table".to_string())?;
 
-    // Look for existing entry in [packages] section
-    for line in &mut lines {
-        if line.trim().starts_with(&package_key) {
-            *line = new_line.clone();
-            found = true;
-            break;
-        }
+    // Insert or update the package entry
+    packages_table.insert(
+        package.to_string(),
+        toml::Value::String(version.to_string()),
+    );
+
+    // Serialize back to TOML with header comment
+    let mut output = "# forge.lock — auto-generated, do not edit manually\n\n".to_string();
+    output.push_str(
+        &toml::to_string_pretty(&doc)
+            .map_err(|e| format!("Failed to serialize forge.lock: {}", e))?,
+    );
+    if !output.ends_with('\n') {
+        output.push('\n');
     }
 
-    if !found {
-        // Find [packages] section and append after it
-        if let Some(pos) = lines.iter().position(|l| l.trim() == "[packages]") {
-            lines.insert(pos + 1, new_line);
-        } else {
-            // No [packages] section, add it
-            lines.push(String::new());
-            lines.push("[packages]".to_string());
-            lines.push(new_line);
-        }
-    }
-
-    contents = lines.join("\n");
-    if !contents.ends_with('\n') {
-        contents.push('\n');
-    }
-
-    std::fs::write(&lock_file_path, contents)
+    std::fs::write(&lock_file_path, output)
         .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
 
     Ok(())
