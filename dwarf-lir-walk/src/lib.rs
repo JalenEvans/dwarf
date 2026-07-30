@@ -603,6 +603,387 @@ pub fn walk_module<R: Debug>(
     backend.exit_module(results)
 }
 
+// ---------------------------------------------------------------------------
+// DebugBackend — reference test backend producing S-expression debug output
+// ---------------------------------------------------------------------------
+
+/// Reference test backend that produces S-expression-style debug output.
+/// Used to validate walker correctness and serve as a reference implementation.
+pub struct DebugBackend;
+
+/// Format a literal value for debug output (extracts inner value from Debug repr).
+fn fmt_literal(v: &LirLiteral) -> String {
+    match v {
+        LirLiteral::Int(n) => format!("{n}"),
+        LirLiteral::Float(f) => format!("{f}"),
+        LirLiteral::Str(s) => format!("\"{s}\""),
+        LirLiteral::Bool(b) => format!("{b}"),
+        LirLiteral::Null => "null".to_string(),
+    }
+}
+
+/// Format a binary operator as its symbolic representation.
+fn fmt_binop(op: LirBinaryOp) -> &'static str {
+    match op {
+        LirBinaryOp::Add => "+",
+        LirBinaryOp::Sub => "-",
+        LirBinaryOp::Mul => "*",
+        LirBinaryOp::Div => "/",
+        LirBinaryOp::Eq => "==",
+        LirBinaryOp::Ne => "!=",
+        LirBinaryOp::Lt => "<",
+        LirBinaryOp::Gt => ">",
+        LirBinaryOp::Le => "<=",
+        LirBinaryOp::Ge => ">=",
+        LirBinaryOp::And => "&&",
+        LirBinaryOp::Or => "||",
+    }
+}
+
+/// Format a unary operator as its symbolic representation.
+fn fmt_unop(op: LirUnaryOp) -> &'static str {
+    match op {
+        LirUnaryOp::Neg => "-",
+        LirUnaryOp::Not => "!",
+    }
+}
+
+impl LirBackend<String> for DebugBackend {
+    // ------ Expression hooks (20) ------
+
+    fn visit_expr_literal(
+        &mut self,
+        value: &LirLiteral,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(literal {})", fmt_literal(value)))
+    }
+
+    fn visit_expr_variable(
+        &mut self,
+        name: &str,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(var {name})"))
+    }
+
+    fn visit_expr_call(
+        &mut self,
+        func: String,
+        args: Vec<String>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        let mut parts = vec![func];
+        parts.extend(args);
+        Ok(format!("(call {})", parts.join(" ")))
+    }
+
+    fn visit_expr_member(
+        &mut self,
+        obj: String,
+        field: &str,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(member {obj} {field})"))
+    }
+
+    fn visit_expr_if(
+        &mut self,
+        cond: String,
+        then: String,
+        else_: Option<String>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        match else_ {
+            Some(e) => Ok(format!("(if {cond} {then} {e})")),
+            None => Ok(format!("(if {cond} {then})")),
+        }
+    }
+
+    fn visit_expr_match(
+        &mut self,
+        expr: String,
+        arms: Vec<ReducedArm<String>>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        let arm_strs: Vec<String> = arms
+            .iter()
+            .map(|arm| match &arm.guard {
+                Some(g) => format!("(arm {} {} {})", arm.pattern, g, arm.body),
+                None => format!("(arm {} {})", arm.pattern, arm.body),
+            })
+            .collect();
+        let mut parts = vec![expr];
+        parts.extend(arm_strs);
+        Ok(format!("(match {})", parts.join(" ")))
+    }
+
+    fn visit_expr_block(
+        &mut self,
+        stmts: Vec<String>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(block {})", stmts.join(" ")))
+    }
+
+    fn visit_expr_assign(
+        &mut self,
+        target: String,
+        value: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(assign {target} {value})"))
+    }
+
+    fn visit_expr_lambda(
+        &mut self,
+        params: &[LirParam],
+        body: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        let param_names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+        Ok(format!("(lambda ({}) {body})", param_names.join(" ")))
+    }
+
+    fn visit_expr_record(
+        &mut self,
+        fields: Vec<(String, String)>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        let field_strs: Vec<String> = fields.iter().map(|(k, v)| format!("({k} {v})")).collect();
+        Ok(format!("(record {})", field_strs.join(" ")))
+    }
+
+    fn visit_expr_variant(
+        &mut self,
+        name: &str,
+        arg: Option<String>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        match arg {
+            Some(a) => Ok(format!("(variant {name} {a})")),
+            None => Ok(format!("(variant {name})")),
+        }
+    }
+
+    fn visit_expr_array(
+        &mut self,
+        items: Vec<String>,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(array {})", items.join(" ")))
+    }
+
+    fn visit_expr_binary(
+        &mut self,
+        op: LirBinaryOp,
+        lhs: String,
+        rhs: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(binary {} {lhs} {rhs})", fmt_binop(op)))
+    }
+
+    fn visit_expr_unary(
+        &mut self,
+        op: LirUnaryOp,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(unary {} {expr})", fmt_unop(op)))
+    }
+
+    fn visit_expr_wildcard(
+        &mut self,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok("(wildcard)".to_string())
+    }
+
+    fn visit_expr_for_all(
+        &mut self,
+        _type_: &Type,
+        binding: String,
+        property: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(for-all {binding} {property})"))
+    }
+
+    fn visit_expr_assert_consistent(
+        &mut self,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(assert-consistent {expr})"))
+    }
+
+    fn visit_expr_try(
+        &mut self,
+        body: String,
+        binding: String,
+        guard: Option<String>,
+        handler: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        match guard {
+            Some(g) => Ok(format!("(try {body} {binding} {g} {handler})")),
+            None => Ok(format!("(try {body} {binding} {handler})")),
+        }
+    }
+
+    fn visit_expr_throw(
+        &mut self,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(throw {expr})"))
+    }
+
+    fn visit_expr_propagate(
+        &mut self,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(propagate {expr})"))
+    }
+
+    // ------ Statement hooks (2) ------
+
+    fn visit_stmt_let(&mut self, pat: String, value: String) -> Result<String, BackendError> {
+        Ok(format!("(let {pat} {value})"))
+    }
+
+    fn visit_stmt_expr(&mut self, expr: String) -> Result<String, BackendError> {
+        Ok(expr)
+    }
+
+    // ------ Pattern hooks (5) ------
+
+    fn visit_pat_wildcard(&mut self) -> Result<String, BackendError> {
+        Ok("_".to_string())
+    }
+
+    fn visit_pat_literal(&mut self, value: &LirLiteral) -> Result<String, BackendError> {
+        Ok(format!("(lit {})", fmt_literal(value)))
+    }
+
+    fn visit_pat_variable(&mut self, name: &str) -> Result<String, BackendError> {
+        Ok(name.to_string())
+    }
+
+    fn visit_pat_variant(
+        &mut self,
+        name: &str,
+        arg: Option<String>,
+    ) -> Result<String, BackendError> {
+        match arg {
+            Some(a) => Ok(format!("(variant {name} {a})")),
+            None => Ok(format!("(variant {name})")),
+        }
+    }
+
+    fn visit_pat_record(
+        &mut self,
+        fields: Vec<(String, String)>,
+        rest: bool,
+    ) -> Result<String, BackendError> {
+        let field_strs: Vec<String> = fields.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        let mut s = format!("(record {})", field_strs.join(" "));
+        if rest {
+            s.push_str(" ..");
+        }
+        Ok(s)
+    }
+
+    // ------ Declaration hooks (4) ------
+
+    #[allow(clippy::too_many_arguments)]
+    fn visit_decl_function(
+        &mut self,
+        name: &str,
+        _params: &[LirParam],
+        _return_type: &Option<Type>,
+        body: String,
+        _effect: &Effect,
+        _hint: &TargetHint,
+        _is_pub: bool,
+        _is_generator: bool,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(function {name} {body})"))
+    }
+
+    fn visit_decl_record_def(
+        &mut self,
+        name: &str,
+        _fields: &[LirField],
+        _is_pub: bool,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(record-def {name})"))
+    }
+
+    fn visit_decl_union_def(
+        &mut self,
+        name: &str,
+        _variants: &[LirVariant],
+        _is_pub: bool,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(union-def {name})"))
+    }
+
+    fn visit_decl_extern(
+        &mut self,
+        source: &str,
+        name: &str,
+        _params: &[LirParam],
+        _return_type: &Option<Type>,
+        _is_pub: bool,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(extern {source} {name})"))
+    }
+
+    // ------ Lifecycle hooks (4) ------
+
+    fn enter_module(&mut self) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn exit_module(&mut self, decls: Vec<String>) -> Result<String, BackendError> {
+        Ok(decls.join("\n"))
+    }
+
+    fn enter_function(&mut self, _name: &str) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn exit_function(&mut self, _name: &str, body: String) -> Result<String, BackendError> {
+        Ok(body)
+    }
+}
+
 // ------ Tests (RED phase — these must fail to compile) ------
 
 #[cfg(test)]
@@ -3066,6 +3447,310 @@ mod tests {
             result.unwrap(),
             3,
             "binary with two literals should reduce to 3"
+        );
+    }
+
+    // ==================================================================
+    // RED PHASE — DebugBackend (reference test backend) tests
+    // These tests reference a `DebugBackend` struct that does NOT exist yet.
+    // They must fail to compile until DebugBackend is implemented.
+    // ==================================================================
+
+    // ------------------------------------------------------------------
+    // Test 1: DebugBackend renders a literal integer
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_literal() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::Literal {
+            value: LirLiteral::Int(42),
+            hint: hint(),
+            span: s(),
+        };
+
+        // This should fail to compile — DebugBackend doesn't exist yet.
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("(literal 42)"),
+            "expected output to contain '(literal 42)', got: {output}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 2: DebugBackend renders a variable reference
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_variable() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::Variable {
+            name: "x".into(),
+            hint: hint(),
+            span: s(),
+        };
+
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert_eq!(
+            output, "(var x)",
+            "variable expression should render as '(var x)'"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 3: DebugBackend renders a function call with args
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_call() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::Call {
+            func: Box::new(make_var("f")),
+            args: vec![make_literal(1), make_literal(2)],
+            hint: hint(),
+            span: s(),
+        };
+
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("(call"),
+            "output should contain '(call', got: {output}"
+        );
+        assert!(
+            output.contains("(var f)"),
+            "output should contain the func '(var f)', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 1)"),
+            "output should contain first arg '(literal 1)', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 2)"),
+            "output should contain second arg '(literal 2)', got: {output}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 4: DebugBackend renders if-then-else with both branches
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_if_then_else() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::If {
+            cond: Box::new(make_var("cond")),
+            then: Box::new(make_literal(1)),
+            else_: Some(Box::new(make_literal(2))),
+            hint: hint(),
+            span: s(),
+        };
+
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("(if"),
+            "output should contain '(if', got: {output}"
+        );
+        assert!(
+            output.contains("(var cond)"),
+            "output should contain condition '(var cond)', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 1)"),
+            "output should contain then-branch '(literal 1)', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 2)"),
+            "output should contain else-branch '(literal 2)', got: {output}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 5: DebugBackend renders a block with let-binding and final expr
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_block_with_let() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::Block {
+            stmts: vec![
+                LirStmt::Let {
+                    pat: LirPat::Variable("x".into()),
+                    value: make_literal(10),
+                },
+                LirStmt::Expr(make_var("x")),
+            ],
+            hint: hint(),
+            span: s(),
+        };
+
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("(block"),
+            "output should contain '(block', got: {output}"
+        );
+        assert!(
+            output.contains("(let x"),
+            "output should contain '(let x' for the binding, got: {output}"
+        );
+        assert!(
+            output.contains("(literal 10)"),
+            "output should contain the assigned value '(literal 10)', got: {output}"
+        );
+        assert!(
+            output.contains("(var x)"),
+            "output should contain the final expression '(var x)', got: {output}"
+        );
+
+        // Verify ordering: let should appear before the final var x.
+        let let_pos = output
+            .find("(let x")
+            .expect("should find '(let x' in output");
+        let var_pos = output
+            .find("(var x)")
+            .expect("should find '(var x)' in output");
+        assert!(
+            let_pos < var_pos,
+            "let-binding should appear before the final variable reference"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 6: DebugBackend renders a binary operation with operator
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_binary() {
+        let mut backend = crate::DebugBackend;
+        let expr = LirExpr::Binary {
+            op: LirBinaryOp::Add,
+            lhs: Box::new(make_literal(1)),
+            rhs: Box::new(make_literal(2)),
+            hint: hint(),
+            span: s(),
+        };
+
+        let result = crate::walk_expr(&mut backend, &expr);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("(binary"),
+            "output should contain '(binary', got: {output}"
+        );
+        assert!(
+            output.contains("+"),
+            "output should contain the '+' operator for Add, got: {output}"
+        );
+        assert!(
+            output.contains("(literal 1)"),
+            "output should contain lhs '(literal 1)', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 2)"),
+            "output should contain rhs '(literal 2)', got: {output}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 7: DebugBackend renders a function declaration with body
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_function_decl() {
+        let mut backend = crate::DebugBackend;
+        let func_decl = LirDecl::Function {
+            name: "main".into(),
+            params: vec![],
+            return_type: None,
+            body: make_literal(99),
+            effect: Effect::Pure,
+            hint: hint(),
+            is_pub: false,
+            is_generator: false,
+            span: s(),
+        };
+
+        let result = crate::walk_decl(&mut backend, &func_decl);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("main"),
+            "output should contain function name 'main', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 99)"),
+            "output should contain the body '(literal 99)', got: {output}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Test 8: DebugBackend renders a full module with record + function
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_debug_backend_full_module() {
+        let mut backend = crate::DebugBackend;
+        let decls = vec![
+            LirDecl::RecordDef {
+                name: "Point".into(),
+                fields: vec![
+                    LirField {
+                        name: "x".into(),
+                        type_: Type::Named("Int".into()),
+                    },
+                    LirField {
+                        name: "y".into(),
+                        type_: Type::Named("Int".into()),
+                    },
+                ],
+                is_pub: true,
+                span: s(),
+            },
+            LirDecl::Function {
+                name: "main".into(),
+                params: vec![],
+                return_type: None,
+                body: make_literal(0),
+                effect: Effect::Pure,
+                hint: hint(),
+                is_pub: true,
+                is_generator: false,
+                span: s(),
+            },
+        ];
+
+        // This should fail to compile — DebugBackend doesn't exist yet.
+        let result = crate::walk_module(&mut backend, &decls);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        assert!(
+            output.contains("Point"),
+            "output should contain record name 'Point', got: {output}"
+        );
+        assert!(
+            output.contains("main"),
+            "output should contain function name 'main', got: {output}"
+        );
+        assert!(
+            output.contains("(literal 0)"),
+            "output should contain the function body '(literal 0)', got: {output}"
         );
     }
 }
