@@ -437,6 +437,16 @@ java = true
     std::fs::write(&dwarf_toml_path, dwarf_toml)
         .map_err(|e| format!("Failed to write dwarf.toml: {}", e))?;
 
+    // Create externs/ directory for extern declaration files
+    let externs_dir = target_dir.join("externs");
+    std::fs::create_dir_all(&externs_dir).map_err(|e| {
+        format!(
+            "Failed to create externs directory '{}': {}",
+            externs_dir.display(),
+            e
+        )
+    })?;
+
     Ok(())
 }
 
@@ -489,6 +499,25 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
             ));
         }
     };
+
+    // Write the extern declaration to externs/{prefix}/{name}.kzd
+    let extern_dir = project_dir.join("externs").join(prefix);
+    std::fs::create_dir_all(&extern_dir).map_err(|e| {
+        format!(
+            "Failed to create extern directory '{}': {}",
+            extern_dir.display(),
+            e
+        )
+    })?;
+
+    let extern_file = extern_dir.join(format!("{}.kzd", name));
+    std::fs::write(&extern_file, &extern_stub).map_err(|e| {
+        format!(
+            "Failed to write extern file '{}': {}",
+            extern_file.display(),
+            e
+        )
+    })?;
 
     // Read forge.toml
     let forge_toml_path = project_dir.join("forge.toml");
@@ -1023,6 +1052,31 @@ mod cli_init_tests {
             "forge init should fail when directory already contains a forge.toml"
         );
     }
+
+    // ── Externs Directory Tests ───────────────────────────────────────────
+    // Verify that `forge init` creates an empty externs/ directory for
+    // extern declaration files. These MUST FAIL until run_init is updated
+    // to create the externs/ directory during scaffolding.
+
+    #[test]
+    fn test_forge_init_creates_externs_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("my-app");
+
+        let result = run_init(Some(project_dir.as_path()), Some("my-app"));
+        assert!(
+            result.is_ok(),
+            "forge init should succeed: {:?}",
+            result.err()
+        );
+
+        let externs_dir = project_dir.join("externs");
+        assert!(
+            externs_dir.exists(),
+            "forge init should create an externs/ directory"
+        );
+        assert!(externs_dir.is_dir(), "externs/ should be a directory");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,5 +1233,101 @@ version = "0.1.0"
             "run_add should return an extern stub containing the package source, got: {}",
             stub
         );
+    }
+
+    // ── Extern File Generation Tests ──────────────────────────────────────
+    // These verify that `forge add` writes the extern declaration to a .kzd
+    // file under externs/{prefix}/{name}.kzd. They MUST FAIL until the
+    // extern auto-generation feature is implemented in run_add().
+
+    #[test]
+    fn test_forge_add_generates_extern_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let extern_file = dir.path().join("externs").join("npm").join("express.kzd");
+        assert!(
+            extern_file.exists(),
+            "forge add should create externs/npm/express.kzd, but it does not exist"
+        );
+    }
+
+    #[test]
+    fn test_forge_add_extern_file_has_correct_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let extern_file = dir.path().join("externs").join("npm").join("express.kzd");
+        let contents =
+            fs::read_to_string(&extern_file).expect("externs/npm/express.kzd should be readable");
+
+        assert!(
+            contents.contains("extern"),
+            "extern file should contain an extern declaration, got: {}",
+            contents
+        );
+        assert!(
+            contents.contains("npm:express"),
+            "extern file should reference the package source 'npm:express', got: {}",
+            contents
+        );
+    }
+
+    #[test]
+    fn test_forge_add_creates_extern_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Verify externs/ does not exist before forge add
+        assert!(
+            !dir.path().join("externs").exists(),
+            "externs/ should not exist before forge add"
+        );
+
+        let result = run_add(dir.path(), "py:requests");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let externs_dir = dir.path().join("externs");
+        assert!(
+            externs_dir.exists(),
+            "forge add should create the externs/ directory"
+        );
+        assert!(externs_dir.is_dir(), "externs/ should be a directory");
     }
 }
