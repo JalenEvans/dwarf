@@ -14,3 +14,5 @@ vscode-dwarf/out/
 **/node_modules/
 dwarf-cli/package.json
 dwarf-cli/package-lock.json
+forge/package.json
+forge/package-lock.json
