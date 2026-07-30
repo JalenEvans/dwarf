@@ -447,6 +447,14 @@ java = true
         )
     })?;
 
+    // Create empty forge.lock for reproducible builds
+    let forge_lock_path = target_dir.join("forge.lock");
+    if !forge_lock_path.exists() {
+        let forge_lock = "# forge.lock — auto-generated, do not edit manually\n\n[packages]\n";
+        std::fs::write(&forge_lock_path, forge_lock)
+            .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -573,7 +581,67 @@ pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, S
         _ => {} // java has no CLI package manager
     }
 
+    // Update forge.lock with the installed package
+    update_lock_file(project_dir, package, "*")?;
+
     Ok(extern_stub)
+}
+
+/// Update the forge.lock file with a package entry.
+///
+/// Creates the lock file if it doesn't exist, or appends/updates the entry
+/// in the [packages] section.
+fn update_lock_file(
+    project_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+) -> Result<(), String> {
+    let lock_file_path = project_dir.join("forge.lock");
+
+    let mut contents = if lock_file_path.exists() {
+        std::fs::read_to_string(&lock_file_path)
+            .map_err(|e| format!("Failed to read forge.lock: {}", e))?
+    } else {
+        "# forge.lock — auto-generated, do not edit manually\n\n[packages]\n".to_string()
+    };
+
+    let package_key = format!("\"{}\"", package);
+    let new_line = format!("{} = \"{}\"", package_key, version);
+
+    // Parse existing lines and update or append
+    let mut lines: Vec<String> = contents.lines().map(|l| l.to_string()).collect();
+    let mut found = false;
+
+    // Look for existing entry in [packages] section
+    for line in &mut lines {
+        if line.trim().starts_with(&package_key) {
+            *line = new_line.clone();
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        // Find [packages] section and append after it
+        if let Some(pos) = lines.iter().position(|l| l.trim() == "[packages]") {
+            lines.insert(pos + 1, new_line);
+        } else {
+            // No [packages] section, add it
+            lines.push(String::new());
+            lines.push("[packages]".to_string());
+            lines.push(new_line);
+        }
+    }
+
+    contents = lines.join("\n");
+    if !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+
+    std::fs::write(&lock_file_path, contents)
+        .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1329,5 +1397,145 @@ version = "0.1.0"
             "forge add should create the externs/ directory"
         );
         assert!(externs_dir.is_dir(), "externs/ should be a directory");
+    }
+
+    // ── Lock File Generation Tests ────────────────────────────────────────
+    // These verify that `forge add` generates/updates a forge.lock file with
+    // the installed package entry. They MUST FAIL until lock file generation
+    // is implemented in run_add().
+
+    #[test]
+    fn test_forge_add_generates_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        assert!(
+            lock_file.exists(),
+            "forge add should create forge.lock, but it does not exist"
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_has_package_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        assert!(
+            contents.contains("npm:express"),
+            "forge.lock should contain entry for npm:express, got: {}",
+            contents
+        );
+        assert!(
+            contents.contains("[packages]"),
+            "forge.lock should have a [packages] section, got: {}",
+            contents
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_valid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        // Parse as TOML to validate structure
+        let parsed: Result<toml::Value, _> = toml::from_str(&contents);
+        assert!(
+            parsed.is_ok(),
+            "forge.lock should be valid TOML, but parsing failed: {:?}",
+            parsed.err()
+        );
+
+        // Verify the parsed structure has a [packages] table
+        let parsed = parsed.unwrap();
+        assert!(
+            parsed.get("packages").is_some(),
+            "forge.lock should have a [packages] table"
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_append_second_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Add first package
+        run_add(dir.path(), "npm:express").expect("first add should succeed");
+        // Add second package
+        run_add(dir.path(), "py:requests").expect("second add should succeed");
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        assert!(
+            contents.contains("npm:express"),
+            "forge.lock should contain npm:express after two adds"
+        );
+        assert!(
+            contents.contains("py:requests"),
+            "forge.lock should contain py:requests after two adds"
+        );
+
+        // Should still be valid TOML
+        let parsed: Result<toml::Value, _> = toml::from_str(&contents);
+        assert!(
+            parsed.is_ok(),
+            "forge.lock should still be valid TOML after two adds"
+        );
     }
 }

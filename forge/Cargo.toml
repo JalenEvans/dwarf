@@ -14,3 +14,4 @@ clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3"
+toml = "0.8"
