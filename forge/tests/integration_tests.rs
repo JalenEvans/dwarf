@@ -134,12 +134,7 @@ fn test_forge_emit_python() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "greet.kzd", "fn main() { 42 }");
 
-    let output = forge(&[
-        "emit",
-        file_path.to_str().unwrap(),
-        "--target",
-        "py",
-    ]);
+    let output = forge(&["emit", file_path.to_str().unwrap(), "--target", "py"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 

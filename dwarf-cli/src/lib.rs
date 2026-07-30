@@ -240,14 +240,7 @@ mod library_surface_tests {
     fn test_run_check_is_accessible_via_library() {
         // Minimal valid args: no files, no json, no passes, no skip_passes,
         // list_passes=false, no stdlib_path.
-        crate::check::run_check(
-            Vec::<PathBuf>::new(),
-            false,
-            None,
-            None,
-            false,
-            None,
-        );
+        crate::check::run_check(Vec::<PathBuf>::new(), false, None, None, false, None);
     }
 
     // 2. build::run_build
@@ -282,25 +275,13 @@ mod library_surface_tests {
     // 4. run::run_run
     #[test]
     fn test_run_run_is_accessible_via_library() {
-        crate::run::run_run(
-            Vec::<PathBuf>::new(),
-            String::from("ts"),
-            None,
-            None,
-            None,
-        );
+        crate::run::run_run(Vec::<PathBuf>::new(), String::from("ts"), None, None, None);
     }
 
     // 5. dev::run_dev
     #[test]
     fn test_run_dev_is_accessible_via_library() {
-        crate::dev::run_dev(
-            Vec::<PathBuf>::new(),
-            String::from("ts"),
-            None,
-            None,
-            None,
-        );
+        crate::dev::run_dev(Vec::<PathBuf>::new(), String::from("ts"), None, None, None);
     }
 
     // 6. fmt::run_fmt

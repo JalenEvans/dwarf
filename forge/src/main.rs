@@ -4,7 +4,11 @@ use std::path::PathBuf;
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 
 #[derive(Parser)]
-#[command(name = "forge", version, about = "Dwarf platform CLI — build, manage dependencies, and more")]
+#[command(
+    name = "forge",
+    version,
+    about = "Dwarf platform CLI — build, manage dependencies, and more"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -218,7 +222,17 @@ fn main() {
             skip_passes,
             stdlib_path,
         }) => {
-            build::run_build(files, target, out_dir, pretty, source_map, json, passes, skip_passes, stdlib_path);
+            build::run_build(
+                files,
+                target,
+                out_dir,
+                pretty,
+                source_map,
+                json,
+                passes,
+                skip_passes,
+                stdlib_path,
+            );
         }
         Some(Commands::Emit {
             files,
@@ -264,15 +278,13 @@ fn main() {
         }) => {
             test::run_test(files, target, json, diff, fix);
         }
-        Some(Commands::Init { name }) => {
-            match run_init(None, name.as_deref()) {
-                Ok(()) => {}
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+        Some(Commands::Init { name }) => match run_init(None, name.as_deref()) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
             }
-        }
+        },
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
             std::process::exit(1);
@@ -305,21 +317,23 @@ pub fn run_init(project_dir: Option<&std::path::Path>, name: Option<&str>) -> Re
     let target_dir = match project_dir {
         Some(dir) => {
             if !dir.exists() {
-                std::fs::create_dir_all(dir)
-                    .map_err(|e| format!("Failed to create directory '{}': {}", dir.display(), e))?;
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    format!("Failed to create directory '{}': {}", dir.display(), e)
+                })?;
             }
             dir.to_path_buf()
         }
         None => {
             let cwd = std::env::current_dir()
                 .map_err(|e| format!("Failed to get current directory: {}", e))?;
-            
+
             // If name is provided, create a directory with that name in current dir
             if let Some(project_name) = name {
                 let dir = cwd.join(project_name);
                 if !dir.exists() {
-                    std::fs::create_dir_all(&dir)
-                        .map_err(|e| format!("Failed to create directory '{}': {}", dir.display(), e))?;
+                    std::fs::create_dir_all(&dir).map_err(|e| {
+                        format!("Failed to create directory '{}': {}", dir.display(), e)
+                    })?;
                 }
                 dir
             } else {
@@ -444,9 +458,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_check_with_passes() {
-        let cli = Cli::try_parse_from([
-            "forge", "check", "test.kzd", "--passes", "tokenize,parse",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "check", "test.kzd", "--passes", "tokenize,parse"]);
         assert!(cli.is_ok(), "forge check --passes should parse");
         match cli.unwrap().command {
             Some(Commands::Check { passes, .. }) => {
@@ -458,9 +470,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_check_with_skip_passes() {
-        let cli = Cli::try_parse_from([
-            "forge", "check", "test.kzd", "--skip-passes", "lint",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "check", "test.kzd", "--skip-passes", "lint"]);
         assert!(cli.is_ok(), "forge check --skip-passes should parse");
         match cli.unwrap().command {
             Some(Commands::Check { skip_passes, .. }) => {
@@ -475,9 +485,18 @@ mod cli_passthrough_tests {
     #[test]
     fn test_forge_build_parses_basic() {
         let cli = Cli::try_parse_from([
-            "forge", "build", "test.kzd", "--target", "ts", "--out-dir", "./dist",
+            "forge",
+            "build",
+            "test.kzd",
+            "--target",
+            "ts",
+            "--out-dir",
+            "./dist",
         ]);
-        assert!(cli.is_ok(), "forge build with --target and --out-dir should parse");
+        assert!(
+            cli.is_ok(),
+            "forge build with --target and --out-dir should parse"
+        );
         match cli.unwrap().command {
             Some(Commands::Build {
                 files,
@@ -495,9 +514,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_build_with_pretty_flag() {
-        let cli = Cli::try_parse_from([
-            "forge", "build", "test.kzd", "--target", "ts", "--pretty",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "build", "test.kzd", "--target", "ts", "--pretty"]);
         assert!(cli.is_ok(), "forge build --pretty should parse");
         match cli.unwrap().command {
             Some(Commands::Build { pretty, .. }) => {
@@ -510,7 +527,12 @@ mod cli_passthrough_tests {
     #[test]
     fn test_forge_build_with_source_map_flag() {
         let cli = Cli::try_parse_from([
-            "forge", "build", "test.kzd", "--target", "ts", "--source-map",
+            "forge",
+            "build",
+            "test.kzd",
+            "--target",
+            "ts",
+            "--source-map",
         ]);
         assert!(cli.is_ok(), "forge build --source-map should parse");
         match cli.unwrap().command {
@@ -528,9 +550,7 @@ mod cli_passthrough_tests {
         let cli = Cli::try_parse_from(["forge", "emit", "test.kzd", "-t", "py"]);
         assert!(cli.is_ok(), "forge emit -t py should parse");
         match cli.unwrap().command {
-            Some(Commands::Emit {
-                files, target, ..
-            }) => {
+            Some(Commands::Emit { files, target, .. }) => {
                 assert_eq!(files, vec![PathBuf::from("test.kzd")]);
                 assert_eq!(target, "py");
             }
@@ -540,9 +560,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_emit_with_json_flag() {
-        let cli = Cli::try_parse_from([
-            "forge", "emit", "test.kzd", "-t", "ts", "--json",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "emit", "test.kzd", "-t", "ts", "--json"]);
         assert!(cli.is_ok(), "forge emit --json should parse");
         match cli.unwrap().command {
             Some(Commands::Emit { json, .. }) => {
@@ -559,9 +577,7 @@ mod cli_passthrough_tests {
         let cli = Cli::try_parse_from(["forge", "run", "test.kzd", "-t", "ts"]);
         assert!(cli.is_ok(), "forge run -t ts should parse");
         match cli.unwrap().command {
-            Some(Commands::Run {
-                files, target, ..
-            }) => {
+            Some(Commands::Run { files, target, .. }) => {
                 assert_eq!(files, vec![PathBuf::from("test.kzd")]);
                 assert_eq!(target, "ts");
             }
@@ -572,7 +588,13 @@ mod cli_passthrough_tests {
     #[test]
     fn test_forge_run_with_passes() {
         let cli = Cli::try_parse_from([
-            "forge", "run", "test.kzd", "-t", "ts", "--passes", "tokenize,parse",
+            "forge",
+            "run",
+            "test.kzd",
+            "-t",
+            "ts",
+            "--passes",
+            "tokenize,parse",
         ]);
         assert!(cli.is_ok(), "forge run --passes should parse");
         match cli.unwrap().command {
@@ -590,9 +612,7 @@ mod cli_passthrough_tests {
         let cli = Cli::try_parse_from(["forge", "dev", "test.kzd", "-t", "ts"]);
         assert!(cli.is_ok(), "forge dev -t ts should parse");
         match cli.unwrap().command {
-            Some(Commands::Dev {
-                files, target, ..
-            }) => {
+            Some(Commands::Dev { files, target, .. }) => {
                 assert_eq!(files, vec![PathBuf::from("test.kzd")]);
                 assert_eq!(target, "ts");
             }
@@ -603,7 +623,13 @@ mod cli_passthrough_tests {
     #[test]
     fn test_forge_dev_with_skip_passes() {
         let cli = Cli::try_parse_from([
-            "forge", "dev", "test.kzd", "-t", "ts", "--skip-passes", "lint",
+            "forge",
+            "dev",
+            "test.kzd",
+            "-t",
+            "ts",
+            "--skip-passes",
+            "lint",
         ]);
         assert!(cli.is_ok(), "forge dev --skip-passes should parse");
         match cli.unwrap().command {
@@ -656,9 +682,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_test_parses_basic() {
-        let cli = Cli::try_parse_from([
-            "forge", "test", "test.kzd", "-t", "ts", "--json",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts", "--json"]);
         assert!(cli.is_ok(), "forge test -t ts --json should parse");
         match cli.unwrap().command {
             Some(Commands::Test {
@@ -677,9 +701,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_test_with_diff_flag() {
-        let cli = Cli::try_parse_from([
-            "forge", "test", "test.kzd", "-t", "ts", "--diff",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts", "--diff"]);
         assert!(cli.is_ok(), "forge test --diff should parse");
         match cli.unwrap().command {
             Some(Commands::Test { diff, .. }) => {
@@ -691,9 +713,7 @@ mod cli_passthrough_tests {
 
     #[test]
     fn test_forge_test_with_fix_flag() {
-        let cli = Cli::try_parse_from([
-            "forge", "test", "test.kzd", "-t", "ts", "--fix",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts", "--fix"]);
         assert!(cli.is_ok(), "forge test --fix should parse");
         match cli.unwrap().command {
             Some(Commands::Test { fix, .. }) => {
@@ -783,7 +803,11 @@ mod cli_init_tests {
         let project_dir = dir.path().join("new-proj");
 
         let result = run_init(Some(project_dir.as_path()), None);
-        assert!(result.is_ok(), "forge init should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "forge init should succeed: {:?}",
+            result.err()
+        );
         assert!(
             project_dir.join("forge.toml").exists(),
             "forge.toml should be created in the project directory"
@@ -796,7 +820,11 @@ mod cli_init_tests {
         let project_dir = dir.path().join("new-proj");
 
         let result = run_init(Some(project_dir.as_path()), None);
-        assert!(result.is_ok(), "forge init should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "forge init should succeed: {:?}",
+            result.err()
+        );
         assert!(
             project_dir.join("dwarf.toml").exists(),
             "dwarf.toml should be created in the project directory"
@@ -808,8 +836,7 @@ mod cli_init_tests {
         let dir = tempfile::tempdir().unwrap();
         let project_dir = dir.path().join("my-app");
 
-        run_init(Some(project_dir.as_path()), Some("my-app"))
-            .expect("forge init should succeed");
+        run_init(Some(project_dir.as_path()), Some("my-app")).expect("forge init should succeed");
 
         let contents = fs::read_to_string(project_dir.join("forge.toml"))
             .expect("forge.toml should be readable");
@@ -833,8 +860,7 @@ mod cli_init_tests {
         let dir = tempfile::tempdir().unwrap();
         let project_dir = dir.path().join("my-app");
 
-        run_init(Some(project_dir.as_path()), Some("my-app"))
-            .expect("forge init should succeed");
+        run_init(Some(project_dir.as_path()), Some("my-app")).expect("forge init should succeed");
 
         let contents = fs::read_to_string(project_dir.join("dwarf.toml"))
             .expect("dwarf.toml should be readable");

@@ -13,8 +13,8 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
 
-use crate::output::{format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem};
 use crate::diff_runner;
+use crate::output::{format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem};
 use crate::runner::{JavaRunner, PyRunner, TsRunner};
 use dwarf_shrink::{IntShrinker, Shrinker};
 
