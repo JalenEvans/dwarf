@@ -1,0 +1,16 @@
+[package]
+name = "forge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[dependencies]
+dwarf-cli = { path = "../dwarf-cli" }
+clap = { version = "4", features = ["derive"] }
+# TODO: serde, serde_json, toml will be needed for Phase 2 (config parsing)
+
+[dev-dependencies]
+tempfile = "3"

@@ -13,9 +13,9 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
 
+use crate::diff_runner;
 use crate::output::{format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem};
-use dwarf_cli::diff_runner;
-use dwarf_cli::runner::{JavaRunner, PyRunner, TsRunner};
+use crate::runner::{JavaRunner, PyRunner, TsRunner};
 use dwarf_shrink::{IntShrinker, Shrinker};
 
 /// Run the test subcommand.

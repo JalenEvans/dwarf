@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::process;
 
-use dwarf_cli::runner::{Runner, TsRunner};
+use crate::runner::{Runner, TsRunner};
 
 /// Run the run subcommand.
 pub fn run_run(
