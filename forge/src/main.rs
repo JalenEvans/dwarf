@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::process;
 
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 
@@ -12,6 +13,15 @@ use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+fn validate_package_format(s: &str) -> Result<String, String> {
+    let parts: Vec<&str> = s.splitn(2, ':').collect();
+    if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+        Ok(s.to_string())
+    } else {
+        Err("Package must be in format '<prefix>:<name>' (e.g., 'npm:express')".to_string())
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -196,6 +206,13 @@ enum Commands {
         /// Project name (optional — defaults to directory name)
         name: Option<String>,
     },
+
+    /// Add a dependency to the project
+    Add {
+        /// Package to install (e.g., "npm:express", "py:requests", "java:com.google.gson.Gson")
+        #[arg(required = true, value_parser = validate_package_format)]
+        package: String,
+    },
 }
 
 fn main() {
@@ -285,6 +302,16 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        Some(Commands::Add { package }) => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match run_add(&cwd, &package) {
+                Ok(extern_stub) => println!("{extern_stub}"),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
             std::process::exit(1);
@@ -411,6 +438,113 @@ java = true
         .map_err(|e| format!("Failed to write dwarf.toml: {}", e))?;
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// forge add — dependency management
+// ---------------------------------------------------------------------------
+
+/// Add a dependency to the project.
+///
+/// - `project_dir`: directory containing `forge.toml`.
+/// - `package`: package string in `prefix:name` format (e.g., `npm:express`).
+///
+/// Returns the generated extern declaration stub on success.
+pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, String> {
+    // Parse prefix:name
+    let (prefix, name) = package
+        .split_once(':')
+        .filter(|(p, n)| !p.is_empty() && !n.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "Invalid package format '{}'. Expected '<prefix>:<name>' (e.g., 'npm:express')",
+                package
+            )
+        })?;
+
+    // Generate extern stub based on prefix
+    let extern_stub = match prefix {
+        "npm" | "py" => {
+            format!(r#"extern "{}" fn {}() -> ()"#, package, name)
+        }
+        "java" => {
+            let parts: Vec<&str> = name.rsplitn(2, '.').collect();
+            if parts.len() < 2 {
+                return Err(format!(
+                    "Invalid java package '{}'. Expected dotted path like 'java.util.ArrayList'",
+                    name
+                ));
+            }
+            let class_name = parts[0];
+            let package_path = parts[1];
+            format!(
+                r#"extern "java:{}" fn {}() -> ()"#,
+                package_path, class_name
+            )
+        }
+        _ => {
+            return Err(format!(
+                "Unknown source prefix '{}'. Supported prefixes: npm, py, java",
+                prefix
+            ));
+        }
+    };
+
+    // Read forge.toml
+    let forge_toml_path = project_dir.join("forge.toml");
+    let mut contents = std::fs::read_to_string(&forge_toml_path)
+        .map_err(|e| format!("Failed to read forge.toml: {}", e))?;
+
+    // Add dependency to [dependencies] section
+    let dep_line = format!("\"{}\" = \"*\"", package);
+
+    if let Some(pos) = contents.find("[dependencies]") {
+        let after_header = pos + "[dependencies]".len();
+        // Find end of the [dependencies] line to insert after it
+        let insert_pos = contents[after_header..]
+            .find('\n')
+            .map(|p| after_header + p + 1)
+            .unwrap_or(contents.len());
+        contents.insert_str(insert_pos, &format!("{}\n", dep_line));
+    } else {
+        return Err("forge.toml does not have a [dependencies] section".to_string());
+    }
+
+    // Write updated forge.toml
+    std::fs::write(&forge_toml_path, &contents)
+        .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
+
+    // Best-effort install via package manager (npm/pip only)
+    match prefix {
+        "npm" | "py" => {
+            let pm = if prefix == "npm" { "npm" } else { "pip" };
+            match process::Command::new(pm).arg("install").arg(name).status() {
+                Ok(status) if status.success() => {
+                    eprintln!("Installed {}", name);
+                }
+                Ok(status) => {
+                    eprintln!(
+                        "Warning: {} install {} failed with exit code {:?}",
+                        pm,
+                        name,
+                        status.code()
+                    );
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!(
+                        "Warning: {} not found. Please install the package manually.",
+                        pm
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to run {}: {}", pm, e);
+                }
+            }
+        }
+        _ => {} // java has no CLI package manager
+    }
+
+    Ok(extern_stub)
 }
 
 // ---------------------------------------------------------------------------
@@ -887,6 +1021,163 @@ mod cli_init_tests {
         assert!(
             result.is_err(),
             "forge init should fail when directory already contains a forge.toml"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI add tests — RED phase
+//
+// These tests verify that `forge add` parses correctly and manages
+// dependencies in forge.toml. They MUST FAIL right now because:
+//   1. The `Commands::Add` variant does not exist in the Commands enum.
+//   2. The `run_add` function does not exist.
+//   3. No package management logic has been implemented.
+//
+// Once `forge add` is implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_add_tests {
+    use super::*;
+    use clap::Parser;
+    use std::fs;
+
+    // ── CLI Parsing Tests ─────────────────────────────────────────────────
+    // These test that clap recognizes `forge add` and its arguments.
+    // They will fail to compile until Commands::Add { package: String }
+    // is added to the Commands enum.
+
+    #[test]
+    fn test_forge_add_npm_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "npm:express"]);
+        assert!(cli.is_ok(), "forge add npm:express should parse");
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "npm:express");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_py_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "py:requests"]);
+        assert!(cli.is_ok(), "forge add py:requests should parse");
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "py:requests");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_java_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "java:com.google.gson.Gson"]);
+        assert!(
+            cli.is_ok(),
+            "forge add java:com.google.gson.Gson should parse"
+        );
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "java:com.google.gson.Gson");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_requires_package() {
+        let result = Cli::try_parse_from(["forge", "add"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about missing required argument, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for missing package argument"),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_invalid_format() {
+        // "invalid" has no colon — should be rejected at parse time
+        let result = Cli::try_parse_from(["forge", "add", "invalid"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about invalid package format, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for invalid package format"),
+        }
+    }
+
+    // ── Integration Tests ─────────────────────────────────────────────────
+    // These test the actual package management behavior of `forge add`.
+    // They will fail to compile until `run_add` is implemented and exported.
+    //
+    // Expected signature:
+    //   fn run_add(project_dir: &Path, package: &str) -> Result<String, String>
+    //
+    // Behavior:
+    //   - Reads forge.toml from project_dir.
+    //   - Parses the package string (prefix:name format).
+    //   - Adds the dependency to the [dependencies] section.
+    //   - Returns the generated extern declaration stub.
+    //   - Returns Err if forge.toml is missing or package format is invalid.
+
+    #[test]
+    fn test_forge_add_npm_adds_to_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let contents = fs::read_to_string(&forge_toml).unwrap();
+        assert!(
+            contents.contains("express"),
+            "forge.toml should contain the added npm dependency"
+        );
+    }
+
+    #[test]
+    fn test_forge_add_extern_stub_printed() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed");
+        let stub = result.unwrap();
+        assert!(
+            stub.contains("extern") && stub.contains("npm:express"),
+            "run_add should return an extern stub containing the package source, got: {}",
+            stub
         );
     }
 }
