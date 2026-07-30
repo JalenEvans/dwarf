@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::process;
 
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 
@@ -12,6 +13,70 @@ use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+fn validate_package_format(s: &str) -> Result<String, String> {
+    let parts: Vec<&str> = s.splitn(2, ':').collect();
+    if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+        let prefix = parts[0];
+        let name = parts[1];
+
+        // Security: Reject path traversal attempts (C1)
+        // Reject if name contains ".." anywhere
+        if name.contains("..") {
+            return Err(format!(
+                "Invalid package name '{}': must not contain '..'",
+                name
+            ));
+        }
+
+        // Reject if name starts with path separator
+        if name.starts_with('/') || name.starts_with('\\') {
+            return Err(format!(
+                "Invalid package name '{}': must not start with path separator",
+                name
+            ));
+        }
+
+        // Reject backslashes (never valid in package names)
+        if name.contains('\\') {
+            return Err(format!(
+                "Invalid package name '{}': must not contain backslash",
+                name
+            ));
+        }
+
+        // Validate prefix
+        if !["npm", "py", "java"].contains(&prefix) {
+            return Err(format!(
+                "Unknown source prefix '{}'. Supported prefixes: npm, py, java",
+                prefix
+            ));
+        }
+
+        // For npm scoped packages (@scope/name), validate format
+        if prefix == "npm" && name.starts_with('@') {
+            // Must be @scope/name format
+            if !name.contains('/') {
+                return Err(format!(
+                    "Invalid scoped package name '{}': must be in @scope/name format",
+                    name
+                ));
+            }
+            // Check for multiple slashes (path traversal attempt)
+            let slash_count = name.matches('/').count();
+            if slash_count > 1 {
+                return Err(format!(
+                    "Invalid scoped package name '{}': only one slash allowed in @scope/name format",
+                    name
+                ));
+            }
+        }
+
+        Ok(s.to_string())
+    } else {
+        Err("Package must be in format '<prefix>:<name>' (e.g., 'npm:express')".to_string())
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -196,6 +261,23 @@ enum Commands {
         /// Project name (optional — defaults to directory name)
         name: Option<String>,
     },
+
+    /// Add a dependency to the project
+    Add {
+        /// Package to install (e.g., "npm:express", "py:requests", "java:com.google.gson.Gson")
+        #[arg(required = true, value_parser = validate_package_format)]
+        package: String,
+    },
+
+    /// Publish the package to a registry (npm, PyPI, Maven Central)
+    Publish {
+        /// Target registry (npm, pypi, maven)
+        #[arg(short, long, default_value = "npm")]
+        registry: String,
+        /// Dry run — show what would be published without actually publishing
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() {
@@ -285,6 +367,26 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        Some(Commands::Add { package }) => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match run_add(&cwd, &package) {
+                Ok(extern_stub) => println!("{extern_stub}"),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::Publish { registry, dry_run }) => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match run_publish(&cwd, &registry, dry_run) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
             std::process::exit(1);
@@ -409,6 +511,353 @@ java = true
         .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
     std::fs::write(&dwarf_toml_path, dwarf_toml)
         .map_err(|e| format!("Failed to write dwarf.toml: {}", e))?;
+
+    // Create externs/ directory for extern declaration files
+    let externs_dir = target_dir.join("externs");
+    std::fs::create_dir_all(&externs_dir).map_err(|e| {
+        format!(
+            "Failed to create externs directory '{}': {}",
+            externs_dir.display(),
+            e
+        )
+    })?;
+
+    // Create empty forge.lock for reproducible builds
+    let forge_lock_path = target_dir.join("forge.lock");
+    if !forge_lock_path.exists() {
+        let forge_lock = "# forge.lock — auto-generated, do not edit manually\n\n[packages]\n";
+        std::fs::write(&forge_lock_path, forge_lock)
+            .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// forge add — dependency management
+// ---------------------------------------------------------------------------
+
+/// Add a dependency to the project.
+///
+/// - `project_dir`: directory containing `forge.toml`.
+/// - `package`: package string in `prefix:name` format (e.g., `npm:express`).
+///
+/// Returns the generated extern declaration stub on success.
+pub fn run_add(project_dir: &std::path::Path, package: &str) -> Result<String, String> {
+    // Parse prefix:name (validation already done by clap value_parser)
+    let (prefix, name) = package
+        .split_once(':')
+        .filter(|(p, n)| !p.is_empty() && !n.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "Invalid package format '{}'. Expected '<prefix>:<name>' (e.g., 'npm:express')",
+                package
+            )
+        })?;
+
+    // Generate extern stub based on prefix
+    let extern_stub = match prefix {
+        "npm" | "py" => {
+            format!(r#"extern "{}" fn {}() -> ()"#, package, name)
+        }
+        "java" => {
+            let parts: Vec<&str> = name.rsplitn(2, '.').collect();
+            if parts.len() < 2 {
+                return Err(format!(
+                    "Invalid java package '{}'. Expected dotted path like 'java.util.ArrayList'",
+                    name
+                ));
+            }
+            let class_name = parts[0];
+            let package_path = parts[1];
+            format!(
+                r#"extern "java:{}" fn {}() -> ()"#,
+                package_path, class_name
+            )
+        }
+        _ => {
+            return Err(format!(
+                "Unknown source prefix '{}'. Supported prefixes: npm, py, java",
+                prefix
+            ));
+        }
+    };
+
+    // Write the extern declaration to externs/{prefix}/{name}.kzd
+    // For scoped npm packages (@scope/name), create subdirectory
+    let extern_dir = project_dir.join("externs").join(prefix);
+    std::fs::create_dir_all(&extern_dir).map_err(|e| {
+        format!(
+            "Failed to create extern directory '{}': {}",
+            extern_dir.display(),
+            e
+        )
+    })?;
+
+    let extern_file = extern_dir.join(format!("{}.kzd", name));
+
+    // Security: Verify the resolved path is within extern_dir (C1)
+    // This catches any edge cases not caught by validate_package_format
+    let canonical_extern_dir = extern_dir.canonicalize().unwrap_or(extern_dir.clone());
+    let parent = extern_file.parent().unwrap_or(&extern_dir);
+    if !parent.exists() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create parent directory '{}': {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Failed to canonicalize path '{}': {}", parent.display(), e))?;
+    if !canonical_parent.starts_with(&canonical_extern_dir) {
+        return Err(
+            "Path traversal detected: extern file path escapes extern directory".to_string(),
+        );
+    }
+
+    std::fs::write(&extern_file, &extern_stub).map_err(|e| {
+        format!(
+            "Failed to write extern file '{}': {}",
+            extern_file.display(),
+            e
+        )
+    })?;
+
+    // Read and parse forge.toml using the toml crate (C2: prevents TOML injection)
+    let forge_toml_path = project_dir.join("forge.toml");
+    let contents = std::fs::read_to_string(&forge_toml_path)
+        .map_err(|e| format!("Failed to read forge.toml: {}", e))?;
+
+    let mut doc: toml::Table = contents
+        .parse()
+        .map_err(|e| format!("Failed to parse forge.toml: {}", e))?;
+
+    // Get or create [dependencies] table
+    let deps = doc
+        .entry("dependencies")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+
+    let deps_table = deps
+        .as_table_mut()
+        .ok_or_else(|| "forge.toml [dependencies] is not a table".to_string())?;
+
+    // W4: Check for duplicate — overwrite if exists, insert if new
+    deps_table.insert(package.to_string(), toml::Value::String("*".to_string()));
+
+    // Serialize back to TOML
+    let updated_contents = toml::to_string_pretty(&doc)
+        .map_err(|e| format!("Failed to serialize forge.toml: {}", e))?;
+
+    // Write updated forge.toml
+    std::fs::write(&forge_toml_path, updated_contents)
+        .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
+
+    // Best-effort install via package manager (npm/pip only)
+    match prefix {
+        "npm" | "py" => {
+            let pm = if prefix == "npm" { "npm" } else { "pip" };
+            match process::Command::new(pm).arg("install").arg(name).status() {
+                Ok(status) if status.success() => {
+                    eprintln!("Installed {}", name);
+                }
+                Ok(status) => {
+                    eprintln!(
+                        "Warning: {} install {} failed with exit code {:?}",
+                        pm,
+                        name,
+                        status.code()
+                    );
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!(
+                        "Warning: {} not found. Please install the package manually.",
+                        pm
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to run {}: {}", pm, e);
+                }
+            }
+        }
+        _ => {} // java has no CLI package manager
+    }
+
+    // Update forge.lock with the installed package
+    update_lock_file(project_dir, package, "*")?;
+
+    Ok(extern_stub)
+}
+
+/// Update the forge.lock file with a package entry.
+///
+/// Creates the lock file if it doesn't exist, or appends/updates the entry
+/// in the [packages] section. Uses the `toml` crate for safe parsing and
+/// serialization (C2: prevents TOML injection, C3: section-aware updates).
+fn update_lock_file(
+    project_dir: &std::path::Path,
+    package: &str,
+    version: &str,
+) -> Result<(), String> {
+    let lock_file_path = project_dir.join("forge.lock");
+
+    let mut doc: toml::Table = if lock_file_path.exists() {
+        let contents = std::fs::read_to_string(&lock_file_path)
+            .map_err(|e| format!("Failed to read forge.lock: {}", e))?;
+        contents
+            .parse()
+            .map_err(|e| format!("Failed to parse forge.lock: {}", e))?
+    } else {
+        toml::Table::new()
+    };
+
+    // Get or create [packages] table
+    let packages = doc
+        .entry("packages")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+
+    let packages_table = packages
+        .as_table_mut()
+        .ok_or_else(|| "forge.lock [packages] is not a table".to_string())?;
+
+    // Insert or update the package entry
+    packages_table.insert(
+        package.to_string(),
+        toml::Value::String(version.to_string()),
+    );
+
+    // Serialize back to TOML with header comment
+    let mut output = "# forge.lock — auto-generated, do not edit manually\n\n".to_string();
+    output.push_str(
+        &toml::to_string_pretty(&doc)
+            .map_err(|e| format!("Failed to serialize forge.lock: {}", e))?,
+    );
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
+
+    std::fs::write(&lock_file_path, output)
+        .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// forge publish — multi-registry release (stub)
+// ---------------------------------------------------------------------------
+
+/// Publish the package to a registry (stub implementation).
+///
+/// Reads forge.toml for package info and prints what would be published.
+/// This is a Phase 6 stub — actual publishing comes in forge v0.2.0.
+///
+/// - `project_dir`: directory containing `forge.toml`.
+/// - `registry`: target registry (npm, pypi, maven).
+/// - `dry_run`: if true, only show what would be published.
+pub fn run_publish(
+    project_dir: &std::path::Path,
+    registry: &str,
+    dry_run: bool,
+) -> Result<(), String> {
+    // Validate registry
+    let valid_registries = ["npm", "pypi", "maven"];
+    if !valid_registries.contains(&registry) {
+        return Err(format!(
+            "Unknown registry '{}'. Supported registries: {}",
+            registry,
+            valid_registries.join(", ")
+        ));
+    }
+
+    // Read forge.toml
+    let forge_toml_path = project_dir.join("forge.toml");
+    let contents = std::fs::read_to_string(&forge_toml_path)
+        .map_err(|e| format!("Failed to read forge.toml: {}", e))?;
+
+    // Extract package name and version from [package] section
+    let package_name = extract_toml_field(&contents, "name")
+        .ok_or_else(|| "forge.toml missing [package] name field".to_string())?;
+    let package_version = extract_toml_field(&contents, "version")
+        .ok_or_else(|| "forge.toml missing [package] version field".to_string())?;
+
+    // Collect files that would be published (all .kzd source files)
+    let source_files = collect_source_files(project_dir)?;
+
+    // Print what would be published
+    println!("Package: {}", package_name);
+    println!("Version: {}", package_version);
+    println!("Registry: {}", registry);
+    println!("Files:");
+    for file in &source_files {
+        println!("  - {}", file.display());
+    }
+
+    if dry_run {
+        println!("\nDry run — nothing published.");
+    } else {
+        println!("\nPublishing to {} — coming in forge v0.2.0", registry);
+    }
+
+    Ok(())
+}
+
+/// Extract a field value from a simple TOML file (string values only).
+///
+/// Looks for `field = "value"` patterns. Returns None if not found.
+fn extract_toml_field(contents: &str, field: &str) -> Option<String> {
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        // Look for field = "value" pattern
+        if let Some(rest) = trimmed.strip_prefix(field) {
+            let rest = rest.trim();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let rest = rest.trim();
+                // Extract quoted string value
+                if rest.starts_with('"') && rest.len() >= 2 {
+                    let end_quote = rest[1..].find('"')?;
+                    return Some(rest[1..1 + end_quote].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Collect all .kzd source files in the project directory.
+fn collect_source_files(project_dir: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    collect_kzd_files_recursive(project_dir, project_dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+/// Recursively collect .kzd files from a directory.
+fn collect_kzd_files_recursive(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            // Skip hidden directories and node_modules
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !dir_name.starts_with('.') && dir_name != "node_modules" {
+                collect_kzd_files_recursive(&path, base_dir, files)?;
+            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("kzd") {
+            // Store relative path from project root
+            let relative = path.strip_prefix(base_dir).unwrap_or(&path).to_path_buf();
+            files.push(relative);
+        }
+    }
 
     Ok(())
 }
@@ -887,6 +1336,654 @@ mod cli_init_tests {
         assert!(
             result.is_err(),
             "forge init should fail when directory already contains a forge.toml"
+        );
+    }
+
+    // ── Externs Directory Tests ───────────────────────────────────────────
+    // Verify that `forge init` creates an empty externs/ directory for
+    // extern declaration files. These MUST FAIL until run_init is updated
+    // to create the externs/ directory during scaffolding.
+
+    #[test]
+    fn test_forge_init_creates_externs_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = dir.path().join("my-app");
+
+        let result = run_init(Some(project_dir.as_path()), Some("my-app"));
+        assert!(
+            result.is_ok(),
+            "forge init should succeed: {:?}",
+            result.err()
+        );
+
+        let externs_dir = project_dir.join("externs");
+        assert!(
+            externs_dir.exists(),
+            "forge init should create an externs/ directory"
+        );
+        assert!(externs_dir.is_dir(), "externs/ should be a directory");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI add tests — RED phase
+//
+// These tests verify that `forge add` parses correctly and manages
+// dependencies in forge.toml. They MUST FAIL right now because:
+//   1. The `Commands::Add` variant does not exist in the Commands enum.
+//   2. The `run_add` function does not exist.
+//   3. No package management logic has been implemented.
+//
+// Once `forge add` is implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_add_tests {
+    use super::*;
+    use clap::Parser;
+    use std::fs;
+
+    // ── CLI Parsing Tests ─────────────────────────────────────────────────
+    // These test that clap recognizes `forge add` and its arguments.
+    // They will fail to compile until Commands::Add { package: String }
+    // is added to the Commands enum.
+
+    #[test]
+    fn test_forge_add_npm_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "npm:express"]);
+        assert!(cli.is_ok(), "forge add npm:express should parse");
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "npm:express");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_py_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "py:requests"]);
+        assert!(cli.is_ok(), "forge add py:requests should parse");
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "py:requests");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_java_parses() {
+        let cli = Cli::try_parse_from(["forge", "add", "java:com.google.gson.Gson"]);
+        assert!(
+            cli.is_ok(),
+            "forge add java:com.google.gson.Gson should parse"
+        );
+        match cli.unwrap().command {
+            Some(Commands::Add { package }) => {
+                assert_eq!(package, "java:com.google.gson.Gson");
+            }
+            other => panic!("Expected Commands::Add, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_requires_package() {
+        let result = Cli::try_parse_from(["forge", "add"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about missing required argument, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for missing package argument"),
+        }
+    }
+
+    #[test]
+    fn test_forge_add_invalid_format() {
+        // "invalid" has no colon — should be rejected at parse time
+        let result = Cli::try_parse_from(["forge", "add", "invalid"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about invalid package format, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for invalid package format"),
+        }
+    }
+
+    // ── Integration Tests ─────────────────────────────────────────────────
+    // These test the actual package management behavior of `forge add`.
+    // They will fail to compile until `run_add` is implemented and exported.
+    //
+    // Expected signature:
+    //   fn run_add(project_dir: &Path, package: &str) -> Result<String, String>
+    //
+    // Behavior:
+    //   - Reads forge.toml from project_dir.
+    //   - Parses the package string (prefix:name format).
+    //   - Adds the dependency to the [dependencies] section.
+    //   - Returns the generated extern declaration stub.
+    //   - Returns Err if forge.toml is missing or package format is invalid.
+
+    #[test]
+    fn test_forge_add_npm_adds_to_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let contents = fs::read_to_string(&forge_toml).unwrap();
+        assert!(
+            contents.contains("express"),
+            "forge.toml should contain the added npm dependency"
+        );
+    }
+
+    #[test]
+    fn test_forge_add_extern_stub_printed() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed");
+        let stub = result.unwrap();
+        assert!(
+            stub.contains("extern") && stub.contains("npm:express"),
+            "run_add should return an extern stub containing the package source, got: {}",
+            stub
+        );
+    }
+
+    // ── Extern File Generation Tests ──────────────────────────────────────
+    // These verify that `forge add` writes the extern declaration to a .kzd
+    // file under externs/{prefix}/{name}.kzd. They MUST FAIL until the
+    // extern auto-generation feature is implemented in run_add().
+
+    #[test]
+    fn test_forge_add_generates_extern_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let extern_file = dir.path().join("externs").join("npm").join("express.kzd");
+        assert!(
+            extern_file.exists(),
+            "forge add should create externs/npm/express.kzd, but it does not exist"
+        );
+    }
+
+    #[test]
+    fn test_forge_add_extern_file_has_correct_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let extern_file = dir.path().join("externs").join("npm").join("express.kzd");
+        let contents =
+            fs::read_to_string(&extern_file).expect("externs/npm/express.kzd should be readable");
+
+        assert!(
+            contents.contains("extern"),
+            "extern file should contain an extern declaration, got: {}",
+            contents
+        );
+        assert!(
+            contents.contains("npm:express"),
+            "extern file should reference the package source 'npm:express', got: {}",
+            contents
+        );
+    }
+
+    #[test]
+    fn test_forge_add_creates_extern_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Verify externs/ does not exist before forge add
+        assert!(
+            !dir.path().join("externs").exists(),
+            "externs/ should not exist before forge add"
+        );
+
+        let result = run_add(dir.path(), "py:requests");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let externs_dir = dir.path().join("externs");
+        assert!(
+            externs_dir.exists(),
+            "forge add should create the externs/ directory"
+        );
+        assert!(externs_dir.is_dir(), "externs/ should be a directory");
+    }
+
+    // ── Lock File Generation Tests ────────────────────────────────────────
+    // These verify that `forge add` generates/updates a forge.lock file with
+    // the installed package entry. They MUST FAIL until lock file generation
+    // is implemented in run_add().
+
+    #[test]
+    fn test_forge_add_generates_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        assert!(
+            lock_file.exists(),
+            "forge add should create forge.lock, but it does not exist"
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_has_package_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        assert!(
+            contents.contains("npm:express"),
+            "forge.lock should contain entry for npm:express, got: {}",
+            contents
+        );
+        assert!(
+            contents.contains("[packages]"),
+            "forge.lock should have a [packages] section, got: {}",
+            contents
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_valid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_add(dir.path(), "npm:express");
+        assert!(result.is_ok(), "run_add should succeed: {:?}", result.err());
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        // Parse as TOML to validate structure
+        let parsed: Result<toml::Value, _> = toml::from_str(&contents);
+        assert!(
+            parsed.is_ok(),
+            "forge.lock should be valid TOML, but parsing failed: {:?}",
+            parsed.err()
+        );
+
+        // Verify the parsed structure has a [packages] table
+        let parsed = parsed.unwrap();
+        assert!(
+            parsed.get("packages").is_some(),
+            "forge.lock should have a [packages] table"
+        );
+    }
+
+    #[test]
+    fn test_forge_lock_file_append_second_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-project"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Add first package
+        run_add(dir.path(), "npm:express").expect("first add should succeed");
+        // Add second package
+        run_add(dir.path(), "py:requests").expect("second add should succeed");
+
+        let lock_file = dir.path().join("forge.lock");
+        let contents = fs::read_to_string(&lock_file).expect("forge.lock should be readable");
+
+        assert!(
+            contents.contains("npm:express"),
+            "forge.lock should contain npm:express after two adds"
+        );
+        assert!(
+            contents.contains("py:requests"),
+            "forge.lock should contain py:requests after two adds"
+        );
+
+        // Should still be valid TOML
+        let parsed: Result<toml::Value, _> = toml::from_str(&contents);
+        assert!(
+            parsed.is_ok(),
+            "forge.lock should still be valid TOML after two adds"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI publish tests — RED phase
+//
+// These tests verify that `forge publish` parses correctly and that the
+// stub implementation reads forge.toml and prints the expected output.
+// They MUST FAIL right now because:
+//   1. The `Commands::Publish` variant does not exist in the Commands enum.
+//   2. The `run_publish` function does not exist.
+//   3. No publish logic has been implemented.
+//
+// Once `forge publish` is implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_publish_tests {
+    use super::*;
+    use clap::Parser;
+    use std::fs;
+
+    // ── CLI Parsing Tests ─────────────────────────────────────────────────
+    // These test that clap recognizes `forge publish` and its arguments.
+    // They will fail to compile until Commands::Publish is added to the
+    // Commands enum.
+
+    #[test]
+    fn test_forge_publish_parses() {
+        let cli = Cli::try_parse_from(["forge", "publish"]);
+        assert!(cli.is_ok(), "forge publish should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, dry_run }) => {
+                assert_eq!(registry, "npm", "default registry should be npm");
+                assert!(!dry_run, "dry_run should be false by default");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_registry() {
+        let cli = Cli::try_parse_from(["forge", "publish", "--registry", "pypi"]);
+        assert!(cli.is_ok(), "forge publish --registry pypi should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, .. }) => {
+                assert_eq!(registry, "pypi");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_short_registry() {
+        let cli = Cli::try_parse_from(["forge", "publish", "-r", "maven"]);
+        assert!(cli.is_ok(), "forge publish -r maven should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, .. }) => {
+                assert_eq!(registry, "maven");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_dry_run() {
+        let cli = Cli::try_parse_from(["forge", "publish", "--dry-run"]);
+        assert!(cli.is_ok(), "forge publish --dry-run should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { dry_run, .. }) => {
+                assert!(dry_run, "--dry-run flag should be true");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_help() {
+        // --help causes clap to return a DisplayHelp error (controlled exit).
+        // We verify the subcommand is recognized, not rejected as unknown.
+        let result = Cli::try_parse_from(["forge", "publish", "--help"]);
+        let is_recognized = match &result {
+            Ok(_) => true,
+            Err(e) => matches!(e.kind(), clap::error::ErrorKind::DisplayHelp),
+        };
+        assert!(is_recognized, "forge publish --help should be recognized");
+    }
+
+    // ── Integration Tests ─────────────────────────────────────────────────
+    // These test the actual publish behavior of `forge publish`.
+    // They will fail to compile until `run_publish` is implemented.
+
+    #[test]
+    fn test_forge_publish_reads_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "my-package"
+version = "1.2.3"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Should succeed and read package info
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(
+            result.is_ok(),
+            "run_publish should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_dry_run_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Capture stdout to verify dry run message
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(result.is_ok(), "run_publish should succeed");
+        // The function prints to stdout; we verify it doesn't error
+    }
+
+    #[test]
+    fn test_forge_publish_invalid_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_publish(dir.path(), "invalid-registry", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail with invalid registry"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Unknown registry"),
+            "error should mention unknown registry, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_missing_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        // No forge.toml created
+
+        let result = run_publish(dir.path(), "npm", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail when forge.toml is missing"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("forge.toml"),
+            "error should mention forge.toml, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_missing_package_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_publish(dir.path(), "npm", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail when package name is missing"
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_collects_source_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Create some .kzd source files
+        fs::write(dir.path().join("main.kzd"), "// main source").unwrap();
+        fs::write(dir.path().join("lib.kzd"), "// lib source").unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src").join("utils.kzd"), "// utils").unwrap();
+
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(
+            result.is_ok(),
+            "run_publish should succeed: {:?}",
+            result.err()
         );
     }
 }

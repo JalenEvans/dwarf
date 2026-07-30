@@ -14,7 +14,6 @@ pub mod check;
 pub mod dev;
 pub mod emit;
 pub mod fmt;
-pub mod install;
 pub mod output;
 pub mod run;
 pub mod test;
@@ -211,13 +210,6 @@ pub enum Commands {
         #[arg(long)]
         fix: bool,
     },
-
-    /// Install a package and generate an extern declaration stub
-    Install {
-        /// Package identifier in the form '<prefix>:<name>' (e.g. 'npm:express', 'py:json', 'java:java.util.ArrayList')
-        #[arg(required = true)]
-        package: String,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +217,7 @@ pub enum Commands {
 //
 // These tests verify that each subcommand's entry-point function is reachable
 // through the library crate (dwarf_cli). They MUST FAIL right now because the
-// subcommand modules (build, check, dev, emit, fmt, install, run, test) are
+// subcommand modules (build, check, dev, emit, fmt, run, test) are
 // declared as private modules inside main.rs and are not part of the library.
 //
 // Once the refactoring moves those modules into lib.rs as `pub mod`, these
@@ -300,11 +292,5 @@ mod library_surface_tests {
             false,
             false,
         );
-    }
-
-    // 8. install::run_install
-    #[test]
-    fn test_run_install_is_accessible_via_library() {
-        crate::install::run_install("npm:example-pkg");
     }
 }

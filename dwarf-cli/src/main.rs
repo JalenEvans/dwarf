@@ -1,7 +1,7 @@
 //! CLI entry point for the Dwarf compiler.
 
 use clap::Parser;
-use dwarf_cli::{build, check, dev, emit, fmt, install, run, test, Cli, Commands};
+use dwarf_cli::{build, check, dev, emit, fmt, run, test, Cli, Commands};
 
 fn main() {
     let cli = Cli::parse();
@@ -90,9 +90,6 @@ fn main() {
             fix,
         }) => {
             test::run_test(files, target, json, diff, fix);
-        }
-        Some(Commands::Install { package }) => {
-            install::run_install(&package);
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
