@@ -289,8 +289,19 @@ fn main() {
 /// - `project_dir`: target directory (created if absent). `None` = current dir.
 /// - `name`: project name. `None` = derive from directory name.
 ///
-/// Returns `Err` if `forge.toml` already exists in the target directory.
+/// Returns `Err` if `forge.toml` or `dwarf.toml` already exists in the target directory.
 pub fn run_init(project_dir: Option<&std::path::Path>, name: Option<&str>) -> Result<(), String> {
+    // Reject path traversal in user-provided project name before any directory
+    // operations (W4). The broader character validation runs after name resolution.
+    if let Some(n) = name {
+        if n.contains("..") || n.contains('/') || n.contains('\\') {
+            return Err(format!(
+                "Invalid project name: {}. Project name must not contain path separators or '..'.",
+                n
+            ));
+        }
+    }
+
     let target_dir = match project_dir {
         Some(dir) => {
             if !dir.exists() {
@@ -319,9 +330,16 @@ pub fn run_init(project_dir: Option<&std::path::Path>, name: Option<&str>) -> Re
     };
 
     let forge_toml_path = target_dir.join("forge.toml");
+    let dwarf_toml_path = target_dir.join("dwarf.toml");
     if forge_toml_path.exists() {
         return Err(format!(
             "forge.toml already exists in '{}'. Refusing to overwrite an existing project.",
+            target_dir.display()
+        ));
+    }
+    if dwarf_toml_path.exists() {
+        return Err(format!(
+            "dwarf.toml already exists in '{}'. Refusing to overwrite an existing project.",
             target_dir.display()
         ));
     }
@@ -335,6 +353,18 @@ pub fn run_init(project_dir: Option<&std::path::Path>, name: Option<&str>) -> Re
             .unwrap_or("unnamed")
             .to_string(),
     };
+
+    // Validate the final project name (covers both user-provided and derived names)
+    if project_name.is_empty()
+        || !project_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "Invalid project name: {}. Use only letters, numbers, hyphens, and underscores.",
+            project_name
+        ));
+    }
 
     // Generate forge.toml
     let forge_toml = format!(
@@ -363,7 +393,7 @@ java = true
 
     std::fs::write(&forge_toml_path, forge_toml)
         .map_err(|e| format!("Failed to write forge.toml: {}", e))?;
-    std::fs::write(target_dir.join("dwarf.toml"), dwarf_toml)
+    std::fs::write(&dwarf_toml_path, dwarf_toml)
         .map_err(|e| format!("Failed to write dwarf.toml: {}", e))?;
 
     Ok(())
