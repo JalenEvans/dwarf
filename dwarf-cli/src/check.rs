@@ -49,7 +49,7 @@ pub fn run_check(
         stdlib_path,
     };
 
-    let options = dwarf_cli::config::merge_config_with_cli(cli_options);
+    let options = crate::config::merge_config_with_cli(cli_options);
     let compiler = DwarfCompiler::new();
     let mut has_errors = false;
     let mut all_results: Vec<FileCheckResult> = Vec::new();

@@ -103,7 +103,7 @@ pub fn run_build(
     };
 
     // Merge with config file if present
-    let options = dwarf_cli::config::merge_config_with_cli(cli_options);
+    let options = crate::config::merge_config_with_cli(cli_options);
 
     // Resolve output directory
     let resolved_out_dir = out_dir.unwrap_or_else(|| PathBuf::from("dist"));

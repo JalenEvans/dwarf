@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
-use dwarf_cli::runner::{Runner, TsRunner};
+use crate::runner::{Runner, TsRunner};
 
 /// Run the dev (watch) subcommand.
 pub fn run_dev(
@@ -27,6 +27,11 @@ pub fn run_dev(
             target
         );
         process::exit(1);
+    }
+
+    // Early return if no files to watch
+    if files.is_empty() {
+        return;
     }
 
     // Run once first

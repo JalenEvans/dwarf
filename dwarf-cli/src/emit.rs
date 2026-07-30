@@ -77,7 +77,7 @@ pub fn run_emit(
                 stdlib_path: stdlib_path.clone(),
             };
 
-            let options = dwarf_cli::config::merge_config_with_cli(cli_options);
+            let options = crate::config::merge_config_with_cli(cli_options);
 
             match compiler.compile(&source, &path_str, options.clone()) {
                 Ok(result) => {
