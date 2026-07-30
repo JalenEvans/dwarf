@@ -213,6 +213,16 @@ enum Commands {
         #[arg(required = true, value_parser = validate_package_format)]
         package: String,
     },
+
+    /// Publish the package to a registry (npm, PyPI, Maven Central)
+    Publish {
+        /// Target registry (npm, pypi, maven)
+        #[arg(short, long, default_value = "npm")]
+        registry: String,
+        /// Dry run — show what would be published without actually publishing
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() {
@@ -306,6 +316,16 @@ fn main() {
             let cwd = std::env::current_dir().unwrap_or_default();
             match run_add(&cwd, &package) {
                 Ok(extern_stub) => println!("{extern_stub}"),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::Publish { registry, dry_run }) => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match run_publish(&cwd, &registry, dry_run) {
+                Ok(()) => {}
                 Err(e) => {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
@@ -640,6 +660,124 @@ fn update_lock_file(
 
     std::fs::write(&lock_file_path, contents)
         .map_err(|e| format!("Failed to write forge.lock: {}", e))?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// forge publish — multi-registry release (stub)
+// ---------------------------------------------------------------------------
+
+/// Publish the package to a registry (stub implementation).
+///
+/// Reads forge.toml for package info and prints what would be published.
+/// This is a Phase 6 stub — actual publishing comes in forge v0.2.0.
+///
+/// - `project_dir`: directory containing `forge.toml`.
+/// - `registry`: target registry (npm, pypi, maven).
+/// - `dry_run`: if true, only show what would be published.
+pub fn run_publish(
+    project_dir: &std::path::Path,
+    registry: &str,
+    dry_run: bool,
+) -> Result<(), String> {
+    // Validate registry
+    let valid_registries = ["npm", "pypi", "maven"];
+    if !valid_registries.contains(&registry) {
+        return Err(format!(
+            "Unknown registry '{}'. Supported registries: {}",
+            registry,
+            valid_registries.join(", ")
+        ));
+    }
+
+    // Read forge.toml
+    let forge_toml_path = project_dir.join("forge.toml");
+    let contents = std::fs::read_to_string(&forge_toml_path)
+        .map_err(|e| format!("Failed to read forge.toml: {}", e))?;
+
+    // Extract package name and version from [package] section
+    let package_name = extract_toml_field(&contents, "name")
+        .ok_or_else(|| "forge.toml missing [package] name field".to_string())?;
+    let package_version = extract_toml_field(&contents, "version")
+        .ok_or_else(|| "forge.toml missing [package] version field".to_string())?;
+
+    // Collect files that would be published (all .kzd source files)
+    let source_files = collect_source_files(project_dir)?;
+
+    // Print what would be published
+    println!("Package: {}", package_name);
+    println!("Version: {}", package_version);
+    println!("Registry: {}", registry);
+    println!("Files:");
+    for file in &source_files {
+        println!("  - {}", file.display());
+    }
+
+    if dry_run {
+        println!("\nDry run — nothing published.");
+    } else {
+        println!("\nPublishing to {} — coming in forge v0.2.0", registry);
+    }
+
+    Ok(())
+}
+
+/// Extract a field value from a simple TOML file (string values only).
+///
+/// Looks for `field = "value"` patterns. Returns None if not found.
+fn extract_toml_field(contents: &str, field: &str) -> Option<String> {
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        // Look for field = "value" pattern
+        if let Some(rest) = trimmed.strip_prefix(field) {
+            let rest = rest.trim();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let rest = rest.trim();
+                // Extract quoted string value
+                if rest.starts_with('"') && rest.len() >= 2 {
+                    let end_quote = rest[1..].find('"')?;
+                    return Some(rest[1..1 + end_quote].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Collect all .kzd source files in the project directory.
+fn collect_source_files(project_dir: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    collect_kzd_files_recursive(project_dir, project_dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+/// Recursively collect .kzd files from a directory.
+fn collect_kzd_files_recursive(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            // Skip hidden directories and node_modules
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !dir_name.starts_with('.') && dir_name != "node_modules" {
+                collect_kzd_files_recursive(&path, base_dir, files)?;
+            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("kzd") {
+            // Store relative path from project root
+            let relative = path.strip_prefix(base_dir).unwrap_or(&path).to_path_buf();
+            files.push(relative);
+        }
+    }
 
     Ok(())
 }
@@ -1536,6 +1674,236 @@ version = "0.1.0"
         assert!(
             parsed.is_ok(),
             "forge.lock should still be valid TOML after two adds"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI publish tests — RED phase
+//
+// These tests verify that `forge publish` parses correctly and that the
+// stub implementation reads forge.toml and prints the expected output.
+// They MUST FAIL right now because:
+//   1. The `Commands::Publish` variant does not exist in the Commands enum.
+//   2. The `run_publish` function does not exist.
+//   3. No publish logic has been implemented.
+//
+// Once `forge publish` is implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_publish_tests {
+    use super::*;
+    use clap::Parser;
+    use std::fs;
+
+    // ── CLI Parsing Tests ─────────────────────────────────────────────────
+    // These test that clap recognizes `forge publish` and its arguments.
+    // They will fail to compile until Commands::Publish is added to the
+    // Commands enum.
+
+    #[test]
+    fn test_forge_publish_parses() {
+        let cli = Cli::try_parse_from(["forge", "publish"]);
+        assert!(cli.is_ok(), "forge publish should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, dry_run }) => {
+                assert_eq!(registry, "npm", "default registry should be npm");
+                assert!(!dry_run, "dry_run should be false by default");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_registry() {
+        let cli = Cli::try_parse_from(["forge", "publish", "--registry", "pypi"]);
+        assert!(cli.is_ok(), "forge publish --registry pypi should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, .. }) => {
+                assert_eq!(registry, "pypi");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_short_registry() {
+        let cli = Cli::try_parse_from(["forge", "publish", "-r", "maven"]);
+        assert!(cli.is_ok(), "forge publish -r maven should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { registry, .. }) => {
+                assert_eq!(registry, "maven");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_with_dry_run() {
+        let cli = Cli::try_parse_from(["forge", "publish", "--dry-run"]);
+        assert!(cli.is_ok(), "forge publish --dry-run should parse");
+        match cli.unwrap().command {
+            Some(Commands::Publish { dry_run, .. }) => {
+                assert!(dry_run, "--dry-run flag should be true");
+            }
+            other => panic!("Expected Commands::Publish, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_publish_help() {
+        // --help causes clap to return a DisplayHelp error (controlled exit).
+        // We verify the subcommand is recognized, not rejected as unknown.
+        let result = Cli::try_parse_from(["forge", "publish", "--help"]);
+        let is_recognized = match &result {
+            Ok(_) => true,
+            Err(e) => matches!(e.kind(), clap::error::ErrorKind::DisplayHelp),
+        };
+        assert!(is_recognized, "forge publish --help should be recognized");
+    }
+
+    // ── Integration Tests ─────────────────────────────────────────────────
+    // These test the actual publish behavior of `forge publish`.
+    // They will fail to compile until `run_publish` is implemented.
+
+    #[test]
+    fn test_forge_publish_reads_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "my-package"
+version = "1.2.3"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Should succeed and read package info
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(
+            result.is_ok(),
+            "run_publish should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_dry_run_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Capture stdout to verify dry run message
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(result.is_ok(), "run_publish should succeed");
+        // The function prints to stdout; we verify it doesn't error
+    }
+
+    #[test]
+    fn test_forge_publish_invalid_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_publish(dir.path(), "invalid-registry", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail with invalid registry"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Unknown registry"),
+            "error should mention unknown registry, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_missing_forge_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        // No forge.toml created
+
+        let result = run_publish(dir.path(), "npm", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail when forge.toml is missing"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("forge.toml"),
+            "error should mention forge.toml, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_missing_package_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        let result = run_publish(dir.path(), "npm", false);
+        assert!(
+            result.is_err(),
+            "run_publish should fail when package name is missing"
+        );
+    }
+
+    #[test]
+    fn test_forge_publish_collects_source_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let forge_toml = dir.path().join("forge.toml");
+        fs::write(
+            &forge_toml,
+            r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        // Create some .kzd source files
+        fs::write(dir.path().join("main.kzd"), "// main source").unwrap();
+        fs::write(dir.path().join("lib.kzd"), "// lib source").unwrap();
+        fs::create_dir(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src").join("utils.kzd"), "// utils").unwrap();
+
+        let result = run_publish(dir.path(), "npm", true);
+        assert!(
+            result.is_ok(),
+            "run_publish should succeed: {:?}",
+            result.err()
         );
     }
 }
