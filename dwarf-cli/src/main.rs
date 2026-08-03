@@ -1,7 +1,7 @@
 //! CLI entry point for the Dwarf compiler.
 
 use clap::Parser;
-use dwarf_cli::{build, check, dev, emit, fmt, run, test, Cli, Commands};
+use dwarf_cli::{build, check, dev, emit, fmt, init, run, test, Cli, Commands};
 
 fn main() {
     let cli = Cli::parse();
@@ -90,6 +90,12 @@ fn main() {
             fix,
         }) => {
             test::run_test(files, target, json, diff, fix);
+        }
+        Some(Commands::Init { name }) => {
+            if let Err(e) = init::run_init(&name) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
         None => {
             eprintln!("Error: No subcommand provided. Use --help for usage.");
