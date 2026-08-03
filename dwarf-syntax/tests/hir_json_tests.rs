@@ -59,3 +59,78 @@ fn test_json_output_is_deterministic() {
     let json2 = serde_json::to_string_pretty(&decl).unwrap();
     assert_eq!(json1, json2);
 }
+
+// ============================================================================
+// TYPE-LEVEL OPERATOR JSON ROUNDTRIP TESTS (RED Phase — expected to fail)
+//
+// Type::KeyOf and Type::IndexedAccess do not exist yet. These tests verify
+// that once added, they derive Serialize/Deserialize correctly and round-trip
+// through JSON losslessly.
+// ============================================================================
+
+#[test]
+fn test_json_roundtrip_keyof_type() {
+    let type_ = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
+    let json = serde_json::to_string_pretty(&type_).unwrap();
+    let deserialized: Type = serde_json::from_str(&json).unwrap();
+    assert_eq!(type_, deserialized);
+}
+
+#[test]
+fn test_json_roundtrip_indexed_access_type() {
+    let type_ = Type::IndexedAccess {
+        obj: Box::new(Type::Named("Person".to_string())),
+        key: "name".to_string(),
+    };
+    let json = serde_json::to_string_pretty(&type_).unwrap();
+    let deserialized: Type = serde_json::from_str(&json).unwrap();
+    assert_eq!(type_, deserialized);
+}
+
+#[test]
+fn test_json_roundtrip_keyof_in_typedef() {
+    let decl = Decl::TypeDef {
+        name: "PersonKeys".to_string(),
+        type_: Type::KeyOf(Box::new(Type::Named("Person".to_string()))),
+        is_pub: false,
+        span: Span::default(),
+    };
+    let json = serde_json::to_string_pretty(&decl).unwrap();
+    let deserialized: Decl = serde_json::from_str(&json).unwrap();
+    assert_eq!(decl, deserialized);
+}
+
+#[test]
+fn test_json_roundtrip_indexed_access_in_typedef() {
+    let decl = Decl::TypeDef {
+        name: "PersonName".to_string(),
+        type_: Type::IndexedAccess {
+            obj: Box::new(Type::Named("Person".to_string())),
+            key: "name".to_string(),
+        },
+        is_pub: false,
+        span: Span::default(),
+    };
+    let json = serde_json::to_string_pretty(&decl).unwrap();
+    let deserialized: Decl = serde_json::from_str(&json).unwrap();
+    assert_eq!(decl, deserialized);
+}
+
+#[test]
+fn test_json_keyof_output_is_deterministic() {
+    let type_ = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
+    let json1 = serde_json::to_string_pretty(&type_).unwrap();
+    let json2 = serde_json::to_string_pretty(&type_).unwrap();
+    assert_eq!(json1, json2);
+}
+
+#[test]
+fn test_json_indexed_access_output_is_deterministic() {
+    let type_ = Type::IndexedAccess {
+        obj: Box::new(Type::Named("Person".to_string())),
+        key: "name".to_string(),
+    };
+    let json1 = serde_json::to_string_pretty(&type_).unwrap();
+    let json2 = serde_json::to_string_pretty(&type_).unwrap();
+    assert_eq!(json1, json2);
+}

@@ -93,6 +93,12 @@ fn resolve_hir_type_param(hir_type: &HirType) -> Result<TypeId, String> {
             Err("function types are not supported in parameter annotations".to_string())
         }
         HirType::Refined { base, .. } => resolve_hir_type_param(base),
+        HirType::KeyOf(_) => {
+            Err("keyof types are not yet supported in parameter annotations".to_string())
+        }
+        HirType::IndexedAccess { .. } => {
+            Err("indexed access types are not yet supported in parameter annotations".to_string())
+        }
     }
 }
 

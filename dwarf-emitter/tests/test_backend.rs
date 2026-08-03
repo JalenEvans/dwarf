@@ -355,6 +355,14 @@ impl EmitterBackend for MockBackend {
                     RefConstraint::NonEmpty => Ok(format!("{base_str}(nonempty)")),
                 }
             }
+            Type::KeyOf(inner) => {
+                let inner_str = self.emit_type(inner)?;
+                Ok(format!("keyof({inner_str})"))
+            }
+            Type::IndexedAccess { obj, key } => {
+                let obj_str = self.emit_type(obj)?;
+                Ok(format!("{obj_str}[\"{key}\"]"))
+            }
         }
     }
 

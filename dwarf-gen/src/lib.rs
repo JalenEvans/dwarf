@@ -22,6 +22,8 @@ pub fn generate_edge_cases(ty: &Type) -> Vec<TestCase> {
         Type::Record(fields) => generate_record_edge_cases(fields),
         Type::Union(variants) => generate_union_edge_cases(variants),
         Type::Func { .. } => vec![],
+        Type::KeyOf(_) => vec![],
+        Type::IndexedAccess { .. } => vec![],
     }
 }
 
@@ -275,6 +277,10 @@ fn type_display_name(ty: &Type) -> String {
         Type::Record(_) => "Record".into(),
         Type::Union(_) => "Union".into(),
         Type::Func { .. } => "Func".into(),
+        Type::KeyOf(inner) => format!("KeyOf({})", type_display_name(inner)),
+        Type::IndexedAccess { obj, key } => {
+            format!("{}[\"{}\"]", type_display_name(obj), key)
+        }
     }
 }
 

@@ -324,17 +324,22 @@ fn test_decorator_on_record_def() {
             assert_eq!(name, "Serializable");
             assert!(args.is_empty());
             match target.as_ref() {
-                Decl::RecordDef {
+                Decl::TypeDef {
                     name: record_name,
-                    fields,
+                    type_,
                     ..
                 } => {
                     assert_eq!(record_name, "TestResult");
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].name, "passed");
-                    assert_eq!(fields[1].name, "duration");
+                    match type_ {
+                        Type::Record(fields) => {
+                            assert_eq!(fields.len(), 2);
+                            assert_eq!(fields[0].0, "passed");
+                            assert_eq!(fields[1].0, "duration");
+                        }
+                        other => panic!("Expected Type::Record, got {:?}", other),
+                    }
                 }
-                other => panic!("Expected RecordDef target, got {:?}", other),
+                other => panic!("Expected TypeDef target, got {:?}", other),
             }
         }
         other => panic!("Expected Decorator, got {:?}", other),
@@ -1442,5 +1447,266 @@ fn test_parse_private_extern_visibility() {
             assert!(!is_pub, "extern without pub should have is_pub = false");
         }
         other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// TYPE-LEVEL OPERATOR PARSING TESTS (RED Phase — expected to fail)
+//
+// The parser does not yet support keyof, indexed access, or type-level
+// expressions. These tests specify the expected parse results for:
+//   - `type X = keyof T`            → Decl::TypeDef with Type::KeyOf
+//   - `type X = T["field"]`         → Decl::TypeDef with Type::IndexedAccess
+//   - `type X = keyof T["field"]`   → Composition (keyof wrapping IndexedAccess)
+//   - `type X = keyof { ... }`      → keyof applied to inline record
+// ============================================================================
+
+#[test]
+fn test_parse_keyof_type_alias() {
+    // type NameSet = keyof Person
+    let tokens = tokenize("type NameSet = keyof Person");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for keyof type alias: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "NameSet");
+            match type_ {
+                Type::KeyOf(inner) => {
+                    assert!(
+                        matches!(inner.as_ref(), Type::Named(n) if n == "Person"),
+                        "keyof should wrap Named(\"Person\"), got {:?}",
+                        inner
+                    );
+                }
+                other => panic!("Expected Type::KeyOf, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_indexed_access_type_alias() {
+    // type PersonName = Person["name"]
+    let tokens = tokenize(r#"type PersonName = Person["name"]"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for indexed access: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "PersonName");
+            match type_ {
+                Type::IndexedAccess { obj, key } => {
+                    assert!(
+                        matches!(obj.as_ref(), Type::Named(n) if n == "Person"),
+                        "IndexedAccess obj should be Named(\"Person\"), got {:?}",
+                        obj
+                    );
+                    assert_eq!(key, "name");
+                }
+                other => panic!("Expected Type::IndexedAccess, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_keyof_indexed_access_composition() {
+    // type Mixed = keyof Person["items"]
+    // This should parse as: keyof (Person["items"])
+    // i.e., Type::KeyOf(Box::new(Type::IndexedAccess { ... }))
+    let tokens = tokenize(r#"type Mixed = keyof Person["items"]"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for keyof+indexed composition: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "Mixed");
+            match type_ {
+                Type::KeyOf(inner) => match inner.as_ref() {
+                    Type::IndexedAccess { obj, key } => {
+                        assert!(
+                            matches!(obj.as_ref(), Type::Named(n) if n == "Person"),
+                            "Inner obj should be Named(\"Person\"), got {:?}",
+                            obj
+                        );
+                        assert_eq!(key, "items");
+                    }
+                    other => panic!("Expected KeyOf to wrap IndexedAccess, got {:?}", other),
+                },
+                other => panic!(
+                    "Expected Type::KeyOf wrapping IndexedAccess, got {:?}",
+                    other
+                ),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_keyof_inline_record() {
+    // type PointKeys = keyof { x: Int, y: Str }
+    let tokens = tokenize("type PointKeys = keyof { x: Int, y: Str }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for keyof inline record: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "PointKeys");
+            match type_ {
+                Type::KeyOf(inner) => match inner.as_ref() {
+                    Type::Record(fields) => {
+                        assert_eq!(fields.len(), 2);
+                        assert_eq!(fields[0].0, "x");
+                        assert_eq!(fields[1].0, "y");
+                    }
+                    other => panic!("Expected KeyOf to wrap Record, got {:?}", other),
+                },
+                other => panic!("Expected Type::KeyOf wrapping Record, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_indexed_access_with_generic_type() {
+    // type ItemId = Array<String>["items"]
+    let tokens = tokenize(r#"type ItemId = Array<String>["items"]"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for indexed access on generic: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "ItemId");
+            match type_ {
+                Type::IndexedAccess { obj, key } => {
+                    assert!(
+                        matches!(obj.as_ref(), Type::Generic { base, .. } if base == "Array"),
+                        "IndexedAccess obj should be Generic(\"Array\"), got {:?}",
+                        obj
+                    );
+                    assert_eq!(key, "items");
+                }
+                other => panic!("Expected Type::IndexedAccess, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_keyof_in_record_field() {
+    // type Config = { keys: keyof Person, values: Person["name"] }
+    let tokens = tokenize(r#"type Config = { keys: keyof Person, values: Person["name"] }"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for keyof/indexed in record fields: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "Config");
+            match type_ {
+                Type::Record(fields) => {
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].0, "keys");
+                    assert!(
+                        matches!(fields[0].1.as_ref(), Type::KeyOf(_)),
+                        "keys field should be KeyOf, got {:?}",
+                        fields[0].1
+                    );
+                    assert_eq!(fields[1].0, "values");
+                    assert!(
+                        matches!(fields[1].1.as_ref(), Type::IndexedAccess { .. }),
+                        "values field should be IndexedAccess, got {:?}",
+                        fields[1].1
+                    );
+                }
+                other => panic!("Expected Type::Record, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_keyof_in_union_variant() {
+    // type KeyOrName = keyof Person | Person["name"]
+    let tokens = tokenize(r#"type KeyOrName = keyof Person | Person["name"]"#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for keyof/indexed in union: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::TypeDef { name, type_, .. } => {
+            assert_eq!(name, "KeyOrName");
+            match type_ {
+                Type::Union(variants) => {
+                    assert_eq!(variants.len(), 2);
+                    assert!(
+                        matches!(&variants[0], Type::KeyOf(_)),
+                        "First variant should be KeyOf, got {:?}",
+                        variants[0]
+                    );
+                    assert!(
+                        matches!(&variants[1], Type::IndexedAccess { .. }),
+                        "Second variant should be IndexedAccess, got {:?}",
+                        variants[1]
+                    );
+                }
+                other => panic!("Expected Type::Union, got {:?}", other),
+            }
+        }
+        other => panic!("Expected TypeDef declaration, got {:?}", other),
     }
 }

@@ -192,6 +192,12 @@ mod tests {
                     format!("{}<{}>", base, a.join(","))
                 }
                 Type::Refined { base, .. } => self.map_type(base),
+                Type::KeyOf(inner) => {
+                    format!("String /* keyof {} */", self.map_type(inner))
+                }
+                Type::IndexedAccess { obj, key } => {
+                    format!("Object /* {}[\"{}\"] */", self.map_type(obj), key)
+                }
             }
         }
     }

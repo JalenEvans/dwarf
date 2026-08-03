@@ -961,6 +961,12 @@ impl TypeScriptBackend {
             Type::Refined { base, .. } => {
                 self.register_stdlib_imports(base);
             }
+            Type::KeyOf(inner) => {
+                self.register_stdlib_imports(inner);
+            }
+            Type::IndexedAccess { obj, .. } => {
+                self.register_stdlib_imports(obj);
+            }
             Type::Named(_) => {} // No stdlib imports needed for simple names
         }
     }

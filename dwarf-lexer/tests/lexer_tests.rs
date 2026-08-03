@@ -1054,3 +1054,148 @@ fn test_extern_not_an_identifier() {
         "`extern` should be lexed as a keyword, not an identifier"
     );
 }
+
+// =======================================================================
+// TYPE-LEVEL OPERATOR KEYWORDS (RED Phase — expected to fail)
+//
+// TokenKind::KeyOf, TokenKind::TypeOf, TokenKind::In, and
+// TokenKind::Extends do not exist yet. These tests specify the expected
+// lexing behavior for type-level operator keywords needed by the
+// keyof / indexed-access / mapped-type features.
+// =======================================================================
+
+#[test]
+fn test_keyword_keyof() {
+    assert_token_kind("keyof", TokenKind::KeyOf);
+}
+
+#[test]
+fn test_keyword_typeof() {
+    assert_token_kind("typeof", TokenKind::TypeOf);
+}
+
+#[test]
+fn test_keyword_in() {
+    assert_token_kind("in", TokenKind::In);
+}
+
+#[test]
+fn test_keyword_extends() {
+    assert_token_kind("extends", TokenKind::Extends);
+}
+
+#[test]
+fn test_keyof_not_an_identifier() {
+    // After implementation, `keyof` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("keyof");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("keyof".to_string()),
+        "`keyof` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_typeof_not_an_identifier() {
+    let mut lexer = Lexer::new("typeof");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("typeof".to_string()),
+        "`typeof` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_in_not_an_identifier() {
+    let mut lexer = Lexer::new("in");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("in".to_string()),
+        "`in` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_extends_not_an_identifier() {
+    let mut lexer = Lexer::new("extends");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("extends".to_string()),
+        "`extends` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_sequence_keyof_type() {
+    assert_token_sequence(
+        "keyof Person",
+        &[TokenKind::KeyOf, TokenKind::Ident("Person".to_string())],
+    );
+}
+
+#[test]
+fn test_sequence_typeof_ident() {
+    assert_token_sequence(
+        "typeof myVar",
+        &[TokenKind::TypeOf, TokenKind::Ident("myVar".to_string())],
+    );
+}
+
+#[test]
+fn test_sequence_type_alias_keyof() {
+    assert_token_sequence(
+        "type Keys = keyof Person",
+        &[
+            TokenKind::Type,
+            TokenKind::Ident("Keys".to_string()),
+            TokenKind::Eq,
+            TokenKind::KeyOf,
+            TokenKind::Ident("Person".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_indexed_access_brackets() {
+    // Person["name"] — verifies that [ and ] still lex correctly
+    // in the context of type-level indexed access
+    assert_token_sequence(
+        r#"Person["name"]"#,
+        &[
+            TokenKind::Ident("Person".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Str("name".to_string()),
+            TokenKind::RBracket,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_extends_constraint() {
+    // T extends Comparable — for future generic constraint syntax
+    assert_token_sequence(
+        "T extends Comparable",
+        &[
+            TokenKind::Ident("T".to_string()),
+            TokenKind::Extends,
+            TokenKind::Ident("Comparable".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_in_mapped_type() {
+    // K in Keys — for future mapped type syntax
+    assert_token_sequence(
+        "K in Keys",
+        &[
+            TokenKind::Ident("K".to_string()),
+            TokenKind::In,
+            TokenKind::Ident("Keys".to_string()),
+        ],
+    );
+}

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// The kind of a token — categorizes what the token represents.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TokenKind {
-    // ---- Keywords (13 reserved words + true/false/null) ----
+    // ---- Keywords (17 reserved words + true/false/null) ----
     Fn,
     Type,
     Let,
@@ -26,6 +26,10 @@ pub enum TokenKind {
     Catch,
     Throw,
     Extern,
+    KeyOf,
+    TypeOf,
+    In,
+    Extends,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -107,6 +111,10 @@ impl TokenKind {
             Self::Catch => "'catch'",
             Self::Throw => "'throw'",
             Self::Extern => "'extern'",
+            Self::KeyOf => "'keyof'",
+            Self::TypeOf => "'typeof'",
+            Self::In => "'in'",
+            Self::Extends => "'extends'",
 
             // Arithmetic
             Self::Plus => "'+'",

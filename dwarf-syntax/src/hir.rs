@@ -98,6 +98,15 @@ pub enum Type {
         base: Box<Type>,
         constraint: RefConstraint,
     },
+    /// keyof T — the union of field names of a record type.
+    /// e.g., `keyof Person` → Type::KeyOf(Box::new(Type::Named("Person")))
+    KeyOf(Box<Type>),
+    /// T["key"] — the type of field "key" in type T.
+    /// e.g., `Person["name"]` → Type::IndexedAccess { obj: Box::new(Type::Named("Person")), key: "name" }
+    IndexedAccess {
+        obj: Box<Type>,
+        key: String,
+    },
 }
 
 // ---- Expressions ----

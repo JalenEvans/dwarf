@@ -908,6 +908,22 @@ impl JavaBackend {
                 needs_string,
                 needs_math,
             ),
+            Type::KeyOf(inner) => Self::scan_type_for_stdlib(
+                inner,
+                needs_option,
+                needs_result,
+                needs_list,
+                needs_string,
+                needs_math,
+            ),
+            Type::IndexedAccess { obj, .. } => Self::scan_type_for_stdlib(
+                obj,
+                needs_option,
+                needs_result,
+                needs_list,
+                needs_string,
+                needs_math,
+            ),
             Type::Named(_) => {}
         }
     }

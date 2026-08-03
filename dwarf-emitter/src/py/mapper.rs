@@ -52,6 +52,13 @@ impl TypeMapper for PythonMapper {
                 format!("{}[{}]", base, args_str.join(", "))
             }
             Type::Refined { base, .. } => self.map_type(base),
+            Type::KeyOf(inner) => {
+                // Python doesn't have keyof; emit as a string literal union placeholder
+                format!("str  # keyof {}", self.map_type(inner))
+            }
+            Type::IndexedAccess { obj, key } => {
+                format!("Any  # {}[\"{}\"]", self.map_type(obj), key)
+            }
         }
     }
 }
