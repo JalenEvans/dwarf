@@ -466,3 +466,104 @@ fn test_resolve_mutual_alias_chain() {
     let canonical = registry.resolve(9);
     let _ = canonical;
 }
+
+// ---------------------------------------------------------------------------
+// Refined types (DWARF-60: Refinement Type System)
+//
+// WILL FAIL — RED PHASE
+//
+// These tests verify that TypeDef::Refined can be registered and retrieved.
+// They will fail until:
+//   1. TypeDef::Refined { base: TypeId, constraint: RefConstraint } variant
+//      is added to types.rs
+//   2. RefConstraint enum is added to types.rs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_register_refined_type_stores_variant() {
+    // TypeRegistry should be able to hold a TypeDef::Refined and return it
+    // as the Refined variant — not erase it to the base type.
+    let mut registry = TypeRegistry::new();
+    let refined = TypeDef::Refined {
+        base: 0, // Int
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    };
+    let id = registry.register(refined);
+    assert_eq!(id, 9);
+
+    // Should be retrievable as a Refined variant, NOT as Primitive(Int)
+    match registry.get(9) {
+        Some(TypeDef::Refined { base, constraint }) => {
+            assert_eq!(*base, 0, "Base type should be Int (ID 0)");
+            assert_eq!(
+                *constraint,
+                RefConstraint::Range { min: 0, max: 100 },
+                "Constraint should be preserved"
+            );
+        }
+        other => panic!(
+            "Expected TypeDef::Refined at ID 9, got {:?}. \
+             The registry is not storing refined types!",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_register_refined_increases_len() {
+    let mut registry = TypeRegistry::new();
+    assert_eq!(registry.len(), 9);
+
+    registry.register(TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range { min: 0, max: 50 },
+    });
+    assert_eq!(
+        registry.len(),
+        10,
+        "Registering a refined type should increase len"
+    );
+}
+
+#[test]
+fn test_refined_type_is_not_alias() {
+    // A refined type should NOT be treated as an alias to its base.
+    // resolve() should return the refined type's own ID, not the base ID.
+    let mut registry = TypeRegistry::new();
+    let id = registry.register(TypeDef::Refined {
+        base: 0, // Int
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    });
+
+    let resolved = registry.resolve(id);
+    assert_eq!(
+        resolved, id,
+        "Refined type should resolve to its own ID, not its base type's ID"
+    );
+}
+
+#[test]
+fn test_json_roundtrip_refined() {
+    let ty = TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range { min: 0, max: 150 },
+    };
+    let json = serde_json::to_string(&ty).expect("serialize Refined");
+    let back: TypeDef = serde_json::from_str(&json).expect("deserialize Refined");
+    assert_eq!(back, ty);
+}
+
+#[test]
+fn test_json_roundtrip_refined_negative_range() {
+    let ty = TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range {
+            min: -100,
+            max: 100,
+        },
+    };
+    let json = serde_json::to_string(&ty).expect("serialize Refined with negative range");
+    let back: TypeDef =
+        serde_json::from_str(&json).expect("deserialize Refined with negative range");
+    assert_eq!(back, ty);
+}

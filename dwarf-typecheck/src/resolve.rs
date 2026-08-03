@@ -12,7 +12,7 @@ use dwarf_syntax::hir::{Decl, Type as HirType};
 
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, VariantDef, ANY_TYPE_ID};
+use crate::types::{FieldDef, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID};
 
 /// The result of resolving HIR declarations into a TypeRegistry.
 #[derive(Debug, Clone)]
@@ -265,7 +265,14 @@ fn resolve_hir_type(
             }
             None => 4,
         },
-        HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
+        HirType::Refined { base, constraint } => {
+            let base_id = resolve_hir_type(base, registry, name_map);
+            let refined_constraint = convert_ref_constraint(constraint);
+            registry.register(TypeDef::Refined {
+                base: base_id,
+                constraint: refined_constraint,
+            })
+        }
     }
 }
 
@@ -328,6 +335,23 @@ fn resolve_hir_type_strict(
                 args: resolved_args,
             }))
         }
-        HirType::Refined { base, .. } => resolve_hir_type_strict(base, registry, name_map),
+        HirType::Refined { base, constraint } => {
+            let base_id = resolve_hir_type_strict(base, registry, name_map)?;
+            let refined_constraint = convert_ref_constraint(constraint);
+            Ok(registry.register(TypeDef::Refined {
+                base: base_id,
+                constraint: refined_constraint,
+            }))
+        }
+    }
+}
+
+/// Convert a HIR RefConstraint to a types::RefConstraint.
+fn convert_ref_constraint(constraint: &dwarf_syntax::hir::RefConstraint) -> RefConstraint {
+    match constraint {
+        dwarf_syntax::hir::RefConstraint::Range { min, max } => RefConstraint::Range {
+            min: *min,
+            max: *max,
+        },
     }
 }

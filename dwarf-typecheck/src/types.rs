@@ -56,6 +56,13 @@ pub struct VariantDef {
     pub type_id: Option<TypeId>,
 }
 
+/// A constraint on a refined type.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum RefConstraint {
+    /// Range constraint: min..max (inclusive)
+    Range { min: i64, max: i64 },
+}
+
 /// A resolved type definition stored in the TypeRegistry.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeDef {
@@ -75,4 +82,10 @@ pub enum TypeDef {
     /// A built-in generic type constructor (e.g., Option, Result, List, Map).
     /// These serve as the base for GenericInstance types.
     BuiltinGeneric { name: String },
+    /// A refined type: a base type with a constraint.
+    /// e.g., `Int(0..100)` where base is the TypeId of `Int` and constraint is `Range { min: 0, max: 100 }`.
+    Refined {
+        base: TypeId,
+        constraint: RefConstraint,
+    },
 }

@@ -99,6 +99,26 @@ pub fn check(registry: &TypeRegistry, expected: TypeId, actual: TypeId) -> Compa
                 args: actual_args,
             }),
         ) => check_generic_instances(registry, base, args, actual_base, actual_args),
+        // Refined types delegate to their base type for compatibility
+        (
+            Some(TypeDef::Refined {
+                base: expected_base,
+                ..
+            }),
+            Some(TypeDef::Refined {
+                base: actual_base, ..
+            }),
+        ) => check(registry, *expected_base, *actual_base),
+        (Some(TypeDef::Refined { base, .. }), Some(_actual_def)) => {
+            let expected = *base;
+            let actual = actual_id;
+            check(registry, expected, actual)
+        }
+        (Some(_expected_def), Some(TypeDef::Refined { base, .. })) => {
+            let expected = expected_id;
+            let actual = *base;
+            check(registry, expected, actual)
+        }
         // Cross-kind (or unresolved types) are always incompatible.
         _ => CompatibilityResult {
             compatible: false,

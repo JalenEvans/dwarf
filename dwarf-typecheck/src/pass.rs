@@ -118,6 +118,41 @@ impl TypeCheckPass {
                                     }
                                 }
                             }
+                            dwarf_syntax::hir::Type::Refined { base, .. } => {
+                                // Resolve the base type and register the refined type.
+                                // For now, just use the base type ID — constraint checking
+                                // comes in a later phase.
+                                let base_type_id = match base.as_ref() {
+                                    dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
+                                        "int" | "Int" => 0,
+                                        "float" | "Float" => 1,
+                                        "str" | "Str" | "string" | "String" => 2,
+                                        "bool" | "Bool" => 3,
+                                        "null" | "Null" => 4,
+                                        "any" | "Any" => ANY_TYPE_ID,
+                                        unknown => {
+                                            errors.push(TypeCheckError::new(
+                                                "DWARF-E-TYPE-0002",
+                                                format!("unknown type: {}", unknown),
+                                                *span,
+                                            ));
+                                            continue;
+                                        }
+                                    },
+                                    _ => {
+                                        errors.push(TypeCheckError::new(
+                                            "DWARF-E-TYPE-0008",
+                                            format!(
+                                                "unsupported base type in refined annotation for parameter '{}'",
+                                                param.name
+                                            ),
+                                            *span,
+                                        ));
+                                        continue;
+                                    }
+                                };
+                                base_type_id
+                            }
                             _ => {
                                 errors.push(TypeCheckError::new(
                                     "DWARF-E-TYPE-0008",
@@ -914,6 +949,103 @@ mod tests {
             has_count_error,
             "Expected an argument count mismatch error for extern call with \
              too few arguments, but got: {:?}",
+            errors
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Refined type annotation tests (DWARF-60: Refinement Type System)
+    //
+    // WILL FAIL — RED PHASE
+    //
+    // These tests verify that refined type annotations on function parameters
+    // are accepted by the typechecker. Currently, the parameter annotation
+    // handler in pass.rs (~line 121-131) has a catch-all `_` arm that produces
+    // "unsupported type annotation for parameter" for any type that isn't
+    // Named or Generic. Type::Refined falls into this catch-all.
+    //
+    // They will fail until:
+    //   1. The parameter annotation handler accepts Type::Refined
+    //   2. The resolver registers TypeDef::Refined instead of erasing
+    // ------------------------------------------------------------------
+
+    #[test]
+    /// A function parameter annotated with `Int(0..100)` should type-check
+    /// without producing the "unsupported type annotation" error.
+    ///
+    /// Setup:
+    ///   fn f(x: Int(0..100)) { 42 }
+    ///
+    /// Expected: no errors.
+    ///
+    /// Failure mode: The catch-all `_` arm in the parameter annotation handler
+    /// produces "unsupported type annotation for parameter 'x'" because
+    /// Type::Refined is not handled.
+    fn test_refined_type_annotation_on_parameter() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+        let decls = vec![Decl::Function {
+            name: "f".to_string(),
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Refined {
+                    base: Box::new(Type::Named("Int".to_string())),
+                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+                }),
+            }],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        }];
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "Refined type annotation 'Int(0..100)' on parameter should be valid, \
+             but got errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    /// A function parameter annotated with a refined type should NOT produce
+    /// the "unsupported type annotation" error specifically.
+    ///
+    /// This test checks the error message content to ensure the failure mode
+    /// is the catch-all error, not some other issue.
+    fn test_refined_type_does_not_produce_unsupported_error() {
+        // WILL FAIL — RED PHASE
+        let pass = TypeCheckPass::new();
+        let decls = vec![Decl::Function {
+            name: "clamp".to_string(),
+            params: vec![Param {
+                name: "value".to_string(),
+                type_: Some(Type::Refined {
+                    base: Box::new(Type::Named("Int".to_string())),
+                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 255 },
+                }),
+            }],
+            return_type: None,
+            body: Expr::Variable {
+                name: "value".to_string(),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            span: dummy_span(),
+        }];
+        let (_registry, errors) = pass.check(&decls);
+
+        // Check that none of the errors mention "unsupported type annotation"
+        let has_unsupported_error = errors
+            .iter()
+            .any(|e| e.message.contains("unsupported type annotation"));
+        assert!(
+            !has_unsupported_error,
+            "Refined type annotation should NOT produce 'unsupported type annotation' \
+             error, but got: {:?}",
             errors
         );
     }

@@ -904,3 +904,111 @@ fn test_compat_generic_instance_record() {
     // Different kinds → NOT compatible
     assert!(!compat::check(&registry, id_record, id_generic).compatible);
 }
+
+// ===========================================================================
+// Refined type compatibility (DWARF-60: Refinement Type System)
+//
+// WILL FAIL — RED PHASE
+//
+// These tests verify that refined types delegate compatibility to their base
+// type. Currently, compat::check has no arm for TypeDef::Refined, so it falls
+// through to the cross-kind catch-all (incompatible). The fix should make
+// Refined types delegate to their base type for compatibility.
+// ===========================================================================
+
+#[test]
+fn test_refined_compatible_with_base_type() {
+    // Int(0..100) should be compatible with Int (the base type).
+    // For now, constraint checking is deferred — we just check base compatibility.
+    let mut r = TypeRegistry::new();
+    // Register Int(0..100) as a refined type (ID 9)
+    r.register(TypeDef::Refined {
+        base: 0, // Int
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    });
+
+    let result = compat::check(&r, 9, 0);
+    assert!(
+        result.compatible,
+        "Refined Int(0..100) should be compatible with base type Int. \
+         Got details: {:?}",
+        result.details
+    );
+}
+
+#[test]
+fn test_base_type_compatible_with_refined() {
+    // Int should be compatible with Int(0..100) (reverse direction).
+    // Constraint checking comes later — for now, base compatibility suffices.
+    let mut r = TypeRegistry::new();
+    r.register(TypeDef::Refined {
+        base: 0, // Int
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    });
+
+    let result = compat::check(&r, 0, 9);
+    assert!(
+        result.compatible,
+        "Base type Int should be compatible with refined Int(0..100). \
+         Got details: {:?}",
+        result.details
+    );
+}
+
+#[test]
+fn test_two_identical_refined_types_compatible() {
+    // Two Int(0..100) types should be compatible with each other.
+    let mut r = TypeRegistry::new();
+    r.register(TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    }); // ID 9
+    r.register(TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    }); // ID 10
+
+    let result = compat::check(&r, 9, 10);
+    assert!(
+        result.compatible,
+        "Two identical refined types should be compatible. \
+         Got details: {:?}",
+        result.details
+    );
+}
+
+#[test]
+fn test_refined_self_compatible() {
+    // A refined type should be compatible with itself (same ID).
+    let mut r = TypeRegistry::new();
+    let id = r.register(TypeDef::Refined {
+        base: 0,
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    });
+
+    let result = compat::check(&r, id, id);
+    assert!(
+        result.compatible,
+        "A refined type should be compatible with itself"
+    );
+}
+
+#[test]
+fn test_refined_different_bases_incompatible() {
+    // Int(0..100) and Float(0..100) should NOT be compatible (different bases).
+    let mut r = TypeRegistry::new();
+    r.register(TypeDef::Refined {
+        base: 0, // Int
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    }); // ID 9
+    r.register(TypeDef::Refined {
+        base: 1, // Float
+        constraint: RefConstraint::Range { min: 0, max: 100 },
+    }); // ID 10
+
+    let result = compat::check(&r, 9, 10);
+    assert!(
+        !result.compatible,
+        "Refined types with different bases (Int vs Float) should NOT be compatible"
+    );
+}

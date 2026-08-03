@@ -705,3 +705,186 @@ fn test_resolve_generic_unknown_base() {
         other => panic!("Expected Record at ID 9, got {:?}", other),
     }
 }
+
+// ===========================================================================
+// 11. Refined type resolution (DWARF-60: Refinement Type System)
+//
+// WILL FAIL — RED PHASE
+//
+// These tests verify that refined types are NOT erased during resolution.
+// Currently, resolve_hir_type has:
+//   HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
+// which discards the constraint. The fix should register a TypeDef::Refined
+// instead, preserving the constraint.
+// ===========================================================================
+
+#[test]
+fn test_resolve_refined_type_not_erased() {
+    // `type Age = Int(0..150)` should produce a TypeDef::Refined in the
+    // registry, NOT erase to TypeDef::Alias(Int).
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::TypeDef {
+        name: "Age".to_string(),
+        type_: Type::Refined {
+            base: Box::new(Type::Named("int".to_string())),
+            constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 150 },
+        },
+        is_pub: true,
+        span: dummy_span(),
+    }];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // The Age alias should exist in name_map
+    let alias_id = result
+        .name_map
+        .get("Age")
+        .copied()
+        .expect("'Age' should be in name_map");
+
+    // Follow the alias to find what it points to
+    let resolved_id = result.registry.resolve(alias_id);
+
+    // The resolved type should be Refined, not Primitive(Int)
+    match result.registry.get(resolved_id) {
+        Some(TypeDef::Refined { base, constraint }) => {
+            assert_eq!(*base, 0, "Base type should be Int (ID 0)");
+            match constraint {
+                dwarf_typecheck::types::RefConstraint::Range { min, max } => {
+                    assert_eq!(*min, 0);
+                    assert_eq!(*max, 150);
+                }
+            }
+        }
+        Some(TypeDef::Primitive(PrimitiveType::Int)) => {
+            panic!(
+                "RESOLUTION ERASED THE REFINEMENT! 'type Age = Int(0..150)' resolved \
+                 to Primitive(Int) instead of TypeDef::Refined. The constraint was lost."
+            );
+        }
+        other => panic!(
+            "Expected TypeDef::Refined for 'Age', got {:?}. \
+             The resolver is not preserving the refinement constraint!",
+            other
+        ),
+    }
+}
+
+#[test]
+fn test_two_different_refined_types_are_distinct() {
+    // `Int(0..100)` and `Int(0..200)` should produce different TypeIds.
+    // If the resolver erases constraints, both would resolve to the same
+    // Primitive(Int) and the aliases would point to the same target.
+    let mut registry = TypeRegistry::new();
+    let decls = vec![
+        Decl::TypeDef {
+            name: "SmallInt".to_string(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("int".to_string())),
+                constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+            },
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::TypeDef {
+            name: "BigInt".to_string(),
+            type_: Type::Refined {
+                base: Box::new(Type::Named("int".to_string())),
+                constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 200 },
+            },
+            is_pub: true,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    let small_id = result
+        .name_map
+        .get("SmallInt")
+        .copied()
+        .expect("'SmallInt' should be in name_map");
+    let big_id = result
+        .name_map
+        .get("BigInt")
+        .copied()
+        .expect("'BigInt' should be in name_map");
+
+    // The aliases themselves should be different IDs
+    assert_ne!(
+        small_id, big_id,
+        "SmallInt and BigInt should have different alias TypeIds"
+    );
+
+    // More importantly, the resolved types should also be different
+    let small_resolved = result.registry.resolve(small_id);
+    let big_resolved = result.registry.resolve(big_id);
+    assert_ne!(
+        small_resolved, big_resolved,
+        "Int(0..100) and Int(0..200) should resolve to different TypeDefs. \
+         If they resolve to the same ID, the constraint is being erased!"
+    );
+}
+
+#[test]
+fn test_resolve_refined_type_in_record_field() {
+    // A record field with a refined type should preserve the refinement.
+    // `record Point { x: Int(0..100), y: Int(0..100) }`
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::RecordDef {
+        name: "BoundedPoint".to_string(),
+        fields: vec![
+            Field {
+                name: "x".to_string(),
+                type_: Type::Refined {
+                    base: Box::new(Type::Named("int".to_string())),
+                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+                },
+            },
+            Field {
+                name: "y".to_string(),
+                type_: Type::Refined {
+                    base: Box::new(Type::Named("int".to_string())),
+                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+                },
+            },
+        ],
+        is_pub: true,
+        span: dummy_span(),
+    }];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // The record should be registered
+    let record_id = result
+        .name_map
+        .get("BoundedPoint")
+        .copied()
+        .expect("'BoundedPoint' should be in name_map");
+
+    match result.registry.get(record_id) {
+        Some(TypeDef::Record(fields)) => {
+            assert_eq!(fields.len(), 2);
+            // Each field's type_id should point to a Refined type, not directly to Int(0)
+            for field in fields {
+                let field_type = result.registry.get(field.type_id);
+                match field_type {
+                    Some(TypeDef::Refined { base, .. }) => {
+                        assert_eq!(*base, 0, "Refined field should have Int as base");
+                    }
+                    Some(TypeDef::Primitive(PrimitiveType::Int)) => {
+                        panic!(
+                            "Field '{}' resolved to Primitive(Int) — refinement was erased!",
+                            field.name
+                        );
+                    }
+                    other => panic!(
+                        "Expected TypeDef::Refined for field '{}', got {:?}",
+                        field.name, other
+                    ),
+                }
+            }
+        }
+        other => panic!("Expected Record for 'BoundedPoint', got {:?}", other),
+    }
+}
