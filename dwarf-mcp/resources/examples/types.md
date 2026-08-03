@@ -66,10 +66,11 @@ fn swap<A, B>(pair: Pair<A, B>) -> Pair<B, A> {
 
 ## Refinement Types
 
+### Range Constraints
+
 ```
 type Age = Int(0..150)
 type Score = Int(0..100)
-type NonEmptyString = String(s != "")
 
 fn canVote(age: Age) -> Bool {
     age >= 18
@@ -80,6 +81,30 @@ fn grade(score: Score) -> String {
     else if score >= 80 { "B" }
     else if score >= 70 { "C" }
     else { "D" }
+}
+
+// Compile-time checking
+canVote(25)     // OK
+canVote(200)    // ERROR: value 200 is outside the allowed range 0..150
+```
+
+### NonEmpty Constraint
+
+The type system enforces NonEmpty string constraints at compile time:
+
+```
+// Given a function with a NonEmpty string parameter:
+greet("Alice")  // OK: non-empty string
+greet("")       // ERROR: empty string not allowed for NonEmptyString
+```
+
+### Refinements in Records
+
+Refined types can be used in record field definitions:
+
+```
+type Person {
+    age: Int(0..150)
 }
 ```
 

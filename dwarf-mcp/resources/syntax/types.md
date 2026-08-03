@@ -69,15 +69,48 @@ type Coord = (Int, Int)
 
 ## Refinement Types
 
-Refinement types constrain values with predicates:
+Refinement types constrain values with predicates, checked at compile time.
+
+### Range Constraints
+
+Constrain numeric values to an inclusive range:
 
 ```
-type Natural = Int(n >= 0)
 type Percentage = Int(0..100)
-type NonEmptyString = String(s != "")
+type Age = Int(0..150)
+type Temperature = Int(-40..60)
 ```
 
-Refinements are checked at compile time, eliminating entire classes of runtime errors.
+### NonEmpty Constraint
+
+The type system supports a `NonEmpty` constraint for strings. When a function parameter has a NonEmpty string type, the compiler rejects empty string literals at compile time:
+
+```
+// Given a function with a NonEmpty string parameter:
+greet("Alice")  // OK: non-empty string
+greet("")       // ERROR: empty string not allowed for NonEmptyString
+```
+
+The error code for this violation is `DWARF-E-TYPE-0006`.
+
+### Compile-Time Checking
+
+Refinement constraints are enforced at compile time when literal values are passed:
+
+```
+type Score = Int(0..100)
+
+fn setScore(s: Score) { ... }
+
+setScore(85)    // OK: 85 is within 0..100
+setScore(150)   // ERROR: value 150 is outside the allowed range 0..100
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `DWARF-E-TYPE-0006` | Refinement constraint violation |
 
 ## Type Inference
 
