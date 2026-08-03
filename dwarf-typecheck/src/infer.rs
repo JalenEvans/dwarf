@@ -10,7 +10,9 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID};
+use crate::types::{
+    FieldDef, RefConstraint, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID,
+};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -445,6 +447,29 @@ fn infer_call(
                 "argument {} type mismatch: expected {}, got {}",
                 i, param_type, arg_type
             ));
+        }
+
+        // Refinement constraint check: if the parameter type is a refined Int
+        // with a Range constraint, and the argument is a literal Int, verify
+        // the literal value falls within the allowed range.
+        let resolved_param = registry.resolve(*param_type);
+        if let Some(TypeDef::Refined {
+            constraint: RefConstraint::Range { min, max },
+            ..
+        }) = registry.get(resolved_param)
+        {
+            if let Expr::Literal {
+                value: LiteralValue::Int(v),
+                ..
+            } = arg
+            {
+                if *v < *min || *v > *max {
+                    return Err(format!(
+                        "value {} is outside the allowed range {}..{}",
+                        v, min, max
+                    ));
+                }
+            }
         }
     }
 

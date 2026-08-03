@@ -14,7 +14,7 @@ use dwarf_syntax::hir::*;
 use dwarf_syntax::span::Span;
 use dwarf_typecheck::infer::*;
 use dwarf_typecheck::registry::TypeRegistry;
-use dwarf_typecheck::types::*;
+use dwarf_typecheck::types::{self as tc_types, *};
 
 // ---------------------------------------------------------------------------
 // Helper: create a dummy Span for synthetic HIR nodes
@@ -2052,5 +2052,292 @@ fn test_propagate_on_non_result() {
         err.contains("Propagate") || err.contains("Result") || err.contains("Option"),
         "Expected a propagate-specific error, got: {}",
         err
+    );
+}
+
+// ===========================================================================
+// 23. Int Literal Constraint Checking (DWARF-60-T1 Chunk 2)
+//     When a literal Int value is used where a refined Int type is expected,
+//     the compiler checks the literal against the refinement range.
+//     Out-of-range literals produce error DWARF-E-TYPE-0006
+//     ("Refinement constraint violation").
+//
+//     These tests exercise constraint checking through function calls:
+//       fn f(x: Int(0..100)) { x }
+//       f(200)  — should fail: 200 is outside 0..100
+//
+//     Currently NOT implemented — `infer_call` delegates refined types to
+//     their base via `compat::check`, ignoring the constraint. The "out of
+//     range" tests FAIL (Red phase) because no error is produced.
+// ===========================================================================
+
+/// Helper: register a refined Int type `Int(min..max)` in the registry.
+///
+/// Returns the assigned TypeId for the refined type.
+fn register_refined_int(registry: &mut TypeRegistry, min: i64, max: i64) -> TypeId {
+    registry.register(TypeDef::Refined {
+        base: 0, // Int
+        constraint: tc_types::RefConstraint::Range { min, max },
+    })
+}
+
+/// Helper: build a call expression `f(literal_int)` where `f` is bound in `env`
+/// to a function type with a single parameter.
+fn make_call_with_int_arg(func_name: &str, arg_value: i64) -> Expr {
+    Expr::Call {
+        func: Box::new(Expr::Variable {
+            name: func_name.to_string(),
+            span: dummy_span(),
+        }),
+        args: vec![Expr::Literal {
+            value: LiteralValue::Int(arg_value),
+            span: dummy_span(),
+        }],
+        span: dummy_span(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 1: `let x: Int(0..100) = 50` — literal 50 is within range 0..100.
+// Modelled as: fn f(x: Int(0..100)) { x }; f(50)
+// Expected: Ok (call succeeds, no constraint violation).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_in_range() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register Int(0..100) at ID 9
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    // Register f: Int(0..100) -> Int at ID 10
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(50) — 50 is within 0..100
+    let expr = make_call_with_int_arg("f", 50);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(50) where f: Int(0..100) -> Int should succeed (50 is in range)"
+    );
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "f(50) should return Int (the function's return type)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 2: `let x: Int(0..100) = 200` — literal 200 is outside range 0..100.
+// Modelled as: fn f(x: Int(0..100)) { x }; f(200)
+// Expected: Err with DWARF-E-TYPE-0006 / "range" in the message.
+// RED PHASE: currently passes because compat delegates refined->base.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_out_of_range_high() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(200) — 200 is outside 0..100
+    let expr = make_call_with_int_arg("f", 200);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "f(200) where f: Int(0..100) -> Int should produce a constraint violation \
+         error (200 is outside range 0..100), but got Ok — constraint checking \
+         is not yet implemented (Red phase)"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("range") || err.contains("constraint") || err.contains("0006"),
+        "Error message should mention range/constraint violation, got: {}",
+        err
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 3: `let x: Int(0..100) = 0` — boundary value (min) is valid.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_at_min_boundary() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(0) — 0 is the min boundary, should be valid (inclusive range)
+    let expr = make_call_with_int_arg("f", 0);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(0) where f: Int(0..100) -> Int should succeed (0 is the min boundary)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 4: `let x: Int(0..100) = 100` — boundary value (max) is valid.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_at_max_boundary() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(100) — 100 is the max boundary, should be valid (inclusive range)
+    let expr = make_call_with_int_arg("f", 100);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(100) where f: Int(0..100) -> Int should succeed (100 is the max boundary)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: `let x: Int(0..100) = -1` — negative value outside range.
+// RED PHASE: currently passes because constraint checking is not implemented.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_negative_out_of_range() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(-1) — -1 is below the min boundary 0
+    let expr = make_call_with_int_arg("f", -1);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "f(-1) where f: Int(0..100) -> Int should produce a constraint violation \
+         error (-1 is below min 0), but got Ok — constraint checking is not yet \
+         implemented (Red phase)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: `let x: Int(0..100) = 101` — just over max.
+// RED PHASE: currently passes because constraint checking is not implemented.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_literal_just_over_max() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_int(&mut registry, 0, 100);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(101) — 101 is just above the max boundary 100
+    let expr = make_call_with_int_arg("f", 101);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "f(101) where f: Int(0..100) -> Int should produce a constraint violation \
+         error (101 is above max 100), but got Ok — constraint checking is not yet \
+         implemented (Red phase)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: `let x: Int(-10..10) = 0` — negative range with valid value.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_negative_range_valid_value() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Int(-10..10)
+    let refined_id = register_refined_int(&mut registry, -10, 10);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(0) — 0 is within -10..10
+    let expr = make_call_with_int_arg("f", 0);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(0) where f: Int(-10..10) -> Int should succeed (0 is in range)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: `let x: Int(-10..10) = -15` — outside negative range.
+// RED PHASE: currently passes because constraint checking is not implemented.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_int_negative_range_out_of_range() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Int(-10..10)
+    let refined_id = register_refined_int(&mut registry, -10, 10);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(-15) — -15 is below the min boundary -10
+    let expr = make_call_with_int_arg("f", -15);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "f(-15) where f: Int(-10..10) -> Int should produce a constraint violation \
+         error (-15 is below min -10), but got Ok — constraint checking is not yet \
+         implemented (Red phase)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: `let x: Int = 200` — non-refined Int should still work as before.
+// This is a regression test: plain Int parameters should accept any Int literal.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_non_refined_int_accepts_any_value() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // f: Int -> Int (no refinement)
+    let func_id = registry.register(TypeDef::Func(vec![0], 0));
+    env.bind("f".to_string(), func_id);
+
+    // f(200) — plain Int should accept any value
+    let expr = make_call_with_int_arg("f", 200);
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(200) where f: Int -> Int should succeed (no refinement constraint)"
+    );
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "f(200) should return Int (the function's return type)"
     );
 }
