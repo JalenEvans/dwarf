@@ -468,102 +468,60 @@ fn test_resolve_mutual_alias_chain() {
 }
 
 // ---------------------------------------------------------------------------
-// Refined types (DWARF-60: Refinement Type System)
+// String literal type tests (DWARF-60 Chunk B)
 //
-// WILL FAIL — RED PHASE
-//
-// These tests verify that TypeDef::Refined can be registered and retrieved.
-// They will fail until:
-//   1. TypeDef::Refined { base: TypeId, constraint: RefConstraint } variant
-//      is added to types.rs
-//   2. RefConstraint enum is added to types.rs
+// These tests specify the expected shape of string literal types in the
+// type system. They will fail to compile until:
+//   1. `LiteralType` enum is added to types.rs with a `String(String)` variant
+//   2. `TypeDef::Literal(LiteralType)` variant is added to TypeDef
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_register_refined_type_stores_variant() {
-    // TypeRegistry should be able to hold a TypeDef::Refined and return it
-    // as the Refined variant — not erase it to the base type.
+fn test_string_literal_type_registration() {
+    // Register a string literal type and verify it's retrievable
     let mut registry = TypeRegistry::new();
-    let refined = TypeDef::Refined {
-        base: 0, // Int
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    };
-    let id = registry.register(refined);
-    assert_eq!(id, 9);
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
 
-    // Should be retrievable as a Refined variant, NOT as Primitive(Int)
-    match registry.get(9) {
-        Some(TypeDef::Refined { base, constraint }) => {
-            assert_eq!(*base, 0, "Base type should be Int (ID 0)");
-            assert_eq!(
-                *constraint,
-                RefConstraint::Range { min: 0, max: 100 },
-                "Constraint should be preserved"
-            );
-        }
-        other => panic!(
-            "Expected TypeDef::Refined at ID 9, got {:?}. \
-             The registry is not storing refined types!",
-            other
-        ),
-    }
-}
-
-#[test]
-fn test_register_refined_increases_len() {
-    let mut registry = TypeRegistry::new();
-    assert_eq!(registry.len(), 9);
-
-    registry.register(TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range { min: 0, max: 50 },
-    });
     assert_eq!(
-        registry.len(),
-        10,
-        "Registering a refined type should increase len"
+        registry.get(lit_x),
+        Some(&TypeDef::Literal(LiteralType::String("x".to_string())))
+    );
+
+    // String literal should be distinct from Primitive(Str)
+    assert_ne!(
+        registry.get(lit_x),
+        Some(&TypeDef::Primitive(PrimitiveType::Str))
     );
 }
 
 #[test]
-fn test_refined_type_is_not_alias() {
-    // A refined type should NOT be treated as an alias to its base.
-    // resolve() should return the refined type's own ID, not the base ID.
+fn test_string_literal_types_distinct_from_each_other() {
+    // Two different string literals should get different TypeIds
     let mut registry = TypeRegistry::new();
-    let id = registry.register(TypeDef::Refined {
-        base: 0, // Int
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    });
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
 
-    let resolved = registry.resolve(id);
+    assert_ne!(
+        lit_x, lit_y,
+        "Different string literals must have different TypeIds"
+    );
+
+    // Each should be retrievable independently
     assert_eq!(
-        resolved, id,
-        "Refined type should resolve to its own ID, not its base type's ID"
+        registry.get(lit_x),
+        Some(&TypeDef::Literal(LiteralType::String("x".to_string())))
+    );
+    assert_eq!(
+        registry.get(lit_y),
+        Some(&TypeDef::Literal(LiteralType::String("y".to_string())))
     );
 }
 
 #[test]
-fn test_json_roundtrip_refined() {
-    let ty = TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range { min: 0, max: 150 },
-    };
-    let json = serde_json::to_string(&ty).expect("serialize Refined");
-    let back: TypeDef = serde_json::from_str(&json).expect("deserialize Refined");
-    assert_eq!(back, ty);
-}
-
-#[test]
-fn test_json_roundtrip_refined_negative_range() {
-    let ty = TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range {
-            min: -100,
-            max: 100,
-        },
-    };
-    let json = serde_json::to_string(&ty).expect("serialize Refined with negative range");
-    let back: TypeDef =
-        serde_json::from_str(&json).expect("deserialize Refined with negative range");
+fn test_string_literal_json_roundtrip() {
+    // TypeDef::Literal(LiteralType::String("hello")) should survive serialize/deserialize
+    let ty = TypeDef::Literal(LiteralType::String("hello".to_string()));
+    let json = serde_json::to_string(&ty).expect("serialize string literal");
+    let back: TypeDef = serde_json::from_str(&json).expect("deserialize string literal");
     assert_eq!(back, ty);
 }

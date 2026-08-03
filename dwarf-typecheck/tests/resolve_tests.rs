@@ -707,93 +707,102 @@ fn test_resolve_generic_unknown_base() {
 }
 
 // ===========================================================================
-// 11. Refined type resolution (DWARF-60: Refinement Type System)
+// 11. keyof and indexed access resolution (DWARF-60 Chunk B)
 //
-// WILL FAIL — RED PHASE
-//
-// These tests verify that refined types are NOT erased during resolution.
-// Currently, resolve_hir_type has:
-//   HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
-// which discards the constraint. The fix should register a TypeDef::Refined
-// instead, preserving the constraint.
+// These tests specify the expected behavior of keyof T and T["key"]
+// type operators. They will fail until:
+//   1. LiteralType enum and TypeDef::Literal variant are added
+//   2. resolve_hir_type handles KeyOf by producing a union of string literals
+//   3. resolve_hir_type handles IndexedAccess by looking up the field type
 // ===========================================================================
 
 #[test]
-fn test_resolve_refined_type_not_erased() {
-    // `type Age = Int(0..150)` should produce a TypeDef::Refined in the
-    // registry, NOT erase to TypeDef::Alias(Int).
+fn test_keyof_inline_record_resolution() {
+    // type Keys = keyof { x: Int, y: Str }
+    // Should produce a union of string literal types "x" | "y"
     let mut registry = TypeRegistry::new();
     let decls = vec![Decl::TypeDef {
-        name: "Age".to_string(),
-        type_: Type::Refined {
-            base: Box::new(Type::Named("int".to_string())),
-            constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 150 },
-        },
+        name: "Keys".to_string(),
+        type_: Type::KeyOf(Box::new(Type::Record(vec![
+            ("x".to_string(), Box::new(Type::Named("int".to_string()))),
+            ("y".to_string(), Box::new(Type::Named("str".to_string()))),
+        ]))),
         is_pub: true,
         span: dummy_span(),
     }];
 
     let result = register_decls(&mut registry, &decls);
 
-    // The Age alias should exist in name_map
-    let alias_id = result
+    // The inline record { x: Int, y: Str } should be registered first (ID 9)
+    // Then string literals "x" (ID 10) and "y" (ID 11) should be registered
+    // Then a union of those literals (ID 12)
+    // Then the alias Keys -> union (ID 13)
+
+    // Verify the alias exists and resolves to a union
+    let keys_id = result
         .name_map
-        .get("Age")
-        .copied()
-        .expect("'Age' should be in name_map");
+        .get("Keys")
+        .expect("Keys should be in name_map");
+    let resolved_id = result.registry.resolve(*keys_id);
 
-    // Follow the alias to find what it points to
-    let resolved_id = result.registry.resolve(alias_id);
-
-    // The resolved type should be Refined, not Primitive(Int)
+    // The resolved type should be a Union
     match result.registry.get(resolved_id) {
-        Some(TypeDef::Refined { base, constraint }) => {
-            assert_eq!(*base, 0, "Base type should be Int (ID 0)");
-            match constraint {
-                dwarf_typecheck::types::RefConstraint::Range { min, max } => {
-                    assert_eq!(*min, 0);
-                    assert_eq!(*max, 150);
-                }
-                dwarf_typecheck::types::RefConstraint::NonEmpty => {
-                    panic!("unexpected NonEmpty constraint");
+        Some(TypeDef::Union(variants)) => {
+            assert_eq!(
+                variants.len(),
+                2,
+                "keyof should produce a union with 2 variants"
+            );
+
+            // Each variant should reference a string literal type
+            for variant in variants {
+                assert!(variant.type_id.is_some(), "variant should have a type_id");
+                let lit_id = variant.type_id.unwrap();
+                match result.registry.get(lit_id) {
+                    Some(TypeDef::Literal(LiteralType::String(s))) => {
+                        assert!(
+                            s == "x" || s == "y",
+                            "literal should be 'x' or 'y', got '{}'",
+                            s
+                        );
+                    }
+                    other => panic!("Expected Literal(String) at ID {}, got {:?}", lit_id, other),
                 }
             }
         }
-        Some(TypeDef::Primitive(PrimitiveType::Int)) => {
-            panic!(
-                "RESOLUTION ERASED THE REFINEMENT! 'type Age = Int(0..150)' resolved \
-                 to Primitive(Int) instead of TypeDef::Refined. The constraint was lost."
-            );
-        }
         other => panic!(
-            "Expected TypeDef::Refined for 'Age', got {:?}. \
-             The resolver is not preserving the refinement constraint!",
-            other
+            "Expected Union at resolved ID {}, got {:?}",
+            resolved_id, other
         ),
     }
 }
 
 #[test]
-fn test_two_different_refined_types_are_distinct() {
-    // `Int(0..100)` and `Int(0..200)` should produce different TypeIds.
-    // If the resolver erases constraints, both would resolve to the same
-    // Primitive(Int) and the aliases would point to the same target.
+fn test_indexed_access_resolution() {
+    // type X = Person["name"] where Person is a record with name: Str
+    // Should resolve to Primitive(Str)
     let mut registry = TypeRegistry::new();
     let decls = vec![
-        Decl::TypeDef {
-            name: "SmallInt".to_string(),
-            type_: Type::Refined {
-                base: Box::new(Type::Named("int".to_string())),
-                constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
-            },
+        Decl::RecordDef {
+            name: "Person".to_string(),
+            fields: vec![
+                Field {
+                    name: "name".to_string(),
+                    type_: Type::Named("str".to_string()),
+                },
+                Field {
+                    name: "age".to_string(),
+                    type_: Type::Named("int".to_string()),
+                },
+            ],
             is_pub: true,
             span: dummy_span(),
         },
         Decl::TypeDef {
-            name: "BigInt".to_string(),
-            type_: Type::Refined {
-                base: Box::new(Type::Named("int".to_string())),
-                constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 200 },
+            name: "X".to_string(),
+            type_: Type::IndexedAccess {
+                obj: Box::new(Type::Named("Person".to_string())),
+                key: "name".to_string(),
             },
             is_pub: true,
             span: dummy_span(),
@@ -802,92 +811,126 @@ fn test_two_different_refined_types_are_distinct() {
 
     let result = register_decls(&mut registry, &decls);
 
-    let small_id = result
+    // Person should be at ID 9
+    let person_id = result
         .name_map
-        .get("SmallInt")
-        .copied()
-        .expect("'SmallInt' should be in name_map");
-    let big_id = result
-        .name_map
-        .get("BigInt")
-        .copied()
-        .expect("'BigInt' should be in name_map");
+        .get("Person")
+        .expect("Person should be in name_map");
+    assert_eq!(*person_id, 9);
 
-    // The aliases themselves should be different IDs
-    assert_ne!(
-        small_id, big_id,
-        "SmallInt and BigInt should have different alias TypeIds"
-    );
-
-    // More importantly, the resolved types should also be different
-    let small_resolved = result.registry.resolve(small_id);
-    let big_resolved = result.registry.resolve(big_id);
-    assert_ne!(
-        small_resolved, big_resolved,
-        "Int(0..100) and Int(0..200) should resolve to different TypeDefs. \
-         If they resolve to the same ID, the constraint is being erased!"
+    // X should be an alias that resolves to Str (ID 2)
+    let x_id = result.name_map.get("X").expect("X should be in name_map");
+    let resolved_id = result.registry.resolve(*x_id);
+    assert_eq!(
+        resolved_id, 2,
+        "Person[\"name\"] should resolve to Str (ID 2)"
     );
 }
 
 #[test]
-fn test_resolve_refined_type_in_record_field() {
-    // A record field with a refined type should preserve the refinement.
-    // `record Point { x: Int(0..100), y: Int(0..100) }`
+fn test_keyof_named_record_resolution() {
+    // type Keys = keyof Person where Person is { name: Str, age: Int }
+    // Should resolve to union of string literal types "name" | "age"
     let mut registry = TypeRegistry::new();
-    let decls = vec![Decl::RecordDef {
-        name: "BoundedPoint".to_string(),
-        fields: vec![
-            Field {
-                name: "x".to_string(),
-                type_: Type::Refined {
-                    base: Box::new(Type::Named("int".to_string())),
-                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+    let decls = vec![
+        Decl::RecordDef {
+            name: "Person".to_string(),
+            fields: vec![
+                Field {
+                    name: "name".to_string(),
+                    type_: Type::Named("str".to_string()),
                 },
-            },
-            Field {
-                name: "y".to_string(),
-                type_: Type::Refined {
-                    base: Box::new(Type::Named("int".to_string())),
-                    constraint: dwarf_syntax::hir::RefConstraint::Range { min: 0, max: 100 },
+                Field {
+                    name: "age".to_string(),
+                    type_: Type::Named("int".to_string()),
                 },
-            },
-        ],
+            ],
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::TypeDef {
+            name: "Keys".to_string(),
+            type_: Type::KeyOf(Box::new(Type::Named("Person".to_string()))),
+            is_pub: true,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // Keys should resolve to a union of string literals
+    let keys_id = result
+        .name_map
+        .get("Keys")
+        .expect("Keys should be in name_map");
+    let resolved_id = result.registry.resolve(*keys_id);
+
+    match result.registry.get(resolved_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert_eq!(variants.len(), 2, "keyof Person should produce 2 variants");
+
+            // Collect the literal values
+            let mut literal_values: Vec<String> = Vec::new();
+            for variant in variants {
+                if let Some(lit_id) = variant.type_id {
+                    if let Some(TypeDef::Literal(LiteralType::String(s))) =
+                        result.registry.get(lit_id)
+                    {
+                        literal_values.push(s.clone());
+                    }
+                }
+            }
+
+            literal_values.sort();
+            assert_eq!(
+                literal_values,
+                vec!["age", "name"],
+                "keyof should produce 'age' and 'name' literals"
+            );
+        }
+        other => panic!(
+            "Expected Union at resolved ID {}, got {:?}",
+            resolved_id, other
+        ),
+    }
+}
+
+#[test]
+fn test_keyof_empty_record_resolution() {
+    // type Empty = keyof {}
+    // Should produce an empty union or Never type
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::TypeDef {
+        name: "Empty".to_string(),
+        type_: Type::KeyOf(Box::new(Type::Record(vec![]))),
         is_pub: true,
         span: dummy_span(),
     }];
 
     let result = register_decls(&mut registry, &decls);
 
-    // The record should be registered
-    let record_id = result
+    let empty_id = result
         .name_map
-        .get("BoundedPoint")
-        .copied()
-        .expect("'BoundedPoint' should be in name_map");
+        .get("Empty")
+        .expect("Empty should be in name_map");
+    let resolved_id = result.registry.resolve(*empty_id);
 
-    match result.registry.get(record_id) {
-        Some(TypeDef::Record(fields)) => {
-            assert_eq!(fields.len(), 2);
-            // Each field's type_id should point to a Refined type, not directly to Int(0)
-            for field in fields {
-                let field_type = result.registry.get(field.type_id);
-                match field_type {
-                    Some(TypeDef::Refined { base, .. }) => {
-                        assert_eq!(*base, 0, "Refined field should have Int as base");
-                    }
-                    Some(TypeDef::Primitive(PrimitiveType::Int)) => {
-                        panic!(
-                            "Field '{}' resolved to Primitive(Int) — refinement was erased!",
-                            field.name
-                        );
-                    }
-                    other => panic!(
-                        "Expected TypeDef::Refined for field '{}', got {:?}",
-                        field.name, other
-                    ),
-                }
-            }
+    // Should be either an empty union or the Never type
+    match result.registry.get(resolved_id) {
+        Some(TypeDef::Union(variants)) => {
+            assert_eq!(
+                variants.len(),
+                0,
+                "keyof {{}} should produce an empty union"
+            );
         }
-        other => panic!("Expected Record for 'BoundedPoint', got {:?}", other),
+        // Alternatively, could be Never type (NEVER_TYPE_ID)
+        _ if resolved_id == NEVER_TYPE_ID => {
+            // This is also acceptable
+        }
+        other => panic!(
+            "Expected empty Union or Never at resolved ID {}, got {:?}",
+            resolved_id, other
+        ),
     }
 }

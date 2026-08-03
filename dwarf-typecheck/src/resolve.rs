@@ -12,7 +12,9 @@ use dwarf_syntax::hir::{Decl, Type as HirType};
 
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, VariantDef, ANY_TYPE_ID};
+use crate::types::{
+    FieldDef, LiteralType, TypeDef, TypeId, VariantDef, ANY_TYPE_ID, NEVER_TYPE_ID,
+};
 
 /// The result of resolving HIR declarations into a TypeRegistry.
 #[derive(Debug, Clone)]
@@ -266,8 +268,60 @@ fn resolve_hir_type(
             None => 4,
         },
         HirType::Refined { base, .. } => resolve_hir_type(base, registry, name_map),
-        HirType::KeyOf(inner) => resolve_hir_type(inner, registry, name_map),
-        HirType::IndexedAccess { obj, .. } => resolve_hir_type(obj, registry, name_map),
+        HirType::KeyOf(inner) => {
+            let target_id = resolve_hir_type(inner, registry, name_map);
+            let resolved_target = registry.resolve(target_id);
+            // Clone field names out of the registry to avoid borrow conflict
+            // when registering new literal types below.
+            let field_names: Option<Vec<String>> = match registry.get(resolved_target) {
+                Some(TypeDef::Record(fields)) => {
+                    Some(fields.iter().map(|f| f.name.clone()).collect())
+                }
+                _ => None,
+            };
+            match field_names {
+                Some(names) if names.is_empty() => {
+                    // keyof {} → empty union
+                    registry.register(TypeDef::Union(vec![]))
+                }
+                Some(names) => {
+                    // Create a string literal type for each field name
+                    let literal_ids: Vec<TypeId> = names
+                        .iter()
+                        .map(|name| {
+                            registry.register(TypeDef::Literal(LiteralType::String(name.clone())))
+                        })
+                        .collect();
+                    // Wrap in a union with synthetic variant names
+                    registry.register(TypeDef::Union(
+                        literal_ids
+                            .iter()
+                            .enumerate()
+                            .map(|(i, id)| VariantDef {
+                                name: format!("K{}", i),
+                                type_id: Some(*id),
+                            })
+                            .collect(),
+                    ))
+                }
+                None => {
+                    // keyof on non-record — fallback to empty union
+                    registry.register(TypeDef::Union(vec![]))
+                }
+            }
+        }
+        HirType::IndexedAccess { obj, key } => {
+            let obj_id = resolve_hir_type(obj, registry, name_map);
+            let resolved_obj = registry.resolve(obj_id);
+            match registry.get(resolved_obj) {
+                Some(TypeDef::Record(fields)) => fields
+                    .iter()
+                    .find(|f| f.name == *key)
+                    .map(|f| f.type_id)
+                    .unwrap_or(NEVER_TYPE_ID),
+                _ => NEVER_TYPE_ID,
+            }
+        }
     }
 }
 
@@ -331,7 +385,49 @@ fn resolve_hir_type_strict(
             }))
         }
         HirType::Refined { base, .. } => resolve_hir_type_strict(base, registry, name_map),
-        HirType::KeyOf(inner) => resolve_hir_type_strict(inner, registry, name_map),
-        HirType::IndexedAccess { obj, .. } => resolve_hir_type_strict(obj, registry, name_map),
+        HirType::KeyOf(inner) => {
+            let target_id = resolve_hir_type_strict(inner, registry, name_map)?;
+            let resolved_target = registry.resolve(target_id);
+            let field_names: Option<Vec<String>> = match registry.get(resolved_target) {
+                Some(TypeDef::Record(fields)) => {
+                    Some(fields.iter().map(|f| f.name.clone()).collect())
+                }
+                _ => None,
+            };
+            match field_names {
+                Some(names) if names.is_empty() => Ok(registry.register(TypeDef::Union(vec![]))),
+                Some(names) => {
+                    let literal_ids: Vec<TypeId> = names
+                        .iter()
+                        .map(|name| {
+                            registry.register(TypeDef::Literal(LiteralType::String(name.clone())))
+                        })
+                        .collect();
+                    Ok(registry.register(TypeDef::Union(
+                        literal_ids
+                            .iter()
+                            .enumerate()
+                            .map(|(i, id)| VariantDef {
+                                name: format!("K{}", i),
+                                type_id: Some(*id),
+                            })
+                            .collect(),
+                    )))
+                }
+                None => Ok(registry.register(TypeDef::Union(vec![]))),
+            }
+        }
+        HirType::IndexedAccess { obj, key } => {
+            let obj_id = resolve_hir_type_strict(obj, registry, name_map)?;
+            let resolved_obj = registry.resolve(obj_id);
+            match registry.get(resolved_obj) {
+                Some(TypeDef::Record(fields)) => Ok(fields
+                    .iter()
+                    .find(|f| f.name == *key)
+                    .map(|f| f.type_id)
+                    .unwrap_or(NEVER_TYPE_ID)),
+                _ => Ok(NEVER_TYPE_ID),
+            }
+        }
     }
 }

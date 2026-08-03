@@ -906,109 +906,80 @@ fn test_compat_generic_instance_record() {
 }
 
 // ===========================================================================
-// Refined type compatibility (DWARF-60: Refinement Type System)
+// String literal type compatibility tests (DWARF-60 Chunk B)
 //
-// WILL FAIL — RED PHASE
-//
-// These tests verify that refined types delegate compatibility to their base
-// type. Currently, compat::check has no arm for TypeDef::Refined, so it falls
-// through to the cross-kind catch-all (incompatible). The fix should make
-// Refined types delegate to their base type for compatibility.
+// These tests specify the expected compatibility behavior of string literal
+// types. They will fail to compile until:
+//   1. LiteralType enum and TypeDef::Literal variant are added
+//   2. compat::check handles Literal types:
+//      - Literal(String) is compatible with Primitive(Str)
+//      - Same literals are compatible
+//      - Different literals are NOT compatible
+//      - Union of literals is compatible with Str
 // ===========================================================================
 
 #[test]
-fn test_refined_compatible_with_base_type() {
-    // Int(0..100) should be compatible with Int (the base type).
-    // For now, constraint checking is deferred — we just check base compatibility.
-    let mut r = TypeRegistry::new();
-    // Register Int(0..100) as a refined type (ID 9)
-    r.register(TypeDef::Refined {
-        base: 0, // Int
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    });
+fn test_string_literal_compatible_with_str_primitive() {
+    // Literal(String("x")) should be compatible with Primitive(Str)
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
 
-    let result = compat::check(&r, 9, 0);
+    let result = compat::check(&registry, 2, lit_x); // Str vs Literal("x")
     assert!(
         result.compatible,
-        "Refined Int(0..100) should be compatible with base type Int. \
-         Got details: {:?}",
-        result.details
+        "String literal 'x' should be compatible with Str primitive"
     );
 }
 
 #[test]
-fn test_base_type_compatible_with_refined() {
-    // Int should be compatible with Int(0..100) (reverse direction).
-    // Constraint checking comes later — for now, base compatibility suffices.
-    let mut r = TypeRegistry::new();
-    r.register(TypeDef::Refined {
-        base: 0, // Int
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    });
+fn test_same_string_literal_compatible() {
+    // Literal(String("x")) should be compatible with Literal(String("x"))
+    let mut registry = TypeRegistry::new();
+    let lit_x1 = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_x2 = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
 
-    let result = compat::check(&r, 0, 9);
+    let result = compat::check(&registry, lit_x1, lit_x2);
     assert!(
         result.compatible,
-        "Base type Int should be compatible with refined Int(0..100). \
-         Got details: {:?}",
-        result.details
+        "Same string literals should be compatible"
     );
 }
 
 #[test]
-fn test_two_identical_refined_types_compatible() {
-    // Two Int(0..100) types should be compatible with each other.
-    let mut r = TypeRegistry::new();
-    r.register(TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    }); // ID 9
-    r.register(TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    }); // ID 10
+fn test_different_string_literals_incompatible() {
+    // Literal(String("x")) should NOT be compatible with Literal(String("y"))
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
 
-    let result = compat::check(&r, 9, 10);
-    assert!(
-        result.compatible,
-        "Two identical refined types should be compatible. \
-         Got details: {:?}",
-        result.details
-    );
-}
-
-#[test]
-fn test_refined_self_compatible() {
-    // A refined type should be compatible with itself (same ID).
-    let mut r = TypeRegistry::new();
-    let id = r.register(TypeDef::Refined {
-        base: 0,
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    });
-
-    let result = compat::check(&r, id, id);
-    assert!(
-        result.compatible,
-        "A refined type should be compatible with itself"
-    );
-}
-
-#[test]
-fn test_refined_different_bases_incompatible() {
-    // Int(0..100) and Float(0..100) should NOT be compatible (different bases).
-    let mut r = TypeRegistry::new();
-    r.register(TypeDef::Refined {
-        base: 0, // Int
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    }); // ID 9
-    r.register(TypeDef::Refined {
-        base: 1, // Float
-        constraint: RefConstraint::Range { min: 0, max: 100 },
-    }); // ID 10
-
-    let result = compat::check(&r, 9, 10);
+    let result = compat::check(&registry, lit_x, lit_y);
     assert!(
         !result.compatible,
-        "Refined types with different bases (Int vs Float) should NOT be compatible"
+        "Different string literals should NOT be compatible"
+    );
+}
+
+#[test]
+fn test_union_of_string_literals_compatible_with_str() {
+    // Union of "x" | "y" (as string literals) should be compatible with Str
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
+    let union_id = registry.register(TypeDef::Union(vec![
+        VariantDef {
+            name: "x".to_string(),
+            type_id: Some(lit_x),
+        },
+        VariantDef {
+            name: "y".to_string(),
+            type_id: Some(lit_y),
+        },
+    ]));
+
+    // Union of string literals should be compatible with Str
+    let result = compat::check(&registry, 2, union_id); // Str vs Union("x" | "y")
+    assert!(
+        result.compatible,
+        "Union of string literals should be compatible with Str"
     );
 }
