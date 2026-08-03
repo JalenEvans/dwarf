@@ -9,7 +9,7 @@ use crate::error::{TypeCheckError, TYPE_ERROR_CODES};
 use crate::infer::{infer_expr, TypeEnv};
 use crate::registry::TypeRegistry;
 use crate::resolve;
-use crate::types::ANY_TYPE_ID;
+use crate::types::{TypeDef, ANY_TYPE_ID};
 
 /// The type-checking compilation pass.
 ///
@@ -118,10 +118,10 @@ impl TypeCheckPass {
                                     }
                                 }
                             }
-                            dwarf_syntax::hir::Type::Refined { base, .. } => {
-                                // Resolve the base type and register the refined type.
-                                // For now, just use the base type ID — constraint checking
-                                // comes in a later phase.
+                            dwarf_syntax::hir::Type::Refined { base, constraint } => {
+                                // Register the refined type in the registry so
+                                // infer_call can validate literal arguments against
+                                // Range and NonEmpty constraints.
                                 let base_type_id = match base.as_ref() {
                                     dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
                                         "int" | "Int" => 0,
@@ -151,7 +151,11 @@ impl TypeCheckPass {
                                         continue;
                                     }
                                 };
-                                base_type_id
+                                let tc_constraint = resolve::convert_ref_constraint(constraint);
+                                registry.register(TypeDef::Refined {
+                                    base: base_type_id,
+                                    constraint: tc_constraint,
+                                })
                             }
                             _ => {
                                 errors.push(TypeCheckError::new(

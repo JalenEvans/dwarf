@@ -347,7 +347,7 @@ fn resolve_hir_type_strict(
 }
 
 /// Convert a HIR RefConstraint to a types::RefConstraint.
-fn convert_ref_constraint(constraint: &dwarf_syntax::hir::RefConstraint) -> RefConstraint {
+pub fn convert_ref_constraint(constraint: &dwarf_syntax::hir::RefConstraint) -> RefConstraint {
     match constraint {
         dwarf_syntax::hir::RefConstraint::Range { min, max } => RefConstraint::Range {
             min: *min,
