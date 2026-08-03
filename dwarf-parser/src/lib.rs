@@ -1225,7 +1225,7 @@ impl Parser {
             });
         }
 
-        // keyof prefix: keyof T
+        // keyof binds tighter than indexed access — check prefix before base type parsing
         if self.check(TokenKind::KeyOf) {
             self.advance(); // consume 'keyof'
             let inner = self.parse_primary_type()?;

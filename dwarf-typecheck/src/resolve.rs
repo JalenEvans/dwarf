@@ -285,7 +285,7 @@ fn resolve_hir_type(
                     registry.register(TypeDef::Union(vec![]))
                 }
                 Some(names) => {
-                    // Create a string literal type for each field name
+                    // Map field names to Literal(String(_)) TypeDefs in the registry
                     let literal_ids: Vec<TypeId> = names
                         .iter()
                         .map(|name| {
