@@ -1,0 +1,10 @@
+[package]
+name = "dwarf-lir-walk"
+version = "0.1.0"
+edition = "2021"
+description = "Shared LIR walker trait and tree traversal engine for dwarf backends"
+
+[dependencies]
+dwarf-lir = { path = "../dwarf-lir" }
+dwarf-syntax = { path = "../dwarf-syntax" }
+
