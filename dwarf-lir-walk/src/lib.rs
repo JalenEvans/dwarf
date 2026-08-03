@@ -93,6 +93,14 @@ pub trait LirBackend<R> {
         span: Span,
     ) -> Result<R, BackendError>;
 
+    fn visit_expr_optional_access(
+        &mut self,
+        obj: R,
+        field: &str,
+        hint: &TargetHint,
+        span: Span,
+    ) -> Result<R, BackendError>;
+
     fn visit_expr_if(
         &mut self,
         cond: R,
@@ -354,6 +362,15 @@ pub fn walk_expr<R>(backend: &mut impl LirBackend<R>, expr: &LirExpr) -> Result<
         } => {
             let reduced_obj = walk_expr(backend, obj)?;
             backend.visit_expr_member(reduced_obj, field, hint, *span)
+        }
+        LirExpr::OptionalAccess {
+            obj,
+            field,
+            hint,
+            span,
+        } => {
+            let reduced_obj = walk_expr(backend, obj)?;
+            backend.visit_expr_optional_access(reduced_obj, field, hint, *span)
         }
         LirExpr::If {
             cond,
@@ -667,6 +684,16 @@ impl LirBackend<String> for DebugBackend {
         _span: Span,
     ) -> Result<String, BackendError> {
         Ok(format!("(member {obj} {field})"))
+    }
+
+    fn visit_expr_optional_access(
+        &mut self,
+        obj: String,
+        field: &str,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(optional_member {obj} {field})"))
     }
 
     fn visit_expr_if(
@@ -1070,6 +1097,16 @@ mod tests {
         }
 
         fn visit_expr_member(
+            &mut self,
+            _obj: (),
+            _field: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn visit_expr_optional_access(
             &mut self,
             _obj: (),
             _field: &str,
@@ -1703,6 +1740,15 @@ mod tests {
         ) -> Result<String, BackendError> {
             Ok(format!("{obj}.{field}"))
         }
+        fn visit_expr_optional_access(
+            &mut self,
+            obj: String,
+            field: &str,
+            _h: &TargetHint,
+            _s: Span,
+        ) -> Result<String, BackendError> {
+            Ok(format!("{obj}?.{field}"))
+        }
         fn visit_expr_if(
             &mut self,
             c: String,
@@ -2000,6 +2046,15 @@ mod tests {
                 Ok(f + args.into_iter().sum::<i32>())
             }
             fn visit_expr_member(
+                &mut self,
+                obj: i32,
+                _f: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(obj)
+            }
+            fn visit_expr_optional_access(
                 &mut self,
                 obj: i32,
                 _f: &str,
@@ -2377,6 +2432,16 @@ mod tests {
         ) -> Result<String, BackendError> {
             self.record("visit_expr_member");
             Ok(format!("{obj}.{field}"))
+        }
+        fn visit_expr_optional_access(
+            &mut self,
+            obj: String,
+            field: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_optional_access");
+            Ok(format!("{obj}?.{field}"))
         }
 
         fn visit_expr_if(
@@ -3159,6 +3224,15 @@ mod tests {
                 Ok(f + args.into_iter().sum::<i32>())
             }
             fn visit_expr_member(
+                &mut self,
+                obj: i32,
+                _f: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(obj)
+            }
+            fn visit_expr_optional_access(
                 &mut self,
                 obj: i32,
                 _f: &str,

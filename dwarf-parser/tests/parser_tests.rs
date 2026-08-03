@@ -324,17 +324,22 @@ fn test_decorator_on_record_def() {
             assert_eq!(name, "Serializable");
             assert!(args.is_empty());
             match target.as_ref() {
-                Decl::RecordDef {
+                Decl::TypeDef {
                     name: record_name,
-                    fields,
+                    type_,
                     ..
                 } => {
                     assert_eq!(record_name, "TestResult");
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].name, "passed");
-                    assert_eq!(fields[1].name, "duration");
+                    match type_ {
+                        dwarf_syntax::hir::Type::Record(fields) => {
+                            assert_eq!(fields.len(), 2);
+                            assert_eq!(fields[0].0, "passed");
+                            assert_eq!(fields[1].0, "duration");
+                        }
+                        other => panic!("Expected Record type, got {:?}", other),
+                    }
                 }
-                other => panic!("Expected RecordDef target, got {:?}", other),
+                other => panic!("Expected TypeDef target, got {:?}", other),
             }
         }
         other => panic!("Expected Decorator, got {:?}", other),
@@ -1723,4 +1728,166 @@ fn test_parse_const_mixed_with_other_decls() {
     assert!(matches!(&decls[0], Decl::Const { name, .. } if name == "VERSION"));
     assert!(matches!(&decls[1], Decl::Function { name, .. } if name == "main"));
     assert!(matches!(&decls[2], Decl::Const { name, .. } if name == "DEBUG"));
+}
+
+// ============================================================================
+// OPTIONAL CHAINING `?.` PARSING (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because:
+//   1. TokenKind::QuestionDot does not exist in the lexer
+//   2. Expr::OptionalAccess does not exist in the HIR
+//   3. The parser's postfix loop does not handle `?.`
+//
+// Expected Expr::OptionalAccess shape:
+//   Expr::OptionalAccess {
+//       obj: Box<Expr>,
+//       field: String,
+//       span: Span,
+//   }
+// ============================================================================
+
+/// Helper: extract the body expression from a single-function parse.
+/// Assumes `fn f() { <expr> }` and returns the inner expression.
+fn parse_fn_body(source: &str) -> Expr {
+    let tokens = tokenize(source);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No parse errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1, "Should parse one declaration");
+
+    if let Decl::Function { body, .. } = &decls[0] {
+        if let Expr::Block { stmts, .. } = body {
+            assert!(!stmts.is_empty(), "Function body should not be empty");
+            if let Stmt::Expr(expr) = &stmts[0] {
+                return expr.clone();
+            }
+            panic!("Expected Stmt::Expr as last statement");
+        }
+        panic!("Expected Block body");
+    }
+    panic!("Expected Function declaration");
+}
+
+#[test]
+fn test_parse_optional_access_simple() {
+    // obj?.field  →  OptionalAccess { obj: Var("obj"), field: "field" }
+    let expr = parse_fn_body("fn f() { obj?.field }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert!(
+                matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                "obj should be Variable(\"obj\"), got {:?}",
+                obj
+            );
+            assert_eq!(field, "field", "field should be \"field\"");
+        }
+        other => panic!("Expected OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_value() {
+    // obj?.value  →  OptionalAccess { obj: Var("obj"), field: "value" }
+    let expr = parse_fn_body("fn f() { obj?.value }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+            assert_eq!(field, "value");
+        }
+        other => panic!("Expected OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_chained() {
+    // obj?.name?.first
+    // Should parse as:
+    //   OptionalAccess {
+    //     obj: OptionalAccess { obj: Var("obj"), field: "name" },
+    //     field: "first"
+    //   }
+    let expr = parse_fn_body("fn f() { obj?.name?.first }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert_eq!(field, "first", "Outer field should be \"first\"");
+            match obj.as_ref() {
+                Expr::OptionalAccess {
+                    obj: inner_obj,
+                    field: inner_field,
+                    ..
+                } => {
+                    assert_eq!(inner_field, "name", "Inner field should be \"name\"");
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Innermost obj should be Variable(\"obj\")"
+                    );
+                }
+                other => panic!("Expected inner OptionalAccess, got {:?}", other),
+            }
+        }
+        other => panic!("Expected outer OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_regular_member_access_still_works() {
+    // obj.field (without ?) should still parse as Member, not OptionalAccess
+    let expr = parse_fn_body("fn f() { obj.field }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+            assert_eq!(field, "field");
+        }
+        other => panic!("Expected Member (not OptionalAccess), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_followed_by_call() {
+    // obj?.method()  — optional access followed by function call
+    // Should parse as: Call { func: OptionalAccess { obj: Var("obj"), field: "method" }, args: [] }
+    let expr = parse_fn_body("fn f() { obj?.method() }");
+    match &expr {
+        Expr::Call { func, args, .. } => {
+            assert!(args.is_empty(), "method() should have no args");
+            match func.as_ref() {
+                Expr::OptionalAccess { obj, field, .. } => {
+                    assert!(
+                        matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "obj should be Variable(\"obj\")"
+                    );
+                    assert_eq!(field, "method", "field should be \"method\"");
+                }
+                other => panic!("Expected OptionalAccess as callee, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Call expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_mixed_with_regular() {
+    // obj?.a.b  — optional access then regular member
+    // Should parse as: Member { obj: OptionalAccess { obj: Var("obj"), field: "a" }, field: "b" }
+    let expr = parse_fn_body("fn f() { obj?.a.b }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert_eq!(field, "b", "Outer field should be \"b\"");
+            match obj.as_ref() {
+                Expr::OptionalAccess {
+                    obj: inner_obj,
+                    field: inner_field,
+                    ..
+                } => {
+                    assert_eq!(inner_field, "a", "Inner field should be \"a\"");
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Innermost obj should be Variable(\"obj\")"
+                    );
+                }
+                other => panic!("Expected OptionalAccess as inner, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Member expr, got {:?}", other),
+    }
 }

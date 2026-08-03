@@ -369,6 +369,7 @@ impl PythonBackend {
                 self.scan_expr_for_stdlib(value);
             }
             LirExpr::Member { obj, .. } => self.scan_expr_for_stdlib(obj),
+            LirExpr::OptionalAccess { obj, .. } => self.scan_expr_for_stdlib(obj),
             LirExpr::Record { fields, .. } => {
                 for (_, val) in fields {
                     self.scan_expr_for_stdlib(val);
@@ -724,6 +725,14 @@ impl EmitterBackend for PythonBackend {
             LirExpr::Member { obj, field, .. } => {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
+            }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                // Python: obj.field if obj is not None else None
+                Ok(format!(
+                    "{}.{} if {} is not None else None",
+                    obj_str, field, obj_str
+                ))
             }
             LirExpr::If {
                 cond, then, else_, ..

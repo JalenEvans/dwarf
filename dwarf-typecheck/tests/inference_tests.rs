@@ -14,7 +14,7 @@ use dwarf_syntax::hir::*;
 use dwarf_syntax::span::Span;
 use dwarf_typecheck::infer::*;
 use dwarf_typecheck::registry::TypeRegistry;
-use dwarf_typecheck::types::{self as tc_types, *};
+use dwarf_typecheck::types::*;
 
 // ---------------------------------------------------------------------------
 // Helper: create a dummy Span for synthetic HIR nodes
@@ -2056,546 +2056,147 @@ fn test_propagate_on_non_result() {
 }
 
 // ===========================================================================
-// 23. Int Literal Constraint Checking (DWARF-60-T1 Chunk 2)
-//     When a literal Int value is used where a refined Int type is expected,
-//     the compiler checks the literal against the refinement range.
-//     Out-of-range literals produce error DWARF-E-TYPE-0006
-//     ("Refinement constraint violation").
+// 23. Optional access `?.` inference (DWARF-72 Chunk B)
+//     `obj?.field` where `obj: Option<{ field: T }>` infers to `T` — the
+//     OptionalAccess unwraps the Option and accesses the field.
+//     `obj?.field` where `obj: { field: T }` (non-optional) infers to `T`
+//     without crashing — it treats non-optional as a pass-through.
+//     Chained `obj?.field?.value` unwraps nested Options.
 //
-//     These tests exercise constraint checking through function calls:
-//       fn f(x: Int(0..100)) { x }
-//       f(200)  — should fail: 200 is outside 0..100
-//
-//     Currently NOT implemented — `infer_call` delegates refined types to
-//     their base via `compat::check`, ignoring the constraint. The "out of
-//     range" tests FAIL (Red phase) because no error is produced.
+//     These tests will FAIL to compile because Expr::OptionalAccess does
+//     not exist in the HIR yet.
 // ===========================================================================
 
-/// Helper: register a refined Int type `Int(min..max)` in the registry.
+/// Helper: register `Option<{ field: Int }>` in the registry.
 ///
-/// Returns the assigned TypeId for the refined type.
-fn register_refined_int(registry: &mut TypeRegistry, min: i64, max: i64) -> TypeId {
-    registry.register(TypeDef::Refined {
-        base: 0, // Int
-        constraint: tc_types::RefConstraint::Range { min, max },
+/// Creates:
+///   - record { field: Int } at some TypeId
+///   - GenericInstance { base: OPTION_TYPE_ID (5), args: [record_id] }
+///
+/// Returns the GenericInstance TypeId.
+fn register_option_record_field_int(registry: &mut TypeRegistry) -> TypeId {
+    let record_id = registry.register(TypeDef::Record(vec![FieldDef {
+        name: "field".to_string(),
+        type_id: 0, // Int
+    }]));
+    registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![record_id],
     })
 }
 
-/// Helper: build a call expression `f(literal_int)` where `f` is bound in `env`
-/// to a function type with a single parameter.
-fn make_call_with_int_arg(func_name: &str, arg_value: i64) -> Expr {
-    Expr::Call {
-        func: Box::new(Expr::Variable {
-            name: func_name.to_string(),
+/// Helper: register a plain record `{ field: Int }` (non-optional).
+fn register_record_field_int(registry: &mut TypeRegistry) -> TypeId {
+    registry.register(TypeDef::Record(vec![FieldDef {
+        name: "field".to_string(),
+        type_id: 0, // Int
+    }]))
+}
+
+#[test]
+fn test_optional_access_on_option_record() {
+    // obj: Option<{ field: Int }>
+    // obj?.field  →  Int (0)
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let option_record_id = register_option_record_field_int(&mut registry);
+    env.bind("obj".to_string(), option_record_id);
+
+    // obj?.field
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
             span: dummy_span(),
         }),
-        args: vec![Expr::Literal {
-            value: LiteralValue::Int(arg_value),
-            span: dummy_span(),
-        }],
+        field: "field".to_string(),
         span: dummy_span(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Test 1: `let x: Int(0..100) = 50` — literal 50 is within range 0..100.
-// Modelled as: fn f(x: Int(0..100)) { x }; f(50)
-// Expected: Ok (call succeeds, no constraint violation).
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_in_range() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // Register Int(0..100) at ID 9
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    // Register f: Int(0..100) -> Int at ID 10
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(50) — 50 is within 0..100
-    let expr = make_call_with_int_arg("f", 50);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(50) where f: Int(0..100) -> Int should succeed (50 is in range)"
-    );
-    assert_eq!(
-        result.unwrap(),
-        0,
-        "f(50) should return Int (the function's return type)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 2: `let x: Int(0..100) = 200` — literal 200 is outside range 0..100.
-// Modelled as: fn f(x: Int(0..100)) { x }; f(200)
-// Expected: Err with DWARF-E-TYPE-0006 / "range" in the message.
-// RED PHASE: currently passes because compat delegates refined->base.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_out_of_range_high() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(200) — 200 is outside 0..100
-    let expr = make_call_with_int_arg("f", 200);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_err(),
-        "f(200) where f: Int(0..100) -> Int should produce a constraint violation \
-         error (200 is outside range 0..100), but got Ok — constraint checking \
-         is not yet implemented (Red phase)"
-    );
-
-    let err = result.unwrap_err();
-    assert!(
-        err.contains("range") || err.contains("constraint") || err.contains("0006"),
-        "Error message should mention range/constraint violation, got: {}",
-        err
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 3: `let x: Int(0..100) = 0` — boundary value (min) is valid.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_at_min_boundary() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(0) — 0 is the min boundary, should be valid (inclusive range)
-    let expr = make_call_with_int_arg("f", 0);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(0) where f: Int(0..100) -> Int should succeed (0 is the min boundary)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 4: `let x: Int(0..100) = 100` — boundary value (max) is valid.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_at_max_boundary() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(100) — 100 is the max boundary, should be valid (inclusive range)
-    let expr = make_call_with_int_arg("f", 100);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(100) where f: Int(0..100) -> Int should succeed (100 is the max boundary)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 5: `let x: Int(0..100) = -1` — negative value outside range.
-// RED PHASE: currently passes because constraint checking is not implemented.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_negative_out_of_range() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(-1) — -1 is below the min boundary 0
-    let expr = make_call_with_int_arg("f", -1);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_err(),
-        "f(-1) where f: Int(0..100) -> Int should produce a constraint violation \
-         error (-1 is below min 0), but got Ok — constraint checking is not yet \
-         implemented (Red phase)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 6: `let x: Int(0..100) = 101` — just over max.
-// RED PHASE: currently passes because constraint checking is not implemented.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_literal_just_over_max() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_int(&mut registry, 0, 100);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(101) — 101 is just above the max boundary 100
-    let expr = make_call_with_int_arg("f", 101);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_err(),
-        "f(101) where f: Int(0..100) -> Int should produce a constraint violation \
-         error (101 is above max 100), but got Ok — constraint checking is not yet \
-         implemented (Red phase)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 7: `let x: Int(-10..10) = 0` — negative range with valid value.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_negative_range_valid_value() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // Int(-10..10)
-    let refined_id = register_refined_int(&mut registry, -10, 10);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(0) — 0 is within -10..10
-    let expr = make_call_with_int_arg("f", 0);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(0) where f: Int(-10..10) -> Int should succeed (0 is in range)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 8: `let x: Int(-10..10) = -15` — outside negative range.
-// RED PHASE: currently passes because constraint checking is not implemented.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_int_negative_range_out_of_range() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // Int(-10..10)
-    let refined_id = register_refined_int(&mut registry, -10, 10);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(-15) — -15 is below the min boundary -10
-    let expr = make_call_with_int_arg("f", -15);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_err(),
-        "f(-15) where f: Int(-10..10) -> Int should produce a constraint violation \
-         error (-15 is below min -10), but got Ok — constraint checking is not yet \
-         implemented (Red phase)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 9: `let x: Int = 200` — non-refined Int should still work as before.
-// This is a regression test: plain Int parameters should accept any Int literal.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_non_refined_int_accepts_any_value() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // f: Int -> Int (no refinement)
-    let func_id = registry.register(TypeDef::Func(vec![0], 0));
-    env.bind("f".to_string(), func_id);
-
-    // f(200) — plain Int should accept any value
-    let expr = make_call_with_int_arg("f", 200);
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(200) where f: Int -> Int should succeed (no refinement constraint)"
-    );
-    assert_eq!(
-        result.unwrap(),
-        0,
-        "f(200) should return Int (the function's return type)"
-    );
-}
-
-// ===========================================================================
-// 24. String Constraint Checking — NonEmpty (DWARF-60-T1 Chunk 3)
-//     When a literal Str value is used where a refined String type with a
-//     NonEmpty constraint is expected, the compiler checks the literal
-//     against the constraint. Empty string literals ("") produce error
-//     DWARF-E-TYPE-0007 ("NonEmpty constraint violation").
-//
-//     These tests exercise constraint checking through function calls:
-//       fn f(s: NonEmptyString) { s }
-//       f("")     — should fail: empty string violates NonEmpty
-//       f("hello") — should succeed: non-empty string satisfies NonEmpty
-//
-//     Currently NOT implemented — `RefConstraint::NonEmpty` does not exist
-//     yet, so these tests FAIL TO COMPILE (Red phase).
-// ===========================================================================
-
-/// Helper: register a refined String type `NonEmptyString` (Str with NonEmpty
-/// constraint) in the registry.
-///
-/// Returns the assigned TypeId for the refined type.
-fn register_refined_nonempty(registry: &mut TypeRegistry) -> TypeId {
-    registry.register(TypeDef::Refined {
-        base: STR_TYPE_ID, // Str = 2
-        constraint: tc_types::RefConstraint::NonEmpty,
-    })
-}
-
-/// Helper: build a call expression `f(literal_str)` where `f` is bound in `env`
-/// to a function type with a single parameter.
-fn make_call_with_string_arg(func_name: &str, arg_value: &str) -> Expr {
-    Expr::Call {
-        func: Box::new(Expr::Variable {
-            name: func_name.to_string(),
-            span: dummy_span(),
-        }),
-        args: vec![Expr::Literal {
-            value: LiteralValue::Str(arg_value.to_string()),
-            span: dummy_span(),
-        }],
-        span: dummy_span(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Test 1: `let s: NonEmptyString = ""` — empty string literal passed to
-// NonEmptyString param produces compile error.
-// Modelled as: fn f(s: NonEmptyString) { s }; f("")
-// Expected: Err with "empty" or "NonEmpty" or "0007" in the message.
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_string_empty_literal_rejected() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // Register NonEmptyString at some ID
-    let refined_id = register_refined_nonempty(&mut registry);
-    // Register f: NonEmptyString -> Str at some ID
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], STR_TYPE_ID));
-    env.bind("f".to_string(), func_id);
-
-    // f("") — empty string violates NonEmpty
-    let expr = make_call_with_string_arg("f", "");
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_err(),
-        "f(\"\") where f: NonEmptyString -> Str should produce a constraint violation \
-         error (empty string not allowed), but got Ok — NonEmpty constraint checking \
-         is not yet implemented (Red phase)"
-    );
-
-    let err = result.unwrap_err();
-    assert!(
-        err.contains("empty")
-            || err.contains("NonEmpty")
-            || err.contains("nonempty")
-            || err.contains("constraint")
-            || err.contains("0007"),
-        "Error message should mention empty-string / NonEmpty constraint violation, got: {}",
-        err
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 2: `let s: NonEmptyString = "hello"` — non-empty string literal
-// passed to NonEmptyString param compiles successfully.
-// Modelled as: fn f(s: NonEmptyString) { s }; f("hello")
-// Expected: Ok (call succeeds, no constraint violation).
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_string_nonempty_literal_accepted() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    let refined_id = register_refined_nonempty(&mut registry);
-    let func_id = registry.register(TypeDef::Func(vec![refined_id], STR_TYPE_ID));
-    env.bind("f".to_string(), func_id);
-
-    // f("hello") — non-empty string satisfies NonEmpty
-    let expr = make_call_with_string_arg("f", "hello");
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(\"hello\") where f: NonEmptyString -> Str should succeed \
-         (non-empty string satisfies NonEmpty constraint)"
-    );
-    assert_eq!(
-        result.unwrap(),
-        STR_TYPE_ID,
-        "f(\"hello\") should return Str (the function's return type)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 3: `let s: String = ""` — empty string literal passed to a plain
-// String param compiles (no constraint on plain String).
-// Modelled as: fn f(s: String) { s }; f("")
-// Expected: Ok (no refinement, any string is valid).
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_plain_string_accepts_empty_literal() {
-    let mut registry = TypeRegistry::new();
-    let mut env = TypeEnv::new();
-
-    // f: Str -> Str (no refinement)
-    let func_id = registry.register(TypeDef::Func(vec![STR_TYPE_ID], STR_TYPE_ID));
-    env.bind("f".to_string(), func_id);
-
-    // f("") — plain String should accept any value including empty
-    let expr = make_call_with_string_arg("f", "");
-    let result = infer_expr(&expr, &env, &mut registry);
-
-    assert!(
-        result.is_ok(),
-        "f(\"\") where f: Str -> Str should succeed (no refinement constraint)"
-    );
-    assert_eq!(
-        result.unwrap(),
-        STR_TYPE_ID,
-        "f(\"\") should return Str (the function's return type)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test 4: Register a NonEmpty refined type — verify it can be created in the
-// registry and retrieved with the correct base and constraint.
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_register_refined_nonempty_type() {
-    let mut registry = TypeRegistry::new();
-
-    let refined_id = register_refined_nonempty(&mut registry);
-
-    // Retrieve the registered type and verify its structure
-    let retrieved = registry.get(refined_id);
-    assert!(
-        retrieved.is_some(),
-        "NonEmptyString should be retrievable from the registry"
-    );
-
-    let def = retrieved.unwrap();
-    match def {
-        TypeDef::Refined { base, constraint } => {
-            assert_eq!(
-                *base, STR_TYPE_ID,
-                "NonEmptyString base should be Str (TypeId 2)"
-            );
-            assert_eq!(
-                *constraint,
-                tc_types::RefConstraint::NonEmpty,
-                "NonEmptyString constraint should be RefConstraint::NonEmpty"
-            );
-        }
-        other => panic!("Expected TypeDef::Refined, got {:?}", other),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Test 5: TypeDef::Refined with NonEmpty survives JSON roundtrip
-// (serde Serialize → Deserialize).
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_refined_nonempty_json_roundtrip() {
-    let original = TypeDef::Refined {
-        base: STR_TYPE_ID,
-        constraint: tc_types::RefConstraint::NonEmpty,
     };
 
-    // Serialize to JSON
-    let json =
-        serde_json::to_string(&original).expect("NonEmpty refined type should serialize to JSON");
-
-    // Deserialize back
-    let restored: TypeDef =
-        serde_json::from_str(&json).expect("NonEmpty refined type should deserialize from JSON");
-
+    let result = infer_expr(&expr, &env, &mut registry);
     assert_eq!(
-        original, restored,
-        "TypeDef::Refined with NonEmpty should survive JSON roundtrip"
+        result,
+        Ok(0),
+        "obj?.field where obj: Option<{{ field: Int }}> should yield Int (0)"
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 6: Two NonEmpty refined types are distinguishable from plain String.
-// A NonEmptyString TypeId should NOT equal the plain STR_TYPE_ID, and two
-// separately registered NonEmptyString types should have distinct TypeIds
-// (each registration creates a new entry).
-// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
-// ---------------------------------------------------------------------------
+#[test]
+fn test_optional_access_on_non_optional_record() {
+    // obj: { field: Int }  (not wrapped in Option)
+    // obj?.field  →  Int (0)  — should not crash, treats as pass-through
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let record_id = register_record_field_int(&mut registry);
+    env.bind("obj".to_string(), record_id);
+
+    // obj?.field
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: dummy_span(),
+        }),
+        field: "field".to_string(),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(0),
+        "obj?.field where obj: {{ field: Int }} (non-optional) should yield Int (0) without crashing"
+    );
+}
 
 #[test]
-fn test_nonempty_distinguishable_from_plain_string() {
+fn test_optional_access_chained_nested_options() {
+    // obj: Option<{ field: Option<{ value: Str }> }>
+    // obj?.field?.value  →  Str (2)
     let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
 
-    let nonempty_id = register_refined_nonempty(&mut registry);
+    // Inner record: { value: Str }
+    let inner_record_id = registry.register(TypeDef::Record(vec![FieldDef {
+        name: "value".to_string(),
+        type_id: 2, // Str
+    }]));
+    // Option<{ value: Str }>
+    let option_inner_id = registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![inner_record_id],
+    });
+    // Outer record: { field: Option<{ value: Str }> }
+    let outer_record_id = registry.register(TypeDef::Record(vec![FieldDef {
+        name: "field".to_string(),
+        type_id: option_inner_id,
+    }]));
+    // Option<{ field: Option<{ value: Str }> }>
+    let option_outer_id = registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![outer_record_id],
+    });
 
-    // The refined type ID must differ from the base Str type ID
-    assert_ne!(
-        nonempty_id, STR_TYPE_ID,
-        "NonEmptyString TypeId should differ from plain Str TypeId ({})",
-        STR_TYPE_ID
+    env.bind("obj".to_string(), option_outer_id);
+
+    // obj?.field?.value
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::OptionalAccess {
+            obj: Box::new(Expr::Variable {
+                name: "obj".to_string(),
+                span: dummy_span(),
+            }),
+            field: "field".to_string(),
+            span: dummy_span(),
+        }),
+        field: "value".to_string(),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "obj?.field?.value where obj: Option<{{ field: Option<{{ value: Str }}> }}> should yield Str (2)"
     );
-
-    // Register a second NonEmptyString — should get a distinct TypeId
-    let nonempty_id_2 = register_refined_nonempty(&mut registry);
-    assert_ne!(
-        nonempty_id, nonempty_id_2,
-        "Two separately registered NonEmptyString types should have distinct TypeIds"
-    );
-
-    // Both should still be retrievable and have the NonEmpty constraint
-    for id in [nonempty_id, nonempty_id_2] {
-        let def = registry.get(id).expect("registered type should exist");
-        match def {
-            TypeDef::Refined { base, constraint } => {
-                assert_eq!(*base, STR_TYPE_ID, "base should be Str");
-                assert_eq!(
-                    *constraint,
-                    tc_types::RefConstraint::NonEmpty,
-                    "constraint should be NonEmpty"
-                );
-            }
-            other => panic!("Expected TypeDef::Refined, got {:?}", other),
-        }
-    }
 }

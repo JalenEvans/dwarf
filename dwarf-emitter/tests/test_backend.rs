@@ -149,6 +149,10 @@ impl EmitterBackend for MockBackend {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("member({obj_str}, {field})"))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                Ok(format!("optional_member({obj_str}, {field})"))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {

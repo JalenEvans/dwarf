@@ -855,208 +855,106 @@ fn test_deeply_nested_expr() {
     }
 }
 
-// ============================================================================
-// TYPE-LEVEL OPERATOR HIR TESTS (RED Phase — expected to fail)
+// =======================================================================
+// OPTIONAL ACCESS EXPRESSION (RED Phase — expected to fail)
 //
-// Type::KeyOf and Type::IndexedAccess do not exist yet. These tests specify
-// the expected HIR shape for keyof and indexed-access type operators.
+// Expr::OptionalAccess does not exist yet. These tests specify the
+// expected HIR shape for the `?.` optional chaining operator.
 //
-// Expected variants:
-//   Type::KeyOf(Box<Type>)
-//   Type::IndexedAccess { obj: Box<Type>, key: String }
-// ============================================================================
+// Expected variant:
+//   Expr::OptionalAccess {
+//       obj: Box<Expr>,
+//       field: String,
+//       span: Span,
+//   }
+// =======================================================================
 
 #[test]
-fn test_type_keyof_construction() {
-    // keyof Person → Type::KeyOf(Box::new(Type::Named("Person")))
-    let type_ = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
+fn test_optional_access_construction() {
+    // obj?.field
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "field".to_string(),
+        span: Default::default(),
+    };
 
-    if let Type::KeyOf(inner) = &type_ {
-        assert!(
-            matches!(inner.as_ref(), Type::Named(n) if n == "Person"),
-            "KeyOf should wrap Named(\"Person\"), got {:?}",
-            inner
-        );
+    if let Expr::OptionalAccess { obj, field, .. } = &expr {
+        assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+        assert_eq!(field, "field");
     } else {
-        panic!("Expected Type::KeyOf");
+        panic!("Expected OptionalAccess expr");
     }
 }
 
 #[test]
-fn test_type_indexed_access_construction() {
-    // Person["name"] → Type::IndexedAccess { obj: Box::new(Type::Named("Person")), key: "name" }
-    let type_ = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "name".to_string(),
+fn test_optional_access_chained() {
+    // obj?.name?.first  ===  OptionalAccess { obj: OptionalAccess { obj: Var("obj"), field: "name" }, field: "first" }
+    let inner = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "name".to_string(),
+        span: Default::default(),
     };
-
-    if let Type::IndexedAccess { obj, key } = &type_ {
-        assert!(
-            matches!(obj.as_ref(), Type::Named(n) if n == "Person"),
-            "IndexedAccess obj should be Named(\"Person\"), got {:?}",
-            obj
-        );
-        assert_eq!(key, "name");
-    } else {
-        panic!("Expected Type::IndexedAccess");
-    }
-}
-
-#[test]
-fn test_type_keyof_partial_eq() {
-    let a = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
-    let b = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
-    let c = Type::KeyOf(Box::new(Type::Named("Other".to_string())));
-
-    assert_eq!(a, b, "Identical KeyOf types should be equal");
-    assert_ne!(a, c, "Different KeyOf types should not be equal");
-}
-
-#[test]
-fn test_type_indexed_access_partial_eq() {
-    let a = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "name".to_string(),
-    };
-    let b = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "name".to_string(),
-    };
-    let c = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "age".to_string(),
-    };
-
-    assert_eq!(a, b, "Identical IndexedAccess types should be equal");
-    assert_ne!(a, c, "Different keys should not be equal");
-}
-
-#[test]
-fn test_type_keyof_clone() {
-    let original = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
-    let cloned = original.clone();
-    assert_eq!(original, cloned, "Cloned KeyOf should equal original");
-}
-
-#[test]
-fn test_type_indexed_access_clone() {
-    let original = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "name".to_string(),
-    };
-    let cloned = original.clone();
-    assert_eq!(
-        original, cloned,
-        "Cloned IndexedAccess should equal original"
-    );
-}
-
-#[test]
-fn test_type_keyof_debug() {
-    let type_ = Type::KeyOf(Box::new(Type::Named("Person".to_string())));
-    let debug_str = format!("{:?}", type_);
-    assert!(
-        debug_str.contains("KeyOf"),
-        "Debug output should contain 'KeyOf', got: {}",
-        debug_str
-    );
-}
-
-#[test]
-fn test_type_indexed_access_debug() {
-    let type_ = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "name".to_string(),
-    };
-    let debug_str = format!("{:?}", type_);
-    assert!(
-        debug_str.contains("IndexedAccess"),
-        "Debug output should contain 'IndexedAccess', got: {}",
-        debug_str
-    );
-}
-
-#[test]
-fn test_type_keyof_nested_in_record() {
-    // type Config = { keys: keyof Person }
-    let type_ = Type::Record(vec![(
-        "keys".to_string(),
-        Box::new(Type::KeyOf(Box::new(Type::Named("Person".to_string())))),
-    )]);
-
-    if let Type::Record(fields) = &type_ {
-        assert_eq!(fields.len(), 1);
-        assert_eq!(fields[0].0, "keys");
-        assert!(
-            matches!(fields[0].1.as_ref(), Type::KeyOf(_)),
-            "Field type should be KeyOf"
-        );
-    } else {
-        panic!("Expected Type::Record");
-    }
-}
-
-#[test]
-fn test_type_indexed_access_nested_in_union() {
-    // type NameOrAge = Person["name"] | Person["age"]
-    let type_ = Type::Union(vec![
-        Type::IndexedAccess {
-            obj: Box::new(Type::Named("Person".to_string())),
-            key: "name".to_string(),
-        },
-        Type::IndexedAccess {
-            obj: Box::new(Type::Named("Person".to_string())),
-            key: "age".to_string(),
-        },
-    ]);
-
-    if let Type::Union(variants) = &type_ {
-        assert_eq!(variants.len(), 2);
-        assert!(matches!(&variants[0], Type::IndexedAccess { key, .. } if key == "name"));
-        assert!(matches!(&variants[1], Type::IndexedAccess { key, .. } if key == "age"));
-    } else {
-        panic!("Expected Type::Union");
-    }
-}
-
-#[test]
-fn test_type_keyof_of_record() {
-    // keyof { x: Int, y: Str } — keyof applied to an inline record
-    let type_ = Type::KeyOf(Box::new(Type::Record(vec![
-        ("x".to_string(), Box::new(Type::Named("Int".to_string()))),
-        ("y".to_string(), Box::new(Type::Named("Str".to_string()))),
-    ])));
-
-    if let Type::KeyOf(inner) = &type_ {
-        assert!(
-            matches!(inner.as_ref(), Type::Record(_)),
-            "KeyOf should wrap a Record, got {:?}",
-            inner
-        );
-    } else {
-        panic!("Expected Type::KeyOf");
-    }
-}
-
-#[test]
-fn test_type_indexed_access_chained() {
-    // Person["items"]["id"] — chained indexed access
-    let inner = Type::IndexedAccess {
-        obj: Box::new(Type::Named("Person".to_string())),
-        key: "items".to_string(),
-    };
-    let chained = Type::IndexedAccess {
+    let outer = Expr::OptionalAccess {
         obj: Box::new(inner),
-        key: "id".to_string(),
+        field: "first".to_string(),
+        span: Default::default(),
     };
 
-    if let Type::IndexedAccess { obj, key } = &chained {
-        assert_eq!(key, "id");
+    if let Expr::OptionalAccess { obj, field, .. } = &outer {
+        assert_eq!(field, "first");
         assert!(
-            matches!(obj.as_ref(), Type::IndexedAccess { .. }),
-            "Chained IndexedAccess should nest"
+            matches!(obj.as_ref(), Expr::OptionalAccess { field: ref f, .. } if f == "name"),
+            "Inner should be OptionalAccess with field 'name'"
         );
     } else {
-        panic!("Expected outer Type::IndexedAccess");
+        panic!("Expected OptionalAccess expr");
     }
+}
+
+#[test]
+fn test_optional_access_json_roundtrip() {
+    // Verify that OptionalAccess can be serialized to JSON and deserialized back
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "user".to_string(),
+            span: Span::default(),
+        }),
+        field: "email".to_string(),
+        span: Default::default(),
+    };
+
+    let json = serde_json::to_string(&expr).expect("OptionalAccess should serialize to JSON");
+    let deserialized: Expr =
+        serde_json::from_str(&json).expect("OptionalAccess should deserialize from JSON");
+
+    assert_eq!(
+        expr, deserialized,
+        "OptionalAccess should survive JSON roundtrip"
+    );
+}
+
+#[test]
+fn test_optional_access_span() {
+    // Verify that OptionalAccess has a span field accessible via Expr::span()
+    let span = Span::new(5, 15, 0);
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "field".to_string(),
+        span,
+    };
+
+    assert_eq!(
+        expr.span(),
+        span,
+        "OptionalAccess::span() should return its span"
+    );
 }

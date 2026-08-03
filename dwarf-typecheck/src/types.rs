@@ -63,6 +63,15 @@ pub enum LiteralType {
     Int(i64),
 }
 
+/// A constraint on a refined type.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum RefConstraint {
+    /// Range constraint: min..max (inclusive)
+    Range { min: i64, max: i64 },
+    /// Non-empty constraint: string must not be empty
+    NonEmpty,
+}
+
 /// A resolved type definition stored in the TypeRegistry.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeDef {
@@ -84,4 +93,9 @@ pub enum TypeDef {
     BuiltinGeneric { name: String },
     /// A literal type (string or integer literal).
     Literal(LiteralType),
+    /// A refined type with a constraint on a base type.
+    Refined {
+        base: TypeId,
+        constraint: RefConstraint,
+    },
 }

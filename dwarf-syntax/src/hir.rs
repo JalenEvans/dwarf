@@ -129,6 +129,12 @@ pub enum Expr {
         field: String,
         span: Span,
     },
+    /// Optional member access (obj?.field)
+    OptionalAccess {
+        obj: Box<Expr>,
+        field: String,
+        span: Span,
+    },
     /// If expression with optional else branch
     If {
         cond: Box<Expr>,
@@ -228,6 +234,7 @@ impl Expr {
             Expr::Variable { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::Member { span, .. } => *span,
+            Expr::OptionalAccess { span, .. } => *span,
             Expr::If { span, .. } => *span,
             Expr::Match { span, .. } => *span,
             Expr::Block { span, .. } => *span,

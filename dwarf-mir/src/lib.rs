@@ -79,6 +79,11 @@ pub enum MirExpr {
         field: String,
         span: Span,
     },
+    OptionalAccess {
+        obj: Box<MirExpr>,
+        field: String,
+        span: Span,
+    },
     If {
         cond: Box<MirExpr>,
         then: Box<MirExpr>,
@@ -175,6 +180,7 @@ impl MirExpr {
             | MirExpr::Variable { span, .. }
             | MirExpr::Call { span, .. }
             | MirExpr::Member { span, .. }
+            | MirExpr::OptionalAccess { span, .. }
             | MirExpr::If { span, .. }
             | MirExpr::Match { span, .. }
             | MirExpr::Loop { span, .. }

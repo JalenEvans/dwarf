@@ -13,7 +13,7 @@ use dwarf_syntax::hir::{Decl, Type as HirType};
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
 use crate::types::{
-    FieldDef, LiteralType, TypeDef, TypeId, VariantDef, ANY_TYPE_ID, NEVER_TYPE_ID,
+    FieldDef, LiteralType, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID, NEVER_TYPE_ID,
 };
 
 /// The result of resolving HIR declarations into a TypeRegistry.
@@ -432,5 +432,16 @@ fn resolve_hir_type_strict(
                 _ => Ok(NEVER_TYPE_ID),
             }
         }
+    }
+}
+
+/// Convert an HIR `RefConstraint` to the typecheck `RefConstraint`.
+pub fn convert_ref_constraint(constraint: &dwarf_syntax::hir::RefConstraint) -> RefConstraint {
+    match constraint {
+        dwarf_syntax::hir::RefConstraint::Range { min, max } => RefConstraint::Range {
+            min: *min,
+            max: *max,
+        },
+        dwarf_syntax::hir::RefConstraint::NonEmpty => RefConstraint::NonEmpty,
     }
 }

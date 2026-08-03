@@ -458,6 +458,10 @@ impl EmitterBackend for TypeScriptBackend {
                 };
                 Ok(format!("{}{}{}", obj_str, op, field))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                Ok(format!("{}?.{}", obj_str, field))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -1076,6 +1080,7 @@ impl TypeScriptBackend {
                 self.scan_expr_for_stdlib(value);
             }
             LirExpr::Member { obj, .. } => self.scan_expr_for_stdlib(obj),
+            LirExpr::OptionalAccess { obj, .. } => self.scan_expr_for_stdlib(obj),
             LirExpr::Variant { arg, .. } => {
                 if let Some(a) = arg {
                     self.scan_expr_for_stdlib(a);

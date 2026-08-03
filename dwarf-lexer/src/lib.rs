@@ -380,11 +380,19 @@ impl<'a> Lexer<'a> {
                 ))
             }
             b'?' => {
-                self.position += 1;
-                Ok(Token::new(
-                    TokenKind::Question,
-                    Span::new(self.file_id, start, self.position),
-                ))
+                if self.next_byte() == Some(b'.') {
+                    self.position += 2;
+                    Ok(Token::new(
+                        TokenKind::QuestionDot,
+                        Span::new(self.file_id, start, self.position),
+                    ))
+                } else {
+                    self.position += 1;
+                    Ok(Token::new(
+                        TokenKind::Question,
+                        Span::new(self.file_id, start, self.position),
+                    ))
+                }
             }
             b'.' => {
                 if self.next_byte() == Some(b'.') {
@@ -776,6 +784,8 @@ impl<'a> Lexer<'a> {
             "throw" => TokenKind::Throw,
             "extern" => TokenKind::Extern,
             "const" => TokenKind::Const,
+            "in" => TokenKind::In,
+            "keyof" => TokenKind::KeyOf,
             _ => TokenKind::Ident(word.to_string()),
         };
         Ok(Token::new(

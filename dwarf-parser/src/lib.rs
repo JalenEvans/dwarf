@@ -753,6 +753,15 @@ impl Parser {
                     field,
                     span: Span::new(file_id, start, self.previous().span.end),
                 };
+            } else if self.match_token(TokenKind::QuestionDot) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
+                let field = self.consume_ident("expected field name after '?.'")?;
+                expr = Expr::OptionalAccess {
+                    obj: Box::new(expr),
+                    field,
+                    span: Span::new(file_id, start, self.previous().span.end),
+                };
             } else if self.match_token(TokenKind::Question) {
                 let start = expr.span().start;
                 let file_id = expr.span().file_id;

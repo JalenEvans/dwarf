@@ -210,6 +210,12 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             span: *span,
         },
 
+        Expr::OptionalAccess { obj, field, span } => MirExpr::OptionalAccess {
+            obj: Box::new(desugar_pipe(obj)),
+            field: field.clone(),
+            span: *span,
+        },
+
         Expr::If {
             cond,
             then,

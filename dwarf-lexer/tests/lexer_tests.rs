@@ -1133,3 +1133,84 @@ fn test_sequence_pub_const() {
         ],
     );
 }
+
+// =======================================================================
+// OPTIONAL CHAINING `?.` TOKEN (RED Phase — expected to fail)
+//
+// TokenKind::QuestionDot does not exist yet. These tests specify the
+// expected lexing behavior for the `?.` optional chaining operator.
+// `?.` must lex as a single compound token, NOT as separate `?` + `.`.
+// =======================================================================
+
+#[test]
+fn test_op_question_dot() {
+    // `?.` should lex as a single QuestionDot token
+    assert_token_kind("?.", TokenKind::QuestionDot);
+}
+
+#[test]
+fn test_question_dot_not_separate_tokens() {
+    // `?.` must NOT lex as Question + Dot (two separate tokens)
+    let mut lexer = Lexer::new("?.");
+    let token = lexer.next_token().unwrap();
+    assert_eq!(
+        token.kind,
+        TokenKind::QuestionDot,
+        "`?.` should be a single QuestionDot token, not separate ? and ."
+    );
+    // After consuming QuestionDot, the next token should be Eof —
+    // there should NOT be a leftover Dot token
+    let next = lexer.next_token().unwrap();
+    assert_eq!(
+        next.kind,
+        TokenKind::Eof,
+        "After QuestionDot, should be Eof (no leftover Dot)"
+    );
+}
+
+#[test]
+fn test_sequence_optional_chain() {
+    // `obj?.field` should lex as: Ident("obj"), QuestionDot, Ident("field")
+    assert_token_sequence(
+        "obj?.field",
+        &[
+            TokenKind::Ident("obj".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("field".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_question_dot_span() {
+    // `?.` should have a span covering both characters
+    let mut lexer = Lexer::new("?.");
+    let token = lexer.next_token().unwrap();
+    assert_eq!(token.kind, TokenKind::QuestionDot);
+    assert_eq!(token.span.start, 0);
+    assert_eq!(
+        token.span.end, 2,
+        "QuestionDot span should cover both '?' and '.'"
+    );
+}
+
+#[test]
+fn test_question_dot_in_expression() {
+    // `a?.b?.c` should produce: Ident, QuestionDot, Ident, QuestionDot, Ident
+    assert_token_sequence(
+        "a?.b?.c",
+        &[
+            TokenKind::Ident("a".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("b".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("c".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_question_followed_by_space_then_dot() {
+    // `? .` (with space) should still lex as Question + Dot (separate tokens)
+    assert_token_sequence("? .", &[TokenKind::Question, TokenKind::Dot]);
+}

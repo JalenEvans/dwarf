@@ -94,6 +94,12 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    OptionalAccess {
+        obj: Box<LirExpr>,
+        field: String,
+        hint: TargetHint,
+        span: Span,
+    },
     If {
         cond: Box<LirExpr>,
         then: Box<LirExpr>,
@@ -202,6 +208,7 @@ impl LirExpr {
             | LirExpr::Variable { span, .. }
             | LirExpr::Call { span, .. }
             | LirExpr::Member { span, .. }
+            | LirExpr::OptionalAccess { span, .. }
             | LirExpr::If { span, .. }
             | LirExpr::Match { span, .. }
             | LirExpr::Block { span, .. }
@@ -228,6 +235,7 @@ impl LirExpr {
             | LirExpr::Variable { hint, .. }
             | LirExpr::Call { hint, .. }
             | LirExpr::Member { hint, .. }
+            | LirExpr::OptionalAccess { hint, .. }
             | LirExpr::If { hint, .. }
             | LirExpr::Match { hint, .. }
             | LirExpr::Block { hint, .. }

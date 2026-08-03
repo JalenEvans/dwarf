@@ -149,6 +149,9 @@ pub fn infer_expr(
         // 10. Member access
         Expr::Member { obj, field, .. } => infer_member_access(obj, field, env, registry),
 
+        // 10b. Optional member access (obj?.field)
+        Expr::OptionalAccess { obj, field, .. } => infer_optional_access(obj, field, env, registry),
+
         // 11. Match expressions
         Expr::Match { expr, arms, .. } => infer_match(expr, arms, env, registry),
 
@@ -546,6 +549,57 @@ fn infer_member_access(
             .map(|f| f.type_id)
             .ok_or_else(|| format!("record has no field named '{}'", field)),
         _ => Err("member access on non-record type".to_string()),
+    }
+}
+
+/// Infer the type of an optional member access expression (e.g. `user?.name`).
+///
+/// If the object is an Option<T>, unwraps to get the inner type and looks up
+/// the field. Returns the field type directly (not wrapped in Option).
+/// If the object is not an Option, behaves like regular member access.
+fn infer_optional_access(
+    obj: &Expr,
+    field: &str,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    use crate::types::OPTION_TYPE_ID;
+
+    let obj_type_id = infer_expr(obj, env, registry)?;
+
+    let obj_def = registry
+        .get(obj_type_id)
+        .ok_or_else(|| format!("unknown type ID: {}", obj_type_id))?;
+
+    // Check if the object is an Option<T>
+    match obj_def {
+        TypeDef::GenericInstance { base, args } if *base == OPTION_TYPE_ID => {
+            // Unwrap the Option to get the inner type
+            if args.is_empty() {
+                return Err("Option type has no type arguments".to_string());
+            }
+            let inner_type_id = args[0];
+            let inner_def = registry
+                .get(inner_type_id)
+                .ok_or_else(|| format!("unknown type ID: {}", inner_type_id))?;
+
+            // Look up the field in the inner type and return it directly
+            match inner_def {
+                TypeDef::Record(fields) => fields
+                    .iter()
+                    .find(|f| f.name == field)
+                    .map(|f| f.type_id)
+                    .ok_or_else(|| format!("record has no field named '{}'", field)),
+                _ => Err("optional member access on non-record type".to_string()),
+            }
+        }
+        // If not an Option, behave like regular member access
+        TypeDef::Record(fields) => fields
+            .iter()
+            .find(|f| f.name == field)
+            .map(|f| f.type_id)
+            .ok_or_else(|| format!("record has no field named '{}'", field)),
+        _ => Err("optional member access on non-record type".to_string()),
     }
 }
 

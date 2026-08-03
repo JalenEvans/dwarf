@@ -27,6 +27,8 @@ pub enum TokenKind {
     Throw,
     Extern,
     Const,
+    In,
+    KeyOf,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -51,16 +53,17 @@ pub enum TokenKind {
     Eq, // =
 
     // ---- Delimiters & Punctuation ----
-    Colon,      // :
-    Arrow,      // ->
-    Pipe,       // | (union type, lambda)
-    PipeGt,     // |>
-    Question,   // ?
-    Underscore, // _
-    DotDot,     // ..
-    Dot,        // .
-    Comma,      // ,
-    At,         // @
+    Colon,       // :
+    Arrow,       // ->
+    Pipe,        // | (union type, lambda)
+    PipeGt,      // |>
+    Question,    // ?
+    QuestionDot, // ?.
+    Underscore,  // _
+    DotDot,      // ..
+    Dot,         // .
+    Comma,       // ,
+    At,          // @
 
     // ---- Brackets ----
     LParen,   // (
@@ -109,6 +112,8 @@ impl TokenKind {
             Self::Throw => "'throw'",
             Self::Extern => "'extern'",
             Self::Const => "'const'",
+            Self::In => "'in'",
+            Self::KeyOf => "'keyof'",
 
             // Arithmetic
             Self::Plus => "'+'",
@@ -138,6 +143,7 @@ impl TokenKind {
             Self::Pipe => "'|'",
             Self::PipeGt => "'|>'",
             Self::Question => "'?'",
+            Self::QuestionDot => "'?.'",
             Self::Underscore => "'_'",
             Self::DotDot => "'..'",
             Self::Dot => "'.'",

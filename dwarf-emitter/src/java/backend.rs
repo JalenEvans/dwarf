@@ -521,6 +521,14 @@ impl EmitterBackend for JavaBackend {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                // Java: obj != null ? obj.field : null
+                Ok(format!(
+                    "{} != null ? {}.{} : null",
+                    obj_str, obj_str, field
+                ))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -1122,6 +1130,9 @@ impl JavaBackend {
                 }
             }
             LirExpr::Member { obj, .. } => {
+                Self::scan_expr_for_imports(obj, needs_cf, needs_opt);
+            }
+            LirExpr::OptionalAccess { obj, .. } => {
                 Self::scan_expr_for_imports(obj, needs_cf, needs_opt);
             }
             LirExpr::If {
