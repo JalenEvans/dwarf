@@ -518,6 +518,10 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             // Decorators are handled by a separate decorator pass.
             Decl::Decorator { .. } => None,
 
+            // Const declarations are value bindings — exclude from MIR for now.
+            // (Future work: lower to a synthetic getter function or global.)
+            Decl::Const { .. } => None,
+
             // Function declarations pass through with desugared bodies.
             Decl::Function {
                 name,

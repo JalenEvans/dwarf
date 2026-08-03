@@ -74,7 +74,7 @@ impl Parser {
     }
 
     /// Panic-mode recovery: skip tokens until we reach a declaration
-    /// boundary (fn, type, import, extern, @, pub, or eof).
+    /// boundary (fn, type, import, extern, const, @, pub, or eof).
     fn sync_to_declaration_boundary(&mut self) {
         while !self.is_at_end() {
             match &self.peek().kind {
@@ -82,6 +82,7 @@ impl Parser {
                 | TokenKind::Type
                 | TokenKind::Import
                 | TokenKind::Extern
+                | TokenKind::Const
                 | TokenKind::At
                 | TokenKind::Pub => return,
                 _ => {
@@ -193,6 +194,7 @@ impl Parser {
             TokenKind::Import => self.parse_import(is_pub),
             TokenKind::Fn => self.parse_function(is_pub),
             TokenKind::Extern => self.parse_extern(is_pub),
+            TokenKind::Const => self.parse_const(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
@@ -300,6 +302,34 @@ impl Parser {
             span: Span::new(
                 extern_start.file_id,
                 extern_start.start,
+                self.previous().span.end,
+            ),
+        })
+    }
+
+    /// Parse a const declaration: `const name: Type = value` or `const name = value`
+    fn parse_const(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let const_start = self.advance().span; // consume `const`
+        let name = self.consume_ident("expected constant name")?;
+
+        // Optional type annotation: `: Type`
+        let type_ = if self.match_token(TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.consume(TokenKind::Eq, "expected '=' after constant name")?;
+        let value = self.parse_expression()?;
+
+        Ok(Decl::Const {
+            name,
+            value: Box::new(value),
+            type_,
+            is_pub,
+            span: Span::new(
+                const_start.file_id,
+                const_start.start,
                 self.previous().span.end,
             ),
         })

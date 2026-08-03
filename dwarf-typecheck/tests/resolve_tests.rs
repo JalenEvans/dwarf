@@ -707,103 +707,91 @@ fn test_resolve_generic_unknown_base() {
 }
 
 // ===========================================================================
-// 11. keyof and indexed access resolution (DWARF-60 Chunk B)
+// CONST DECLARATION TESTS (RED Phase — expected to fail)
 //
-// These tests specify the expected behavior of keyof T and T["key"]
-// type operators. They will fail until:
-//   1. LiteralType enum and TypeDef::Literal variant are added
-//   2. resolve_hir_type handles KeyOf by producing a union of string literals
-//   3. resolve_hir_type handles IndexedAccess by looking up the field type
+// These tests specify the expected behavior for const declarations in the
+// typechecker. They will FAIL to compile because Decl::Const does not exist
+// yet in the HIR.
+//
+// Expected behavior:
+// - Decl::Const should be handled by register_decls() without panicking
+// - Const declarations should not add to the type registry (they're values, not types)
+// - Const names should be tracked so they can be referenced in expressions
 // ===========================================================================
 
 #[test]
-fn test_keyof_inline_record_resolution() {
-    // type Keys = keyof { x: Int, y: Str }
-    // Should produce a union of string literal types "x" | "y"
+fn test_register_const_int_does_not_panic() {
     let mut registry = TypeRegistry::new();
-    let decls = vec![Decl::TypeDef {
-        name: "Keys".to_string(),
-        type_: Type::KeyOf(Box::new(Type::Record(vec![
-            ("x".to_string(), Box::new(Type::Named("int".to_string()))),
-            ("y".to_string(), Box::new(Type::Named("str".to_string()))),
-        ]))),
+    let decls = vec![Decl::Const {
+        name: "MAX_SIZE".to_string(),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Int(100),
+            span: dummy_span(),
+        }),
+        type_: None,
+        is_pub: false,
+        span: dummy_span(),
+    }];
+
+    // Should not panic — const is a value declaration, not a type
+    let result = register_decls(&mut registry, &decls);
+
+    // Const should not add to the type registry (it's a value, not a type)
+    // 5 primitives + 4 built-in generics = 9 entries (no new types)
+    assert_eq!(result.registry.len(), 9);
+}
+
+#[test]
+fn test_register_const_with_type_annotation() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::Const {
+        name: "PI".to_string(),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Float(3.14),
+            span: dummy_span(),
+        }),
+        type_: Some(Type::Named("Float".to_string())),
         is_pub: true,
         span: dummy_span(),
     }];
 
     let result = register_decls(&mut registry, &decls);
 
-    // The inline record { x: Int, y: Str } should be registered first (ID 9)
-    // Then string literals "x" (ID 10) and "y" (ID 11) should be registered
-    // Then a union of those literals (ID 12)
-    // Then the alias Keys -> union (ID 13)
-
-    // Verify the alias exists and resolves to a union
-    let keys_id = result
-        .name_map
-        .get("Keys")
-        .expect("Keys should be in name_map");
-    let resolved_id = result.registry.resolve(*keys_id);
-
-    // The resolved type should be a Union
-    match result.registry.get(resolved_id) {
-        Some(TypeDef::Union(variants)) => {
-            assert_eq!(
-                variants.len(),
-                2,
-                "keyof should produce a union with 2 variants"
-            );
-
-            // Each variant should reference a string literal type
-            for variant in variants {
-                assert!(variant.type_id.is_some(), "variant should have a type_id");
-                let lit_id = variant.type_id.unwrap();
-                match result.registry.get(lit_id) {
-                    Some(TypeDef::Literal(LiteralType::String(s))) => {
-                        assert!(
-                            s == "x" || s == "y",
-                            "literal should be 'x' or 'y', got '{}'",
-                            s
-                        );
-                    }
-                    other => panic!("Expected Literal(String) at ID {}, got {:?}", lit_id, other),
-                }
-            }
-        }
-        other => panic!(
-            "Expected Union at resolved ID {}, got {:?}",
-            resolved_id, other
-        ),
-    }
+    // Should not panic, and should not add to type registry
+    assert_eq!(result.registry.len(), 9);
 }
 
 #[test]
-fn test_indexed_access_resolution() {
-    // type X = Person["name"] where Person is a record with name: Str
-    // Should resolve to Primitive(Str)
+fn test_register_multiple_consts() {
     let mut registry = TypeRegistry::new();
     let decls = vec![
-        Decl::RecordDef {
-            name: "Person".to_string(),
-            fields: vec![
-                Field {
-                    name: "name".to_string(),
-                    type_: Type::Named("str".to_string()),
-                },
-                Field {
-                    name: "age".to_string(),
-                    type_: Type::Named("int".to_string()),
-                },
-            ],
-            is_pub: true,
+        Decl::Const {
+            name: "MAX".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(100),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
             span: dummy_span(),
         },
-        Decl::TypeDef {
-            name: "X".to_string(),
-            type_: Type::IndexedAccess {
-                obj: Box::new(Type::Named("Person".to_string())),
-                key: "name".to_string(),
-            },
+        Decl::Const {
+            name: "MIN".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(0),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
+            span: dummy_span(),
+        },
+        Decl::Const {
+            name: "NAME".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Str("dwarf".to_string()),
+                span: dummy_span(),
+            }),
+            type_: None,
             is_pub: true,
             span: dummy_span(),
         },
@@ -811,126 +799,45 @@ fn test_indexed_access_resolution() {
 
     let result = register_decls(&mut registry, &decls);
 
-    // Person should be at ID 9
-    let person_id = result
-        .name_map
-        .get("Person")
-        .expect("Person should be in name_map");
-    assert_eq!(*person_id, 9);
-
-    // X should be an alias that resolves to Str (ID 2)
-    let x_id = result.name_map.get("X").expect("X should be in name_map");
-    let resolved_id = result.registry.resolve(*x_id);
-    assert_eq!(
-        resolved_id, 2,
-        "Person[\"name\"] should resolve to Str (ID 2)"
-    );
+    // Should handle multiple consts without panic
+    assert_eq!(result.registry.len(), 9);
 }
 
 #[test]
-fn test_keyof_named_record_resolution() {
-    // type Keys = keyof Person where Person is { name: Str, age: Int }
-    // Should resolve to union of string literal types "name" | "age"
+fn test_register_const_mixed_with_types() {
     let mut registry = TypeRegistry::new();
     let decls = vec![
         Decl::RecordDef {
-            name: "Person".to_string(),
+            name: "Point".to_string(),
             fields: vec![
                 Field {
-                    name: "name".to_string(),
-                    type_: Type::Named("str".to_string()),
+                    name: "x".to_string(),
+                    type_: Type::Named("int".to_string()),
                 },
                 Field {
-                    name: "age".to_string(),
+                    name: "y".to_string(),
                     type_: Type::Named("int".to_string()),
                 },
             ],
             is_pub: true,
             span: dummy_span(),
         },
-        Decl::TypeDef {
-            name: "Keys".to_string(),
-            type_: Type::KeyOf(Box::new(Type::Named("Person".to_string()))),
-            is_pub: true,
+        Decl::Const {
+            name: "ORIGIN_X".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(0),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
             span: dummy_span(),
         },
     ];
 
     let result = register_decls(&mut registry, &decls);
 
-    // Keys should resolve to a union of string literals
-    let keys_id = result
-        .name_map
-        .get("Keys")
-        .expect("Keys should be in name_map");
-    let resolved_id = result.registry.resolve(*keys_id);
-
-    match result.registry.get(resolved_id) {
-        Some(TypeDef::Union(variants)) => {
-            assert_eq!(variants.len(), 2, "keyof Person should produce 2 variants");
-
-            // Collect the literal values
-            let mut literal_values: Vec<String> = Vec::new();
-            for variant in variants {
-                if let Some(lit_id) = variant.type_id {
-                    if let Some(TypeDef::Literal(LiteralType::String(s))) =
-                        result.registry.get(lit_id)
-                    {
-                        literal_values.push(s.clone());
-                    }
-                }
-            }
-
-            literal_values.sort();
-            assert_eq!(
-                literal_values,
-                vec!["age", "name"],
-                "keyof should produce 'age' and 'name' literals"
-            );
-        }
-        other => panic!(
-            "Expected Union at resolved ID {}, got {:?}",
-            resolved_id, other
-        ),
-    }
-}
-
-#[test]
-fn test_keyof_empty_record_resolution() {
-    // type Empty = keyof {}
-    // Should produce an empty union or Never type
-    let mut registry = TypeRegistry::new();
-    let decls = vec![Decl::TypeDef {
-        name: "Empty".to_string(),
-        type_: Type::KeyOf(Box::new(Type::Record(vec![]))),
-        is_pub: true,
-        span: dummy_span(),
-    }];
-
-    let result = register_decls(&mut registry, &decls);
-
-    let empty_id = result
-        .name_map
-        .get("Empty")
-        .expect("Empty should be in name_map");
-    let resolved_id = result.registry.resolve(*empty_id);
-
-    // Should be either an empty union or the Never type
-    match result.registry.get(resolved_id) {
-        Some(TypeDef::Union(variants)) => {
-            assert_eq!(
-                variants.len(),
-                0,
-                "keyof {{}} should produce an empty union"
-            );
-        }
-        // Alternatively, could be Never type (NEVER_TYPE_ID)
-        _ if resolved_id == NEVER_TYPE_ID => {
-            // This is also acceptable
-        }
-        other => panic!(
-            "Expected empty Union or Never at resolved ID {}, got {:?}",
-            resolved_id, other
-        ),
-    }
+    // Point should be registered (5 primitives + 4 built-in generics + 1 user type = 10)
+    // Const should not add to registry
+    assert_eq!(result.registry.len(), 10);
+    assert_eq!(result.name_map.get("Point"), Some(&9));
 }

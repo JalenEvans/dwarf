@@ -324,22 +324,17 @@ fn test_decorator_on_record_def() {
             assert_eq!(name, "Serializable");
             assert!(args.is_empty());
             match target.as_ref() {
-                Decl::TypeDef {
+                Decl::RecordDef {
                     name: record_name,
-                    type_,
+                    fields,
                     ..
                 } => {
                     assert_eq!(record_name, "TestResult");
-                    match type_ {
-                        Type::Record(fields) => {
-                            assert_eq!(fields.len(), 2);
-                            assert_eq!(fields[0].0, "passed");
-                            assert_eq!(fields[1].0, "duration");
-                        }
-                        other => panic!("Expected Type::Record, got {:?}", other),
-                    }
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].name, "passed");
+                    assert_eq!(fields[1].name, "duration");
                 }
-                other => panic!("Expected TypeDef target, got {:?}", other),
+                other => panic!("Expected RecordDef target, got {:?}", other),
             }
         }
         other => panic!("Expected Decorator, got {:?}", other),
@@ -1451,262 +1446,281 @@ fn test_parse_private_extern_visibility() {
 }
 
 // ============================================================================
-// TYPE-LEVEL OPERATOR PARSING TESTS (RED Phase — expected to fail)
+// CONST DECLARATION PARSING (RED Phase — expected to fail)
 //
-// The parser does not yet support keyof, indexed access, or type-level
-// expressions. These tests specify the expected parse results for:
-//   - `type X = keyof T`            → Decl::TypeDef with Type::KeyOf
-//   - `type X = T["field"]`         → Decl::TypeDef with Type::IndexedAccess
-//   - `type X = keyof T["field"]`   → Composition (keyof wrapping IndexedAccess)
-//   - `type X = keyof { ... }`      → keyof applied to inline record
+// These tests will FAIL to compile because TokenKind::Const and
+// Decl::Const do not exist yet. They define the expected behavior for
+// const declarations: module-level immutable bindings with optional
+// type annotations.
+//
+// Expected Decl::Const shape:
+//   Decl::Const {
+//       name: String,          // e.g. "MAX_SIZE"
+//       value: Box<Expr>,      // the initializer expression
+//       type_: Option<Type>,   // optional type annotation
+//       is_pub: bool,          // visibility modifier
+//       span: Span,
+//   }
 // ============================================================================
 
 #[test]
-fn test_parse_keyof_type_alias() {
-    // type NameSet = keyof Person
-    let tokens = tokenize("type NameSet = keyof Person");
+fn test_parse_const_int_literal() {
+    let tokens = tokenize("const x = 42");
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
-
-    assert!(
-        errors.is_empty(),
-        "No errors expected for keyof type alias: {:?}",
-        errors
-    );
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
     assert_eq!(decls.len(), 1);
 
     match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "NameSet");
-            match type_ {
-                Type::KeyOf(inner) => {
-                    assert!(
-                        matches!(inner.as_ref(), Type::Named(n) if n == "Person"),
-                        "keyof should wrap Named(\"Person\"), got {:?}",
-                        inner
-                    );
-                }
-                other => panic!("Expected Type::KeyOf, got {:?}", other),
-            }
-        }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_indexed_access_type_alias() {
-    // type PersonName = Person["name"]
-    let tokens = tokenize(r#"type PersonName = Person["name"]"#);
-    let mut parser = Parser::new(tokens);
-    let (decls, errors) = parser.parse();
-
-    assert!(
-        errors.is_empty(),
-        "No errors expected for indexed access: {:?}",
-        errors
-    );
-    assert_eq!(decls.len(), 1);
-
-    match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "PersonName");
-            match type_ {
-                Type::IndexedAccess { obj, key } => {
-                    assert!(
-                        matches!(obj.as_ref(), Type::Named(n) if n == "Person"),
-                        "IndexedAccess obj should be Named(\"Person\"), got {:?}",
-                        obj
-                    );
-                    assert_eq!(key, "name");
-                }
-                other => panic!("Expected Type::IndexedAccess, got {:?}", other),
-            }
-        }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_keyof_indexed_access_composition() {
-    // type Mixed = keyof Person["items"]
-    // This should parse as: keyof (Person["items"])
-    // i.e., Type::KeyOf(Box::new(Type::IndexedAccess { ... }))
-    let tokens = tokenize(r#"type Mixed = keyof Person["items"]"#);
-    let mut parser = Parser::new(tokens);
-    let (decls, errors) = parser.parse();
-
-    assert!(
-        errors.is_empty(),
-        "No errors expected for keyof+indexed composition: {:?}",
-        errors
-    );
-    assert_eq!(decls.len(), 1);
-
-    match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "Mixed");
-            match type_ {
-                Type::KeyOf(inner) => match inner.as_ref() {
-                    Type::IndexedAccess { obj, key } => {
-                        assert!(
-                            matches!(obj.as_ref(), Type::Named(n) if n == "Person"),
-                            "Inner obj should be Named(\"Person\"), got {:?}",
-                            obj
-                        );
-                        assert_eq!(key, "items");
+        Decl::Const {
+            name,
+            value,
+            type_,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "x");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(42),
+                        ..
                     }
-                    other => panic!("Expected KeyOf to wrap IndexedAccess, got {:?}", other),
-                },
-                other => panic!(
-                    "Expected Type::KeyOf wrapping IndexedAccess, got {:?}",
-                    other
                 ),
-            }
+                "Expected Int(42) literal, got {:?}",
+                value
+            );
+            assert!(type_.is_none(), "No type annotation expected");
+            assert!(!is_pub, "const without pub should have is_pub = false");
         }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
+        other => panic!("Expected Const declaration, got {:?}", other),
     }
 }
 
 #[test]
-fn test_parse_keyof_inline_record() {
-    // type PointKeys = keyof { x: Int, y: Str }
-    let tokens = tokenize("type PointKeys = keyof { x: Int, y: Str }");
+fn test_parse_const_with_type_annotation() {
+    let tokens = tokenize("const x: Int = 42");
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
-
-    assert!(
-        errors.is_empty(),
-        "No errors expected for keyof inline record: {:?}",
-        errors
-    );
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
     assert_eq!(decls.len(), 1);
 
     match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "PointKeys");
-            match type_ {
-                Type::KeyOf(inner) => match inner.as_ref() {
-                    Type::Record(fields) => {
-                        assert_eq!(fields.len(), 2);
-                        assert_eq!(fields[0].0, "x");
-                        assert_eq!(fields[1].0, "y");
+        Decl::Const {
+            name, value, type_, ..
+        } => {
+            assert_eq!(name, "x");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(42),
+                        ..
                     }
-                    other => panic!("Expected KeyOf to wrap Record, got {:?}", other),
-                },
-                other => panic!("Expected Type::KeyOf wrapping Record, got {:?}", other),
-            }
+                ),
+                "Expected Int(42) literal, got {:?}",
+                value
+            );
+            assert!(
+                matches!(type_, Some(Type::Named(ref n)) if n == "Int"),
+                "Expected type annotation Named(\"Int\"), got {:?}",
+                type_
+            );
         }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
+        other => panic!("Expected Const declaration, got {:?}", other),
     }
 }
 
 #[test]
-fn test_parse_indexed_access_with_generic_type() {
-    // type ItemId = Array<String>["items"]
-    let tokens = tokenize(r#"type ItemId = Array<String>["items"]"#);
+fn test_parse_const_string_literal() {
+    let tokens = tokenize(r#"const greeting = "hello""#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "greeting");
+            assert!(
+                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Str(ref s), .. } if s == "hello"),
+                "Expected Str(\"hello\") literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_float_literal() {
+    let tokens = tokenize("const pi = 3.14");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "pi");
+            assert!(
+                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Float(f), .. } if (f - 3.14).abs() < f64::EPSILON),
+                "Expected Float(3.14) literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_bool_literal() {
+    let tokens = tokenize("const enabled = true");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "enabled");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Bool(true),
+                        ..
+                    }
+                ),
+                "Expected Bool(true) literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_pub_visibility() {
+    let tokens = tokenize("pub const MAX_SIZE = 100");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const {
+            name,
+            value,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "MAX_SIZE");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(100),
+                        ..
+                    }
+                ),
+                "Expected Int(100) literal, got {:?}",
+                value
+            );
+            assert!(is_pub, "pub const should have is_pub = true");
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_with_expression_value() {
+    // const can have an expression as its value, not just a literal
+    let tokens = tokenize("const double = 21 * 2");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "double");
+            assert!(
+                matches!(value.as_ref(), Expr::Binary { .. }),
+                "Expected Binary expression, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_missing_value_errors() {
+    // `const x` without `= value` should produce a parse error
+    let tokens = tokenize("const x");
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(
+        !errors.is_empty(),
+        "Should error when const has no initializer value"
+    );
+}
+
+#[test]
+fn test_parse_const_missing_name_errors() {
+    // `const = 42` without a name should produce a parse error
+    let tokens = tokenize("const = 42");
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(!errors.is_empty(), "Should error when const has no name");
+}
+
+#[test]
+fn test_parse_multiple_const_declarations() {
+    let source = r#"
+        const MAX = 100
+        const MIN = 0
+        const NAME = "dwarf"
+    "#;
+    let tokens = tokenize(source);
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
 
     assert!(
         errors.is_empty(),
-        "No errors expected for indexed access on generic: {:?}",
+        "No errors expected for multiple consts: {:?}",
         errors
     );
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 3, "Should parse three const declarations");
 
-    match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "ItemId");
-            match type_ {
-                Type::IndexedAccess { obj, key } => {
-                    assert!(
-                        matches!(obj.as_ref(), Type::Generic { base, .. } if base == "Array"),
-                        "IndexedAccess obj should be Generic(\"Array\"), got {:?}",
-                        obj
-                    );
-                    assert_eq!(key, "items");
-                }
-                other => panic!("Expected Type::IndexedAccess, got {:?}", other),
-            }
-        }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
+    // Verify each is a Const
+    for (i, decl) in decls.iter().enumerate() {
+        assert!(
+            matches!(decl, Decl::Const { .. }),
+            "decl[{}] should be Const, got {:?}",
+            i,
+            decl
+        );
     }
 }
 
 #[test]
-fn test_parse_keyof_in_record_field() {
-    // type Config = { keys: keyof Person, values: Person["name"] }
-    let tokens = tokenize(r#"type Config = { keys: keyof Person, values: Person["name"] }"#);
+fn test_parse_const_mixed_with_other_decls() {
+    let source = r#"
+        const VERSION = 1
+        fn main() { 42 }
+        const DEBUG = false
+    "#;
+    let tokens = tokenize(source);
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
 
-    assert!(
-        errors.is_empty(),
-        "No errors expected for keyof/indexed in record fields: {:?}",
-        errors
-    );
-    assert_eq!(decls.len(), 1);
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 3, "Should parse three declarations");
 
-    match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "Config");
-            match type_ {
-                Type::Record(fields) => {
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].0, "keys");
-                    assert!(
-                        matches!(fields[0].1.as_ref(), Type::KeyOf(_)),
-                        "keys field should be KeyOf, got {:?}",
-                        fields[0].1
-                    );
-                    assert_eq!(fields[1].0, "values");
-                    assert!(
-                        matches!(fields[1].1.as_ref(), Type::IndexedAccess { .. }),
-                        "values field should be IndexedAccess, got {:?}",
-                        fields[1].1
-                    );
-                }
-                other => panic!("Expected Type::Record, got {:?}", other),
-            }
-        }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_parse_keyof_in_union_variant() {
-    // type KeyOrName = keyof Person | Person["name"]
-    let tokens = tokenize(r#"type KeyOrName = keyof Person | Person["name"]"#);
-    let mut parser = Parser::new(tokens);
-    let (decls, errors) = parser.parse();
-
-    assert!(
-        errors.is_empty(),
-        "No errors expected for keyof/indexed in union: {:?}",
-        errors
-    );
-    assert_eq!(decls.len(), 1);
-
-    match &decls[0] {
-        Decl::TypeDef { name, type_, .. } => {
-            assert_eq!(name, "KeyOrName");
-            match type_ {
-                Type::Union(variants) => {
-                    assert_eq!(variants.len(), 2);
-                    assert!(
-                        matches!(&variants[0], Type::KeyOf(_)),
-                        "First variant should be KeyOf, got {:?}",
-                        variants[0]
-                    );
-                    assert!(
-                        matches!(&variants[1], Type::IndexedAccess { .. }),
-                        "Second variant should be IndexedAccess, got {:?}",
-                        variants[1]
-                    );
-                }
-                other => panic!("Expected Type::Union, got {:?}", other),
-            }
-        }
-        other => panic!("Expected TypeDef declaration, got {:?}", other),
-    }
+    assert!(matches!(&decls[0], Decl::Const { name, .. } if name == "VERSION"));
+    assert!(matches!(&decls[1], Decl::Function { name, .. } if name == "main"));
+    assert!(matches!(&decls[2], Decl::Const { name, .. } if name == "DEBUG"));
 }

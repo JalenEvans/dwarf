@@ -192,6 +192,9 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                 let func_id = registry.register(func_type);
                 extern_map.insert(name.clone(), func_id);
             }
+            // Const declarations are value bindings, not type definitions.
+            // They don't contribute to the type registry.
+            Decl::Const { .. } => {}
             _ => {}
         }
     }

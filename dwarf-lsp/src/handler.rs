@@ -269,7 +269,10 @@ impl DwarfLspHandler {
                 Decl::RecordDef { name, .. } => (name.clone(), SymbolKind::STRUCT),
                 Decl::UnionDef { name, .. } => (name.clone(), SymbolKind::ENUM),
                 Decl::TypeDef { name, .. } => (name.clone(), SymbolKind::STRUCT),
-                Decl::Import { .. } | Decl::Decorator { .. } | Decl::Extern { .. } => continue,
+                Decl::Import { .. }
+                | Decl::Decorator { .. }
+                | Decl::Extern { .. }
+                | Decl::Const { .. } => continue,
             };
             let range = span_to_range(&source, decl_span(decl));
             symbols.push(SymbolInformation {
@@ -708,6 +711,7 @@ fn decl_span(decl: &Decl) -> Span {
         Decl::UnionDef { span, .. } => *span,
         Decl::Decorator { span, .. } => *span,
         Decl::Extern { span, .. } => *span,
+        Decl::Const { span, .. } => *span,
     }
 }
 

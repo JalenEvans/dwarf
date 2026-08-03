@@ -325,6 +325,13 @@ pub enum Decl {
         is_pub: bool,
         span: Span,
     },
+    Const {
+        name: String,
+        value: Box<Expr>,
+        type_: Option<Type>,
+        is_pub: bool,
+        span: Span,
+    },
 }
 
 #[cfg(test)]
