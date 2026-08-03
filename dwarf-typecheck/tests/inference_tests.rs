@@ -2341,3 +2341,261 @@ fn test_non_refined_int_accepts_any_value() {
         "f(200) should return Int (the function's return type)"
     );
 }
+
+// ===========================================================================
+// 24. String Constraint Checking — NonEmpty (DWARF-60-T1 Chunk 3)
+//     When a literal Str value is used where a refined String type with a
+//     NonEmpty constraint is expected, the compiler checks the literal
+//     against the constraint. Empty string literals ("") produce error
+//     DWARF-E-TYPE-0007 ("NonEmpty constraint violation").
+//
+//     These tests exercise constraint checking through function calls:
+//       fn f(s: NonEmptyString) { s }
+//       f("")     — should fail: empty string violates NonEmpty
+//       f("hello") — should succeed: non-empty string satisfies NonEmpty
+//
+//     Currently NOT implemented — `RefConstraint::NonEmpty` does not exist
+//     yet, so these tests FAIL TO COMPILE (Red phase).
+// ===========================================================================
+
+/// Helper: register a refined String type `NonEmptyString` (Str with NonEmpty
+/// constraint) in the registry.
+///
+/// Returns the assigned TypeId for the refined type.
+fn register_refined_nonempty(registry: &mut TypeRegistry) -> TypeId {
+    registry.register(TypeDef::Refined {
+        base: STR_TYPE_ID, // Str = 2
+        constraint: tc_types::RefConstraint::NonEmpty,
+    })
+}
+
+/// Helper: build a call expression `f(literal_str)` where `f` is bound in `env`
+/// to a function type with a single parameter.
+fn make_call_with_string_arg(func_name: &str, arg_value: &str) -> Expr {
+    Expr::Call {
+        func: Box::new(Expr::Variable {
+            name: func_name.to_string(),
+            span: dummy_span(),
+        }),
+        args: vec![Expr::Literal {
+            value: LiteralValue::Str(arg_value.to_string()),
+            span: dummy_span(),
+        }],
+        span: dummy_span(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 1: `let s: NonEmptyString = ""` — empty string literal passed to
+// NonEmptyString param produces compile error.
+// Modelled as: fn f(s: NonEmptyString) { s }; f("")
+// Expected: Err with "empty" or "NonEmpty" or "0007" in the message.
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_string_empty_literal_rejected() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // Register NonEmptyString at some ID
+    let refined_id = register_refined_nonempty(&mut registry);
+    // Register f: NonEmptyString -> Str at some ID
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], STR_TYPE_ID));
+    env.bind("f".to_string(), func_id);
+
+    // f("") — empty string violates NonEmpty
+    let expr = make_call_with_string_arg("f", "");
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_err(),
+        "f(\"\") where f: NonEmptyString -> Str should produce a constraint violation \
+         error (empty string not allowed), but got Ok — NonEmpty constraint checking \
+         is not yet implemented (Red phase)"
+    );
+
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("empty")
+            || err.contains("NonEmpty")
+            || err.contains("nonempty")
+            || err.contains("constraint")
+            || err.contains("0007"),
+        "Error message should mention empty-string / NonEmpty constraint violation, got: {}",
+        err
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 2: `let s: NonEmptyString = "hello"` — non-empty string literal
+// passed to NonEmptyString param compiles successfully.
+// Modelled as: fn f(s: NonEmptyString) { s }; f("hello")
+// Expected: Ok (call succeeds, no constraint violation).
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_string_nonempty_literal_accepted() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let refined_id = register_refined_nonempty(&mut registry);
+    let func_id = registry.register(TypeDef::Func(vec![refined_id], STR_TYPE_ID));
+    env.bind("f".to_string(), func_id);
+
+    // f("hello") — non-empty string satisfies NonEmpty
+    let expr = make_call_with_string_arg("f", "hello");
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(\"hello\") where f: NonEmptyString -> Str should succeed \
+         (non-empty string satisfies NonEmpty constraint)"
+    );
+    assert_eq!(
+        result.unwrap(),
+        STR_TYPE_ID,
+        "f(\"hello\") should return Str (the function's return type)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 3: `let s: String = ""` — empty string literal passed to a plain
+// String param compiles (no constraint on plain String).
+// Modelled as: fn f(s: String) { s }; f("")
+// Expected: Ok (no refinement, any string is valid).
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_plain_string_accepts_empty_literal() {
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    // f: Str -> Str (no refinement)
+    let func_id = registry.register(TypeDef::Func(vec![STR_TYPE_ID], STR_TYPE_ID));
+    env.bind("f".to_string(), func_id);
+
+    // f("") — plain String should accept any value including empty
+    let expr = make_call_with_string_arg("f", "");
+    let result = infer_expr(&expr, &env, &mut registry);
+
+    assert!(
+        result.is_ok(),
+        "f(\"\") where f: Str -> Str should succeed (no refinement constraint)"
+    );
+    assert_eq!(
+        result.unwrap(),
+        STR_TYPE_ID,
+        "f(\"\") should return Str (the function's return type)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 4: Register a NonEmpty refined type — verify it can be created in the
+// registry and retrieved with the correct base and constraint.
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_register_refined_nonempty_type() {
+    let mut registry = TypeRegistry::new();
+
+    let refined_id = register_refined_nonempty(&mut registry);
+
+    // Retrieve the registered type and verify its structure
+    let retrieved = registry.get(refined_id);
+    assert!(
+        retrieved.is_some(),
+        "NonEmptyString should be retrievable from the registry"
+    );
+
+    let def = retrieved.unwrap();
+    match def {
+        TypeDef::Refined { base, constraint } => {
+            assert_eq!(
+                *base, STR_TYPE_ID,
+                "NonEmptyString base should be Str (TypeId 2)"
+            );
+            assert_eq!(
+                *constraint,
+                tc_types::RefConstraint::NonEmpty,
+                "NonEmptyString constraint should be RefConstraint::NonEmpty"
+            );
+        }
+        other => panic!("Expected TypeDef::Refined, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: TypeDef::Refined with NonEmpty survives JSON roundtrip
+// (serde Serialize → Deserialize).
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_refined_nonempty_json_roundtrip() {
+    let original = TypeDef::Refined {
+        base: STR_TYPE_ID,
+        constraint: tc_types::RefConstraint::NonEmpty,
+    };
+
+    // Serialize to JSON
+    let json =
+        serde_json::to_string(&original).expect("NonEmpty refined type should serialize to JSON");
+
+    // Deserialize back
+    let restored: TypeDef =
+        serde_json::from_str(&json).expect("NonEmpty refined type should deserialize from JSON");
+
+    assert_eq!(
+        original, restored,
+        "TypeDef::Refined with NonEmpty should survive JSON roundtrip"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: Two NonEmpty refined types are distinguishable from plain String.
+// A NonEmptyString TypeId should NOT equal the plain STR_TYPE_ID, and two
+// separately registered NonEmptyString types should have distinct TypeIds
+// (each registration creates a new entry).
+// RED PHASE: RefConstraint::NonEmpty does not exist yet — fails to compile.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_nonempty_distinguishable_from_plain_string() {
+    let mut registry = TypeRegistry::new();
+
+    let nonempty_id = register_refined_nonempty(&mut registry);
+
+    // The refined type ID must differ from the base Str type ID
+    assert_ne!(
+        nonempty_id, STR_TYPE_ID,
+        "NonEmptyString TypeId should differ from plain Str TypeId ({})",
+        STR_TYPE_ID
+    );
+
+    // Register a second NonEmptyString — should get a distinct TypeId
+    let nonempty_id_2 = register_refined_nonempty(&mut registry);
+    assert_ne!(
+        nonempty_id, nonempty_id_2,
+        "Two separately registered NonEmptyString types should have distinct TypeIds"
+    );
+
+    // Both should still be retrievable and have the NonEmpty constraint
+    for id in [nonempty_id, nonempty_id_2] {
+        let def = registry.get(id).expect("registered type should exist");
+        match def {
+            TypeDef::Refined { base, constraint } => {
+                assert_eq!(*base, STR_TYPE_ID, "base should be Str");
+                assert_eq!(
+                    *constraint,
+                    tc_types::RefConstraint::NonEmpty,
+                    "constraint should be NonEmpty"
+                );
+            }
+            other => panic!("Expected TypeDef::Refined, got {:?}", other),
+        }
+    }
+}

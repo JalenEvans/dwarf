@@ -75,6 +75,8 @@ pub enum Pat {
 pub enum RefConstraint {
     /// Range constraint: min..max (inclusive)
     Range { min: i64, max: i64 },
+    /// Non-empty constraint: string must not be empty
+    NonEmpty,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

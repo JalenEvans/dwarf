@@ -185,6 +185,19 @@ fn generate_refined_edge_cases(base: &Type, constraint: &RefConstraint) -> Vec<T
             }
             _ => vec![],
         },
+        RefConstraint::NonEmpty => match base {
+            Type::Named(name) if name == "String" => vec![
+                TestCase {
+                    description: "String empty".into(),
+                    value: LiteralValue::Str("".into()),
+                },
+                TestCase {
+                    description: "String len=1".into(),
+                    value: LiteralValue::Str("a".into()),
+                },
+            ],
+            _ => vec![],
+        },
     }
 }
 

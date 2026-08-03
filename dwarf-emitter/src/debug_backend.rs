@@ -371,6 +371,7 @@ impl EmitterBackend for DebugBackend {
                 let base_str = self.emit_type(base)?;
                 match constraint {
                     RefConstraint::Range { min, max } => Ok(format!("{base_str}({min}..{max})")),
+                    RefConstraint::NonEmpty => Ok(format!("{base_str}(nonempty)")),
                 }
             }
         }

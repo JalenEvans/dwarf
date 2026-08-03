@@ -61,6 +61,8 @@ pub struct VariantDef {
 pub enum RefConstraint {
     /// Range constraint: min..max (inclusive)
     Range { min: i64, max: i64 },
+    /// Non-empty constraint: string must not be empty
+    NonEmpty,
 }
 
 /// A resolved type definition stored in the TypeRegistry.

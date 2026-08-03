@@ -353,5 +353,6 @@ fn convert_ref_constraint(constraint: &dwarf_syntax::hir::RefConstraint) -> RefC
             min: *min,
             max: *max,
         },
+        dwarf_syntax::hir::RefConstraint::NonEmpty => RefConstraint::NonEmpty,
     }
 }

@@ -471,6 +471,25 @@ fn infer_call(
                 }
             }
         }
+
+        // NonEmpty string constraint check: if the parameter type is a refined
+        // String with a NonEmpty constraint, and the argument is a literal
+        // String, verify it is not empty.
+        if let Some(TypeDef::Refined {
+            constraint: RefConstraint::NonEmpty,
+            ..
+        }) = registry.get(resolved_param)
+        {
+            if let Expr::Literal {
+                value: LiteralValue::Str(s),
+                ..
+            } = arg
+            {
+                if s.is_empty() {
+                    return Err("empty string not allowed for NonEmptyString".to_string());
+                }
+            }
+        }
     }
 
     Ok(return_type)

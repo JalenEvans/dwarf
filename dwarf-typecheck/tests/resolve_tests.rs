@@ -754,6 +754,9 @@ fn test_resolve_refined_type_not_erased() {
                     assert_eq!(*min, 0);
                     assert_eq!(*max, 150);
                 }
+                dwarf_typecheck::types::RefConstraint::NonEmpty => {
+                    panic!("unexpected NonEmpty constraint");
+                }
             }
         }
         Some(TypeDef::Primitive(PrimitiveType::Int)) => {
