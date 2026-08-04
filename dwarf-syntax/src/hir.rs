@@ -335,6 +335,13 @@ pub enum Decl {
         name: String,
         fields: Vec<Field>,
         methods: Vec<Decl>,
+        implements: Vec<String>,
+        is_pub: bool,
+        span: Span,
+    },
+    Interface {
+        name: String,
+        methods: Vec<Decl>,
         is_pub: bool,
         span: Span,
     },

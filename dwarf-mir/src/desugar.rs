@@ -535,6 +535,10 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             // (Future work: lower to a synthetic getter function or global.)
             Decl::Const { .. } => None,
 
+            // Interface declarations are type-level — exclude from MIR for now.
+            // (Future work: lower to vtable/trait representation.)
+            Decl::Interface { .. } => None,
+
             // Function declarations pass through with desugared bodies.
             Decl::Function {
                 name,
@@ -559,6 +563,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 name,
                 fields,
                 methods: _,
+                implements: _,
                 is_pub,
                 span,
             } => Some(MirDecl::RecordDef {
@@ -1449,6 +1454,7 @@ mod tests {
                 },
             ],
             methods: vec![],
+            implements: vec![],
             is_pub: true,
             span: s,
         }];
@@ -1520,6 +1526,7 @@ mod tests {
                 name: "Point".into(),
                 fields: vec![],
                 methods: vec![],
+                implements: vec![],
                 is_pub: true,
                 span: s,
             },

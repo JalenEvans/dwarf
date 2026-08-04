@@ -110,6 +110,7 @@ fn test_record_def_decl_construction() {
             },
         ],
             methods: vec![],
+            implements: vec![],
             is_pub: false,
         span: Default::default(),
     };

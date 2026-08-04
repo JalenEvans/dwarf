@@ -74,12 +74,13 @@ impl Parser {
     }
 
     /// Panic-mode recovery: skip tokens until we reach a declaration
-    /// boundary (fn, type, import, extern, const, @, pub, or eof).
+    /// boundary (fn, type, interface, import, extern, const, @, pub, or eof).
     fn sync_to_declaration_boundary(&mut self) {
         while !self.is_at_end() {
             match &self.peek().kind {
                 TokenKind::Fn
                 | TokenKind::Type
+                | TokenKind::Interface
                 | TokenKind::Import
                 | TokenKind::Extern
                 | TokenKind::Const
@@ -197,6 +198,7 @@ impl Parser {
             TokenKind::Extern => self.parse_extern(is_pub),
             TokenKind::Const => self.parse_const(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
+            TokenKind::Interface => self.parse_interface(is_pub),
             TokenKind::Enum => self.parse_enum(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
@@ -365,10 +367,22 @@ impl Parser {
         let start = self.advance().span; // consume `type`
         let name = self.consume_ident("expected type name")?;
 
-        // Check for `type Name { ... }` syntax (without `=`)
+        // Optional `implements` clause: `type Name implements Foo, Bar { ... }`
+        let implements = if self.match_token(TokenKind::Implements) {
+            self.parse_implements_list()?
+        } else {
+            vec![]
+        };
+
+        // Check for `type Name { ... }` or `type Name implements ... { ... }` syntax (without `=`)
         if self.check(TokenKind::LBrace) {
             // Parse as a type body with fields and methods
-            return self.parse_type_body(name, start, is_pub);
+            return self.parse_type_body(name, start, is_pub, implements);
+        }
+
+        // If we parsed implements but there's no `{`, that's an error
+        if !implements.is_empty() {
+            return Err(self.error("expected '{' after implements clause"));
         }
 
         self.consume(TokenKind::Eq, "expected '=' after type name")?;
@@ -393,6 +407,16 @@ impl Parser {
                 span: Span::new(start.file_id, start.start, self.previous().span.end),
             })
         }
+    }
+
+    /// Parse a comma-separated list of interface names after `implements`.
+    fn parse_implements_list(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut names = Vec::new();
+        names.push(self.consume_ident("expected interface name after 'implements'")?);
+        while self.match_token(TokenKind::Comma) {
+            names.push(self.consume_ident("expected interface name after ','")?);
+        }
+        Ok(names)
     }
 
     /// Returns true when the current position looks like a union definition
@@ -566,6 +590,64 @@ impl Parser {
             type_params,
             is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an interface declaration: `interface Name { fn method(params) -> RetType ... }`.
+    /// Interface methods are signatures only — their body is an empty block.
+    fn parse_interface(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let start = self.advance().span; // consume `interface`
+        let name = self.consume_ident("expected interface name")?;
+        self.consume(TokenKind::LBrace, "expected '{' after interface name")?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let method = self.parse_interface_method()?;
+            methods.push(method);
+            // Allow optional comma/semicolon separator
+            self.match_token(TokenKind::Comma);
+        }
+
+        self.consume(TokenKind::RBrace, "expected '}' after interface body")?;
+
+        Ok(Decl::Interface {
+            name,
+            methods,
+            is_pub,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an interface method signature: `fn name(params) -> RetType`.
+    /// The body is an empty block (signatures have no implementation).
+    fn parse_interface_method(&mut self) -> Result<Decl, ParseError> {
+        let fn_start = self.advance().span; // consume `fn`
+        let name = self.consume_ident("expected method name")?;
+
+        self.consume(TokenKind::LParen, "expected '(' after method name")?;
+        let params = self.parse_method_params()?;
+        self.consume(TokenKind::RParen, "expected ')' after parameters")?;
+
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Interface methods have no body — use an empty block as placeholder.
+        let body = Expr::Block {
+            stmts: Vec::new(),
+            span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
+        };
+
+        Ok(Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            is_pub: false,
+            decorators: Vec::new(),
+            span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
         })
     }
 
@@ -860,6 +942,26 @@ impl Parser {
 
     fn parse_call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
+        
+        // Check for record construction: TypeName { field: value, ... }
+        // This must happen before the postfix loop to avoid ambiguity with blocks
+        if let Expr::Variable { name: _, span: var_span } = &expr {
+            if self.check(TokenKind::LBrace) && self.looks_like_record_construction() {
+                let start = var_span.start;
+                let file_id = var_span.file_id;
+                self.advance(); // consume '{'
+                let fields = self.parse_record_fields()?;
+                self.consume(TokenKind::RBrace, "expected '}' after record fields")?;
+                let end = self.previous().span.end;
+                expr = Expr::Record {
+                    fields,
+                    span: Span::new(file_id, start, end),
+                };
+                // Continue the loop to handle postfix operations on the record
+                // e.g., Point { x: 1 }.get_x()
+            }
+        }
+        
         loop {
             if self.match_token(TokenKind::LParen) {
                 let start = expr.span().start;
@@ -909,6 +1011,47 @@ impl Parser {
             }
         }
         Ok(expr)
+    }
+
+    /// Lookahead to determine if `{` starts a record construction vs a block.
+    /// Returns true if we see: `{}` (empty record) or `{ ident : ...` (field pattern).
+    fn looks_like_record_construction(&self) -> bool {
+        // Current token is `{`. Check what follows.
+        let pos = self.position;
+        if pos + 1 >= self.tokens.len() {
+            return false;
+        }
+        
+        // Empty record: `{ }`
+        if self.tokens[pos + 1].kind == TokenKind::RBrace {
+            return true;
+        }
+        
+        // Record with fields: `{ ident : ...`
+        if pos + 2 < self.tokens.len() {
+            if let TokenKind::Ident(_) = &self.tokens[pos + 1].kind {
+                if self.tokens[pos + 2].kind == TokenKind::Colon {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+
+    /// Parse comma-separated `field: expr` pairs for record construction.
+    fn parse_record_fields(&mut self) -> Result<Vec<(String, Expr)>, ParseError> {
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field_name = self.consume_ident("expected field name")?;
+            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            let value = self.parse_expression()?;
+            fields.push((field_name, value));
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(fields)
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
@@ -1572,6 +1715,7 @@ impl Parser {
         name: String,
         start: Span,
         is_pub: bool,
+        implements: Vec<String>,
     ) -> Result<Decl, ParseError> {
         self.advance(); // consume '{'
         let mut fields = Vec::new();
@@ -1602,6 +1746,7 @@ impl Parser {
             name,
             fields,
             methods,
+            implements,
             is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
