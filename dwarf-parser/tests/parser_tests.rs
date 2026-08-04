@@ -324,17 +324,22 @@ fn test_decorator_on_record_def() {
             assert_eq!(name, "Serializable");
             assert!(args.is_empty());
             match target.as_ref() {
-                Decl::RecordDef {
+                Decl::TypeDef {
                     name: record_name,
-                    fields,
+                    type_,
                     ..
                 } => {
                     assert_eq!(record_name, "TestResult");
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].name, "passed");
-                    assert_eq!(fields[1].name, "duration");
+                    match type_ {
+                        dwarf_syntax::hir::Type::Record(fields) => {
+                            assert_eq!(fields.len(), 2);
+                            assert_eq!(fields[0].0, "passed");
+                            assert_eq!(fields[1].0, "duration");
+                        }
+                        other => panic!("Expected Record type, got {:?}", other),
+                    }
                 }
-                other => panic!("Expected RecordDef target, got {:?}", other),
+                other => panic!("Expected TypeDef target, got {:?}", other),
             }
         }
         other => panic!("Expected Decorator, got {:?}", other),
@@ -1442,5 +1447,801 @@ fn test_parse_private_extern_visibility() {
             assert!(!is_pub, "extern without pub should have is_pub = false");
         }
         other => panic!("Expected Extern declaration, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// CONST DECLARATION PARSING (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because TokenKind::Const and
+// Decl::Const do not exist yet. They define the expected behavior for
+// const declarations: module-level immutable bindings with optional
+// type annotations.
+//
+// Expected Decl::Const shape:
+//   Decl::Const {
+//       name: String,          // e.g. "MAX_SIZE"
+//       value: Box<Expr>,      // the initializer expression
+//       type_: Option<Type>,   // optional type annotation
+//       is_pub: bool,          // visibility modifier
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_parse_const_int_literal() {
+    let tokens = tokenize("const x = 42");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const {
+            name,
+            value,
+            type_,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "x");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(42),
+                        ..
+                    }
+                ),
+                "Expected Int(42) literal, got {:?}",
+                value
+            );
+            assert!(type_.is_none(), "No type annotation expected");
+            assert!(!is_pub, "const without pub should have is_pub = false");
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_with_type_annotation() {
+    let tokens = tokenize("const x: Int = 42");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const {
+            name, value, type_, ..
+        } => {
+            assert_eq!(name, "x");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(42),
+                        ..
+                    }
+                ),
+                "Expected Int(42) literal, got {:?}",
+                value
+            );
+            assert!(
+                matches!(type_, Some(Type::Named(ref n)) if n == "Int"),
+                "Expected type annotation Named(\"Int\"), got {:?}",
+                type_
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_string_literal() {
+    let tokens = tokenize(r#"const greeting = "hello""#);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "greeting");
+            assert!(
+                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Str(ref s), .. } if s == "hello"),
+                "Expected Str(\"hello\") literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_float_literal() {
+    let tokens = tokenize("const pi = 3.14");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "pi");
+            assert!(
+                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Float(f), .. } if (f - 3.14).abs() < f64::EPSILON),
+                "Expected Float(3.14) literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_bool_literal() {
+    let tokens = tokenize("const enabled = true");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "enabled");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Bool(true),
+                        ..
+                    }
+                ),
+                "Expected Bool(true) literal, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_pub_visibility() {
+    let tokens = tokenize("pub const MAX_SIZE = 100");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const {
+            name,
+            value,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "MAX_SIZE");
+            assert!(
+                matches!(
+                    value.as_ref(),
+                    Expr::Literal {
+                        value: LiteralValue::Int(100),
+                        ..
+                    }
+                ),
+                "Expected Int(100) literal, got {:?}",
+                value
+            );
+            assert!(is_pub, "pub const should have is_pub = true");
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_with_expression_value() {
+    // const can have an expression as its value, not just a literal
+    let tokens = tokenize("const double = 21 * 2");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::Const { name, value, .. } => {
+            assert_eq!(name, "double");
+            assert!(
+                matches!(value.as_ref(), Expr::Binary { .. }),
+                "Expected Binary expression, got {:?}",
+                value
+            );
+        }
+        other => panic!("Expected Const declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_const_missing_value_errors() {
+    // `const x` without `= value` should produce a parse error
+    let tokens = tokenize("const x");
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(
+        !errors.is_empty(),
+        "Should error when const has no initializer value"
+    );
+}
+
+#[test]
+fn test_parse_const_missing_name_errors() {
+    // `const = 42` without a name should produce a parse error
+    let tokens = tokenize("const = 42");
+    let mut parser = Parser::new(tokens);
+    let (_decls, errors) = parser.parse();
+    assert!(!errors.is_empty(), "Should error when const has no name");
+}
+
+#[test]
+fn test_parse_multiple_const_declarations() {
+    let source = r#"
+        const MAX = 100
+        const MIN = 0
+        const NAME = "dwarf"
+    "#;
+    let tokens = tokenize(source);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors expected for multiple consts: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 3, "Should parse three const declarations");
+
+    // Verify each is a Const
+    for (i, decl) in decls.iter().enumerate() {
+        assert!(
+            matches!(decl, Decl::Const { .. }),
+            "decl[{}] should be Const, got {:?}",
+            i,
+            decl
+        );
+    }
+}
+
+#[test]
+fn test_parse_const_mixed_with_other_decls() {
+    let source = r#"
+        const VERSION = 1
+        fn main() { 42 }
+        const DEBUG = false
+    "#;
+    let tokens = tokenize(source);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 3, "Should parse three declarations");
+
+    assert!(matches!(&decls[0], Decl::Const { name, .. } if name == "VERSION"));
+    assert!(matches!(&decls[1], Decl::Function { name, .. } if name == "main"));
+    assert!(matches!(&decls[2], Decl::Const { name, .. } if name == "DEBUG"));
+}
+
+// ============================================================================
+// OPTIONAL CHAINING `?.` PARSING (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because:
+//   1. TokenKind::QuestionDot does not exist in the lexer
+//   2. Expr::OptionalAccess does not exist in the HIR
+//   3. The parser's postfix loop does not handle `?.`
+//
+// Expected Expr::OptionalAccess shape:
+//   Expr::OptionalAccess {
+//       obj: Box<Expr>,
+//       field: String,
+//       span: Span,
+//   }
+// ============================================================================
+
+/// Helper: extract the body expression from a single-function parse.
+/// Assumes `fn f() { <expr> }` and returns the inner expression.
+fn parse_fn_body(source: &str) -> Expr {
+    let tokens = tokenize(source);
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+    assert!(errors.is_empty(), "No parse errors expected: {:?}", errors);
+    assert_eq!(decls.len(), 1, "Should parse one declaration");
+
+    if let Decl::Function { body, .. } = &decls[0] {
+        if let Expr::Block { stmts, .. } = body {
+            assert!(!stmts.is_empty(), "Function body should not be empty");
+            if let Stmt::Expr(expr) = &stmts[0] {
+                return expr.clone();
+            }
+            panic!("Expected Stmt::Expr as last statement");
+        }
+        panic!("Expected Block body");
+    }
+    panic!("Expected Function declaration");
+}
+
+#[test]
+fn test_parse_optional_access_simple() {
+    // obj?.field  →  OptionalAccess { obj: Var("obj"), field: "field" }
+    let expr = parse_fn_body("fn f() { obj?.field }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert!(
+                matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                "obj should be Variable(\"obj\"), got {:?}",
+                obj
+            );
+            assert_eq!(field, "field", "field should be \"field\"");
+        }
+        other => panic!("Expected OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_value() {
+    // obj?.value  →  OptionalAccess { obj: Var("obj"), field: "value" }
+    let expr = parse_fn_body("fn f() { obj?.value }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+            assert_eq!(field, "value");
+        }
+        other => panic!("Expected OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_chained() {
+    // obj?.name?.first
+    // Should parse as:
+    //   OptionalAccess {
+    //     obj: OptionalAccess { obj: Var("obj"), field: "name" },
+    //     field: "first"
+    //   }
+    let expr = parse_fn_body("fn f() { obj?.name?.first }");
+    match &expr {
+        Expr::OptionalAccess { obj, field, .. } => {
+            assert_eq!(field, "first", "Outer field should be \"first\"");
+            match obj.as_ref() {
+                Expr::OptionalAccess {
+                    obj: inner_obj,
+                    field: inner_field,
+                    ..
+                } => {
+                    assert_eq!(inner_field, "name", "Inner field should be \"name\"");
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Innermost obj should be Variable(\"obj\")"
+                    );
+                }
+                other => panic!("Expected inner OptionalAccess, got {:?}", other),
+            }
+        }
+        other => panic!("Expected outer OptionalAccess, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_regular_member_access_still_works() {
+    // obj.field (without ?) should still parse as Member, not OptionalAccess
+    let expr = parse_fn_body("fn f() { obj.field }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+            assert_eq!(field, "field");
+        }
+        other => panic!("Expected Member (not OptionalAccess), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_followed_by_call() {
+    // obj?.method()  — optional access followed by function call
+    // Should parse as: Call { func: OptionalAccess { obj: Var("obj"), field: "method" }, args: [] }
+    let expr = parse_fn_body("fn f() { obj?.method() }");
+    match &expr {
+        Expr::Call { func, args, .. } => {
+            assert!(args.is_empty(), "method() should have no args");
+            match func.as_ref() {
+                Expr::OptionalAccess { obj, field, .. } => {
+                    assert!(
+                        matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "obj should be Variable(\"obj\")"
+                    );
+                    assert_eq!(field, "method", "field should be \"method\"");
+                }
+                other => panic!("Expected OptionalAccess as callee, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Call expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_optional_access_mixed_with_regular() {
+    // obj?.a.b  — optional access then regular member
+    // Should parse as: Member { obj: OptionalAccess { obj: Var("obj"), field: "a" }, field: "b" }
+    let expr = parse_fn_body("fn f() { obj?.a.b }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert_eq!(field, "b", "Outer field should be \"b\"");
+            match obj.as_ref() {
+                Expr::OptionalAccess {
+                    obj: inner_obj,
+                    field: inner_field,
+                    ..
+                } => {
+                    assert_eq!(inner_field, "a", "Inner field should be \"a\"");
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Innermost obj should be Variable(\"obj\")"
+                    );
+                }
+                other => panic!("Expected OptionalAccess as inner, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Member expr, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Non-null assertion `!` postfix tests (DWARF-72 Chunk C — RED Phase)
+//
+// These tests will FAIL to compile because Expr::NonNullAssert does not exist
+// in the HIR yet. The `!` token already exists as a prefix `Not` operator.
+// We need to add postfix `!` (non-null assertion) that strips the nullable
+// wrapper. In the parser's postfix loop, when `!` appears after an expression,
+// it produces `Expr::NonNullAssert { expr, span }`.
+//
+// Expected Expr::NonNullAssert shape:
+//   Expr::NonNullAssert {
+//       expr: Box<Expr>,
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_parse_non_null_assert_simple() {
+    // x!  →  NonNullAssert { expr: Var("x") }
+    let expr = parse_fn_body("fn f() { x! }");
+    match &expr {
+        Expr::NonNullAssert { expr: inner, .. } => {
+            assert!(
+                matches!(inner.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                "Inner expr should be Variable(\"x\"), got {:?}",
+                inner
+            );
+        }
+        other => panic!("Expected NonNullAssert expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_non_null_assert_then_member_access() {
+    // obj!.field  — non-null assertion followed by member access
+    // Should parse as: Member { obj: NonNullAssert { obj: Var("obj") }, field: "field" }
+    let expr = parse_fn_body("fn f() { obj!.field }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert_eq!(field, "field", "field should be \"field\"");
+            match obj.as_ref() {
+                Expr::NonNullAssert {
+                    expr: inner_obj, ..
+                } => {
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Inner obj should be Variable(\"obj\"), got {:?}",
+                        inner_obj
+                    );
+                }
+                other => panic!("Expected NonNullAssert as obj, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Member expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_non_null_assert_double() {
+    // x!!  — double non-null assertion (should parse)
+    // Should parse as: NonNullAssert { expr: NonNullAssert { expr: Var("x") } }
+    let expr = parse_fn_body("fn f() { x!! }");
+    match &expr {
+        Expr::NonNullAssert { expr: outer, .. } => match outer.as_ref() {
+            Expr::NonNullAssert { expr: inner, .. } => {
+                assert!(
+                    matches!(inner.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                    "Innermost expr should be Variable(\"x\"), got {:?}",
+                    inner
+                );
+            }
+            other => panic!("Expected inner NonNullAssert, got {:?}", other),
+        },
+        other => panic!("Expected outer NonNullAssert expr, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// ENUM KEYWORD PARSING (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because TokenKind::Enum does not exist
+// in the lexer, and the parser has no handling for `enum` syntax.
+//
+// `enum` is syntactic sugar for union types. The parser should desugar:
+//   `enum Color { Red, Green, Blue }`
+// into the same HIR as:
+//   `type Color = Red | Green | Blue`  →  Decl::UnionDef
+//
+// Expected behavior:
+//   - `enum Name { Var1, Var2, ... }` → Decl::UnionDef with unit variants
+//   - `enum Name { Var1(T), Var2 }`   → Decl::UnionDef with payload variants
+//   - `pub enum Name { ... }`          → Decl::UnionDef with is_pub = true
+//   - `enum Name<T> { ... }`           → Decl::UnionDef with type_params
+// ============================================================================
+
+#[test]
+fn test_parse_enum_basic_desugars_to_union() {
+    // `enum Color { Red, Green, Blue }` should produce the same HIR as
+    // `type Color = Red | Green | Blue`
+    let enum_tokens = tokenize("enum Color { Red, Green, Blue }");
+    let mut enum_parser = Parser::new(enum_tokens);
+    let (enum_decls, enum_errors) = enum_parser.parse();
+
+    assert!(
+        enum_errors.is_empty(),
+        "No errors for enum: {:?}",
+        enum_errors
+    );
+    assert_eq!(enum_decls.len(), 1);
+
+    let union_tokens = tokenize("type Color = Red | Green | Blue");
+    let mut union_parser = Parser::new(union_tokens);
+    let (union_decls, union_errors) = union_parser.parse();
+    assert!(union_errors.is_empty());
+    assert_eq!(union_decls.len(), 1);
+
+    // Both should produce Decl::UnionDef with identical structure
+    match (&enum_decls[0], &union_decls[0]) {
+        (
+            Decl::UnionDef {
+                name: enum_name,
+                variants: enum_variants,
+                is_pub: enum_pub,
+                ..
+            },
+            Decl::UnionDef {
+                name: union_name,
+                variants: union_variants,
+                is_pub: union_pub,
+                ..
+            },
+        ) => {
+            assert_eq!(enum_name, union_name);
+            assert_eq!(enum_name, "Color");
+            assert_eq!(enum_variants.len(), union_variants.len());
+            assert_eq!(enum_variants.len(), 3);
+            assert_eq!(enum_pub, union_pub);
+
+            // Check variant names match
+            assert_eq!(enum_variants[0].name, "Red");
+            assert_eq!(enum_variants[1].name, "Green");
+            assert_eq!(enum_variants[2].name, "Blue");
+
+            // All unit variants — no payloads
+            assert!(enum_variants[0].arg.is_none());
+            assert!(enum_variants[1].arg.is_none());
+            assert!(enum_variants[2].arg.is_none());
+        }
+        (enum_decl, union_decl) => panic!(
+            "Expected both to be UnionDef, got enum={:?}, union={:?}",
+            enum_decl, union_decl
+        ),
+    }
+}
+
+#[test]
+fn test_parse_enum_status_variants() {
+    // `enum Status { Active, Inactive }` — correct variant names
+    let tokens = tokenize("enum Status { Active, Inactive }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for enum: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Status");
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Active");
+            assert_eq!(variants[1].name, "Inactive");
+            assert!(variants[0].arg.is_none());
+            assert!(variants[1].arg.is_none());
+        }
+        other => panic!("Expected UnionDef from enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_pub_enum_visibility() {
+    // `pub enum Direction { North, South, East, West }` — pub visibility
+    let tokens = tokenize("pub enum Direction { North, South, East, West }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for pub enum: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            variants,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "Direction");
+            assert!(is_pub, "pub enum should have is_pub = true");
+            assert_eq!(variants.len(), 4);
+            assert_eq!(variants[0].name, "North");
+            assert_eq!(variants[1].name, "South");
+            assert_eq!(variants[2].name, "East");
+            assert_eq!(variants[3].name, "West");
+        }
+        other => panic!("Expected UnionDef from pub enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_private_enum_default_visibility() {
+    // `enum` without `pub` should have is_pub = false
+    let tokens = tokenize("enum Color { Red, Green, Blue }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { is_pub, .. } => {
+            assert!(!is_pub, "enum without pub should have is_pub = false");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_with_payload_variants() {
+    // `enum Option<T> { Some(T), None }` — generic enum with payload variants
+    // This requires type_params on UnionDef
+    let tokens = tokenize("enum Option<T> { Some(T), None }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors for generic enum: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            variants,
+            type_params,
+            ..
+        } => {
+            assert_eq!(name, "Option");
+            assert_eq!(type_params.len(), 1, "Should have one type param");
+            assert_eq!(type_params[0], "T");
+
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Some");
+            assert!(
+                variants[0].arg.is_some(),
+                "Some should have a payload of type T"
+            );
+            // The payload should be Named("T")
+            match &variants[0].arg {
+                Some(Type::Named(n)) => assert_eq!(n, "T"),
+                other => panic!("Expected Named(\"T\") payload, got {:?}", other),
+            }
+
+            assert_eq!(variants[1].name, "None");
+            assert!(variants[1].arg.is_none(), "None should have no payload");
+        }
+        other => panic!("Expected UnionDef from generic enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_multiple_type_params() {
+    // `enum Result<T, E> { Ok(T), Err(E) }` — multiple type params
+    let tokens = tokenize("enum Result<T, E> { Ok(T), Err(E) }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(name, "Result");
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(type_params[0], "T");
+            assert_eq!(type_params[1], "E");
+
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Ok");
+            assert!(variants[0].arg.is_some());
+            assert_eq!(variants[1].name, "Err");
+            assert!(variants[1].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_single_variant() {
+    // Edge case: single variant enum
+    let tokens = tokenize("enum Wrapper { Wrapped(i32) }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Wrapper");
+            assert_eq!(variants.len(), 1);
+            assert_eq!(variants[0].name, "Wrapped");
+            assert!(variants[0].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_mixed_unit_and_payload_variants() {
+    // `enum Value { Int(i32), Str(String), Bool(bool), Null }`
+    let tokens = tokenize("enum Value { Int(i32), Str(String), Bool(bool), Null }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Value");
+            assert_eq!(variants.len(), 4);
+
+            assert_eq!(variants[0].name, "Int");
+            assert!(variants[0].arg.is_some());
+
+            assert_eq!(variants[1].name, "Str");
+            assert!(variants[1].arg.is_some());
+
+            assert_eq!(variants[2].name, "Bool");
+            assert!(variants[2].arg.is_some());
+
+            assert_eq!(variants[3].name, "Null");
+            assert!(variants[3].arg.is_none(), "Null should be a unit variant");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
     }
 }

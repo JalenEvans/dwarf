@@ -74,7 +74,7 @@ impl Parser {
     }
 
     /// Panic-mode recovery: skip tokens until we reach a declaration
-    /// boundary (fn, type, import, extern, @, pub, or eof).
+    /// boundary (fn, type, import, extern, const, @, pub, or eof).
     fn sync_to_declaration_boundary(&mut self) {
         while !self.is_at_end() {
             match &self.peek().kind {
@@ -82,6 +82,8 @@ impl Parser {
                 | TokenKind::Type
                 | TokenKind::Import
                 | TokenKind::Extern
+                | TokenKind::Const
+                | TokenKind::Enum
                 | TokenKind::At
                 | TokenKind::Pub => return,
                 _ => {
@@ -193,7 +195,9 @@ impl Parser {
             TokenKind::Import => self.parse_import(is_pub),
             TokenKind::Fn => self.parse_function(is_pub),
             TokenKind::Extern => self.parse_extern(is_pub),
+            TokenKind::Const => self.parse_const(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
+            TokenKind::Enum => self.parse_enum(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
                 // function so the top-level parse produces at least one decl.
@@ -305,6 +309,34 @@ impl Parser {
         })
     }
 
+    /// Parse a const declaration: `const name: Type = value` or `const name = value`
+    fn parse_const(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let const_start = self.advance().span; // consume `const`
+        let name = self.consume_ident("expected constant name")?;
+
+        // Optional type annotation: `: Type`
+        let type_ = if self.match_token(TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.consume(TokenKind::Eq, "expected '=' after constant name")?;
+        let value = self.parse_expression()?;
+
+        Ok(Decl::Const {
+            name,
+            value: Box::new(value),
+            type_,
+            is_pub,
+            span: Span::new(
+                const_start.file_id,
+                const_start.start,
+                self.previous().span.end,
+            ),
+        })
+    }
+
     /// Parse a comma-separated list of parameters inside `(...)`.
     fn parse_params(&mut self) -> Result<Vec<Param>, ParseError> {
         let mut params = Vec::new();
@@ -333,7 +365,14 @@ impl Parser {
         self.consume(TokenKind::Eq, "expected '=' after type name")?;
 
         if self.check(TokenKind::LBrace) {
-            self.parse_record_def(name, start, is_pub)
+            // Parse as a type alias with a record type
+            let type_ = self.parse_record_type()?;
+            Ok(Decl::TypeDef {
+                name,
+                type_,
+                is_pub,
+                span: Span::new(start.file_id, start.start, self.previous().span.end),
+            })
         } else if self.is_at_union_start() {
             self.parse_union_def(name, start, is_pub)
         } else {
@@ -417,34 +456,6 @@ impl Parser {
         false
     }
 
-    /// Parse a record definition: `type Name = { field: Type, ... }`.
-    fn parse_record_def(
-        &mut self,
-        name: String,
-        start: Span,
-        is_pub: bool,
-    ) -> Result<Decl, ParseError> {
-        self.advance(); // consume '{'
-        let mut fields = Vec::new();
-        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
-            let field_name = self.consume_ident("expected field name")?;
-            self.consume(TokenKind::Colon, "expected ':' after field name")?;
-            let field_type = self.parse_type()?;
-            fields.push(Field {
-                name: field_name,
-                type_: field_type,
-            });
-            self.match_token(TokenKind::Comma);
-        }
-        self.consume(TokenKind::RBrace, "expected '}' after record fields")?;
-        Ok(Decl::RecordDef {
-            name,
-            fields,
-            is_pub,
-            span: Span::new(start.file_id, start.start, self.previous().span.end),
-        })
-    }
-
     /// Parse a union definition: `type Name = Variant(Type) | Variant2 | ...`.
     fn parse_union_def(
         &mut self,
@@ -495,6 +506,55 @@ impl Parser {
         Ok(Decl::UnionDef {
             name,
             variants,
+            type_params: vec![],
+            is_pub,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an enum definition: `enum Name<T, U> { Var1, Var2(Type), ... }`.
+    /// Desugars to `Decl::UnionDef` with optional `type_params`.
+    fn parse_enum(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let start = self.advance().span; // consume `enum`
+        let name = self.consume_ident("expected enum name")?;
+
+        // Optional generic type params: <T, U, ...>
+        let type_params = if self.match_token(TokenKind::Lt) {
+            let mut params = Vec::new();
+            while !self.check(TokenKind::Gt) && !self.is_at_end() {
+                params.push(self.consume_ident("expected type parameter name")?);
+                self.match_token(TokenKind::Comma);
+            }
+            self.consume(TokenKind::Gt, "expected '>' after enum type parameters")?;
+            params
+        } else {
+            vec![]
+        };
+
+        self.consume(TokenKind::LBrace, "expected '{' after enum name")?;
+
+        let mut variants = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let var_name = self.consume_ident("expected variant name")?;
+            let arg = if self.match_token(TokenKind::LParen) {
+                let arg_type = self.parse_type()?;
+                self.consume(TokenKind::RParen, "expected ')' after variant arg")?;
+                Some(arg_type)
+            } else {
+                None
+            };
+            variants.push(Variant {
+                name: var_name,
+                arg,
+            });
+            self.match_token(TokenKind::Comma);
+        }
+        self.consume(TokenKind::RBrace, "expected '}' after enum variants")?;
+
+        Ok(Decl::UnionDef {
+            name,
+            variants,
+            type_params,
             is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })
@@ -744,10 +804,26 @@ impl Parser {
                     field,
                     span: Span::new(file_id, start, self.previous().span.end),
                 };
+            } else if self.match_token(TokenKind::QuestionDot) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
+                let field = self.consume_ident("expected field name after '?.'")?;
+                expr = Expr::OptionalAccess {
+                    obj: Box::new(expr),
+                    field,
+                    span: Span::new(file_id, start, self.previous().span.end),
+                };
             } else if self.match_token(TokenKind::Question) {
                 let start = expr.span().start;
                 let file_id = expr.span().file_id;
                 expr = Expr::Propagate {
+                    expr: Box::new(expr),
+                    span: Span::new(file_id, start, self.previous().span.end),
+                };
+            } else if self.match_token(TokenKind::Bang) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
+                expr = Expr::NonNullAssert {
                     expr: Box::new(expr),
                     span: Span::new(file_id, start, self.previous().span.end),
                 };
@@ -964,13 +1040,8 @@ impl Parser {
     fn parse_for_expr(&mut self) -> Result<Expr, ParseError> {
         let start = self.advance().span; // consume 'for'
         let binding = self.parse_pattern()?;
-        // 'in' is lexed as an identifier, not a keyword
-        match &self.peek().kind {
-            TokenKind::Ident(name) if name == "in" => {
-                self.advance();
-            }
-            _ => return Err(self.error("expected 'in'")),
-        }
+        // 'in' is now a keyword token
+        self.consume(TokenKind::In, "expected 'in'")?;
         let iterable = self.parse_expression()?;
         let body = self.parse_block()?;
         Ok(Expr::For {
@@ -1232,10 +1303,40 @@ impl Parser {
             });
         }
 
+        let base = self.parse_primary_type()?;
+        let result = self.parse_union_suffix(base);
+        self.depth -= 1;
+        result
+    }
+
+    /// Parse a primary type (no union suffix).
+    /// Handles: keyof prefix, indexed access postfix, record, func, named (with refinement/generic).
+    fn parse_primary_type(&mut self) -> Result<Type, ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            self.depth -= 1;
+            return Err(ParseError {
+                message: "recursion depth limit exceeded".to_string(),
+                span: self.peek().span,
+                code: "DWARF-E-PARSE-0004",
+            });
+        }
+
+        // keyof binds tighter than indexed access — check prefix before base type parsing
+        if self.check(TokenKind::KeyOf) {
+            self.advance(); // consume 'keyof'
+            let inner = self.parse_primary_type()?;
+            let inner = self.parse_indexed_access_suffix(inner)?;
+            self.depth -= 1;
+            return Ok(Type::KeyOf(Box::new(inner)));
+        }
+
         if self.check(TokenKind::LBrace) {
             let result = self.parse_record_type();
+            let result = result?;
+            let result = self.parse_indexed_access_suffix(result)?;
             self.depth -= 1;
-            return result;
+            return Ok(result);
         }
         if self.check(TokenKind::LParen) {
             let result = self.parse_func_type();
@@ -1243,16 +1344,15 @@ impl Parser {
             return result;
         }
 
-        // Simple named type, possibly with generics and/or union suffix.
+        // Simple named type, possibly with generics and/or indexed access.
         let name = self.consume_ident("expected type name")?;
 
         // Try refinement type: Name(min..max)
         if let Some(result) = self.try_parse_refinement(name.clone()) {
             let refined = result?;
-            // Refined types can also have union suffix: Int(0..100) | Null
-            let result = self.parse_union_suffix(refined);
+            let result = self.parse_indexed_access_suffix(refined)?;
             self.depth -= 1;
-            return result;
+            return Ok(result);
         }
 
         // Generic args: Type<T>
@@ -1264,17 +1364,39 @@ impl Parser {
             }
             self.consume(TokenKind::Gt, "expected '>' after generic args")?;
             let base_type = Type::Generic { base: name, args };
-
-            // Union suffix: Type<A> | B
-            let result = self.parse_union_suffix(base_type);
+            let result = self.parse_indexed_access_suffix(base_type)?;
             self.depth -= 1;
-            return result;
+            return Ok(result);
         }
 
-        // Union suffix: Type1 | Type2
-        let result = self.parse_union_suffix(Type::Named(name));
+        // Plain named type with possible indexed access
+        let base = Type::Named(name);
+        let result = self.parse_indexed_access_suffix(base)?;
         self.depth -= 1;
-        result
+        Ok(result)
+    }
+
+    /// Parse zero or more indexed access suffixes: T["key1"]["key2"]...
+    fn parse_indexed_access_suffix(&mut self, base: Type) -> Result<Type, ParseError> {
+        let mut current = base;
+        while self.check(TokenKind::LBracket) {
+            // Peek ahead to confirm this is ["string"] indexed access
+            if self.position + 2 < self.tokens.len()
+                && matches!(&self.tokens[self.position + 1].kind, TokenKind::Str(_))
+                && matches!(&self.tokens[self.position + 2].kind, TokenKind::RBracket)
+            {
+                self.advance(); // consume '['
+                let key = self.consume_str("expected string key in indexed access")?;
+                self.consume(TokenKind::RBracket, "expected ']' after indexed access key")?;
+                current = Type::IndexedAccess {
+                    obj: Box::new(current),
+                    key,
+                };
+            } else {
+                break;
+            }
+        }
+        Ok(current)
     }
 
     /// If the next token is `|`, parse additional union type members and
@@ -1918,31 +2040,36 @@ mod tests {
         assert!(errors.is_empty());
         assert_eq!(program.len(), 1);
         match &program[0] {
-            Decl::RecordDef { name, fields, .. } => {
+            Decl::TypeDef { name, type_, .. } => {
                 assert_eq!(name, "Person");
-                assert_eq!(fields.len(), 2);
+                match type_ {
+                    Type::Record(fields) => {
+                        assert_eq!(fields.len(), 2);
 
-                // age field: Int(0..150)
-                assert_eq!(fields[0].name, "age");
-                assert_eq!(
-                    fields[0].type_,
-                    Type::Refined {
-                        base: Box::new(Type::Named("Int".to_string())),
-                        constraint: RefConstraint::Range { min: 0, max: 150 },
-                    }
-                );
+                        // age field: Int(0..150)
+                        assert_eq!(fields[0].0, "age");
+                        assert_eq!(
+                            *fields[0].1,
+                            Type::Refined {
+                                base: Box::new(Type::Named("Int".to_string())),
+                                constraint: RefConstraint::Range { min: 0, max: 150 },
+                            }
+                        );
 
-                // name field: String(1..100)
-                assert_eq!(fields[1].name, "name");
-                assert_eq!(
-                    fields[1].type_,
-                    Type::Refined {
-                        base: Box::new(Type::Named("String".to_string())),
-                        constraint: RefConstraint::Range { min: 1, max: 100 },
+                        // name field: String(1..100)
+                        assert_eq!(fields[1].0, "name");
+                        assert_eq!(
+                            *fields[1].1,
+                            Type::Refined {
+                                base: Box::new(Type::Named("String".to_string())),
+                                constraint: RefConstraint::Range { min: 1, max: 100 },
+                            }
+                        );
                     }
-                );
+                    other => panic!("Expected Type::Record, got {other:?}"),
+                }
             }
-            other => panic!("Expected RecordDef declaration, got {other:?}"),
+            other => panic!("Expected TypeDef declaration, got {other:?}"),
         }
     }
 

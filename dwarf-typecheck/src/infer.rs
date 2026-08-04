@@ -10,7 +10,9 @@ use dwarf_syntax::hir::{BinaryOp, Expr, LiteralValue, MatchArm, Param, Pat, Stmt
 
 use crate::compat;
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID};
+use crate::types::{
+    FieldDef, RefConstraint, TypeDef, TypeId, ANY_TYPE_ID, NEVER_TYPE_ID, STR_TYPE_ID,
+};
 
 /// Type environment mapping variable names to their inferred types.
 #[derive(Debug, Clone)]
@@ -91,6 +93,12 @@ fn resolve_hir_type_param(hir_type: &HirType) -> Result<TypeId, String> {
             Err("function types are not supported in parameter annotations".to_string())
         }
         HirType::Refined { base, .. } => resolve_hir_type_param(base),
+        HirType::KeyOf(_) => {
+            Err("keyof types are not yet supported in parameter annotations".to_string())
+        }
+        HirType::IndexedAccess { .. } => {
+            Err("indexed access types are not yet supported in parameter annotations".to_string())
+        }
     }
 }
 
@@ -141,6 +149,9 @@ pub fn infer_expr(
         // 10. Member access
         Expr::Member { obj, field, .. } => infer_member_access(obj, field, env, registry),
 
+        // 10b. Optional member access (obj?.field)
+        Expr::OptionalAccess { obj, field, .. } => infer_optional_access(obj, field, env, registry),
+
         // 11. Match expressions
         Expr::Match { expr, arms, .. } => infer_match(expr, arms, env, registry),
 
@@ -158,6 +169,9 @@ pub fn infer_expr(
 
         // 16. Propagate expressions (?expr)
         Expr::Propagate { expr, .. } => infer_propagate(expr, env, registry),
+
+        // 17. Non-null assertion expressions (expr!)
+        Expr::NonNullAssert { expr, .. } => infer_non_null_assert(expr, env, registry),
 
         // 17. For loop expressions (for x in iterable { body })
         Expr::For {
@@ -446,6 +460,48 @@ fn infer_call(
                 i, param_type, arg_type
             ));
         }
+
+        // Refinement constraint check: if the parameter type is a refined Int
+        // with a Range constraint, and the argument is a literal Int, verify
+        // the literal value falls within the allowed range.
+        let resolved_param = registry.resolve(*param_type);
+        if let Some(TypeDef::Refined {
+            constraint: RefConstraint::Range { min, max },
+            ..
+        }) = registry.get(resolved_param)
+        {
+            if let Expr::Literal {
+                value: LiteralValue::Int(v),
+                ..
+            } = arg
+            {
+                if *v < *min || *v > *max {
+                    return Err(format!(
+                        "value {} is outside the allowed range {}..{}",
+                        v, min, max
+                    ));
+                }
+            }
+        }
+
+        // NonEmpty string constraint check: if the parameter type is a refined
+        // String with a NonEmpty constraint, and the argument is a literal
+        // String, verify it is not empty.
+        if let Some(TypeDef::Refined {
+            constraint: RefConstraint::NonEmpty,
+            ..
+        }) = registry.get(resolved_param)
+        {
+            if let Expr::Literal {
+                value: LiteralValue::Str(s),
+                ..
+            } = arg
+            {
+                if s.is_empty() {
+                    return Err("empty string not allowed for NonEmptyString".to_string());
+                }
+            }
+        }
     }
 
     Ok(return_type)
@@ -496,6 +552,57 @@ fn infer_member_access(
             .map(|f| f.type_id)
             .ok_or_else(|| format!("record has no field named '{}'", field)),
         _ => Err("member access on non-record type".to_string()),
+    }
+}
+
+/// Infer the type of an optional member access expression (e.g. `user?.name`).
+///
+/// If the object is an Option<T>, unwraps to get the inner type and looks up
+/// the field. Returns the field type directly (not wrapped in Option).
+/// If the object is not an Option, behaves like regular member access.
+fn infer_optional_access(
+    obj: &Expr,
+    field: &str,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    use crate::types::OPTION_TYPE_ID;
+
+    let obj_type_id = infer_expr(obj, env, registry)?;
+
+    let obj_def = registry
+        .get(obj_type_id)
+        .ok_or_else(|| format!("unknown type ID: {}", obj_type_id))?;
+
+    // Check if the object is an Option<T>
+    match obj_def {
+        TypeDef::GenericInstance { base, args } if *base == OPTION_TYPE_ID => {
+            // Unwrap the Option to get the inner type
+            if args.is_empty() {
+                return Err("Option type has no type arguments".to_string());
+            }
+            let inner_type_id = args[0];
+            let inner_def = registry
+                .get(inner_type_id)
+                .ok_or_else(|| format!("unknown type ID: {}", inner_type_id))?;
+
+            // Look up the field in the inner type and return it directly
+            match inner_def {
+                TypeDef::Record(fields) => fields
+                    .iter()
+                    .find(|f| f.name == field)
+                    .map(|f| f.type_id)
+                    .ok_or_else(|| format!("record has no field named '{}'", field)),
+                _ => Err("optional member access on non-record type".to_string()),
+            }
+        }
+        // If not an Option, behave like regular member access
+        TypeDef::Record(fields) => fields
+            .iter()
+            .find(|f| f.name == field)
+            .map(|f| f.type_id)
+            .ok_or_else(|| format!("record has no field named '{}'", field)),
+        _ => Err("optional member access on non-record type".to_string()),
     }
 }
 
@@ -734,6 +841,61 @@ fn infer_propagate(
         }
         Some(_) => Err("Propagate target must be a union type (Result/Option)".to_string()),
         None => Err("Propagate target type not found".to_string()),
+    }
+}
+
+/// Infer the type of a non-null assertion expression `expr!`.
+///
+/// The non-null assertion operator unwraps an `Option<T>` or removes `Null`
+/// from a union type:
+/// 1. Infer the inner `expr` type.
+/// 2. Look it up — if it's a `GenericInstance` with base == Option base,
+///    extract the inner type `T` from the args.
+/// 3. If it's a `Union`, filter out the `Null` variant and return the
+///    remaining union (or the single type if only one remains).
+/// 4. Otherwise, pass through the type as-is (no error).
+fn infer_non_null_assert(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let inner_type = infer_expr(expr, env, registry)?;
+    let resolved = registry.resolve(inner_type);
+
+    // Get the option base type ID for comparison
+    let option_base = registry.get_or_create_option_base();
+
+    match registry.get(resolved) {
+        Some(TypeDef::GenericInstance { base, args }) if *base == option_base => {
+            // Option<T> -> T
+            if let Some(inner) = args.first() {
+                Ok(*inner)
+            } else {
+                Err("Option type must have exactly one type argument".to_string())
+            }
+        }
+        Some(TypeDef::Union(variants)) => {
+            // Filter out Null variants
+            let non_null_variants: Vec<_> = variants
+                .iter()
+                .filter(|v| v.name != "Null")
+                .cloned()
+                .collect();
+
+            if non_null_variants.is_empty() {
+                Err("Cannot assert non-null on a type that is only Null".to_string())
+            } else if non_null_variants.len() == 1 {
+                // Single variant left, return its type directly
+                Ok(non_null_variants[0].type_id.unwrap_or(4)) // 4 = Null type ID as fallback
+            } else {
+                // Multiple variants left, create a new union
+                Ok(registry.register_anonymous_union(non_null_variants))
+            }
+        }
+        _ => {
+            // Not an Option or Union, pass through as-is
+            Ok(inner_type)
+        }
     }
 }
 

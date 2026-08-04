@@ -94,6 +94,12 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    OptionalAccess {
+        obj: Box<LirExpr>,
+        field: String,
+        hint: TargetHint,
+        span: Span,
+    },
     If {
         cond: Box<LirExpr>,
         then: Box<LirExpr>,
@@ -192,6 +198,12 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    /// Non-null assertion operator (`!`).
+    NonNullAssert {
+        expr: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
 }
 
 impl LirExpr {
@@ -202,6 +214,7 @@ impl LirExpr {
             | LirExpr::Variable { span, .. }
             | LirExpr::Call { span, .. }
             | LirExpr::Member { span, .. }
+            | LirExpr::OptionalAccess { span, .. }
             | LirExpr::If { span, .. }
             | LirExpr::Match { span, .. }
             | LirExpr::Block { span, .. }
@@ -217,7 +230,8 @@ impl LirExpr {
             | LirExpr::AssertConsistent { span, .. }
             | LirExpr::Try { span, .. }
             | LirExpr::Throw { span, .. }
-            | LirExpr::Propagate { span, .. } => *span,
+            | LirExpr::Propagate { span, .. }
+            | LirExpr::NonNullAssert { span, .. } => *span,
         }
     }
 
@@ -228,6 +242,7 @@ impl LirExpr {
             | LirExpr::Variable { hint, .. }
             | LirExpr::Call { hint, .. }
             | LirExpr::Member { hint, .. }
+            | LirExpr::OptionalAccess { hint, .. }
             | LirExpr::If { hint, .. }
             | LirExpr::Match { hint, .. }
             | LirExpr::Block { hint, .. }
@@ -243,7 +258,8 @@ impl LirExpr {
             | LirExpr::AssertConsistent { hint, .. }
             | LirExpr::Try { hint, .. }
             | LirExpr::Throw { hint, .. }
-            | LirExpr::Propagate { hint, .. } => hint.clone(),
+            | LirExpr::Propagate { hint, .. }
+            | LirExpr::NonNullAssert { hint, .. } => hint.clone(),
         }
     }
 }

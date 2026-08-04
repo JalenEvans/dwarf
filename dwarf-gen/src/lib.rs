@@ -22,6 +22,8 @@ pub fn generate_edge_cases(ty: &Type) -> Vec<TestCase> {
         Type::Record(fields) => generate_record_edge_cases(fields),
         Type::Union(variants) => generate_union_edge_cases(variants),
         Type::Func { .. } => vec![],
+        Type::KeyOf(_) => vec![],
+        Type::IndexedAccess { .. } => vec![],
     }
 }
 
@@ -185,6 +187,19 @@ fn generate_refined_edge_cases(base: &Type, constraint: &RefConstraint) -> Vec<T
             }
             _ => vec![],
         },
+        RefConstraint::NonEmpty => match base {
+            Type::Named(name) if name == "String" => vec![
+                TestCase {
+                    description: "String empty".into(),
+                    value: LiteralValue::Str("".into()),
+                },
+                TestCase {
+                    description: "String len=1".into(),
+                    value: LiteralValue::Str("a".into()),
+                },
+            ],
+            _ => vec![],
+        },
     }
 }
 
@@ -262,6 +277,10 @@ fn type_display_name(ty: &Type) -> String {
         Type::Record(_) => "Record".into(),
         Type::Union(_) => "Union".into(),
         Type::Func { .. } => "Func".into(),
+        Type::KeyOf(inner) => format!("KeyOf({})", type_display_name(inner)),
+        Type::IndexedAccess { obj, key } => {
+            format!("{}[\"{}\"]", type_display_name(obj), key)
+        }
     }
 }
 

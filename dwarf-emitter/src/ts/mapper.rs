@@ -47,6 +47,10 @@ impl TypeMapper for TypeScriptMapper {
                 format!("{}<{}>", base, args_str.join(", "))
             }
             Type::Refined { base, .. } => self.map_type(base),
+            Type::KeyOf(inner) => format!("keyof {}", self.map_type(inner)),
+            Type::IndexedAccess { obj, key } => {
+                format!("{}[\"{}\"]", self.map_type(obj), key)
+            }
         }
     }
 }

@@ -1054,3 +1054,250 @@ fn test_extern_not_an_identifier() {
         "`extern` should be lexed as a keyword, not an identifier"
     );
 }
+
+// =======================================================================
+// CONST KEYWORD (RED Phase — expected to fail)
+//
+// TokenKind::Const does not exist yet. These tests specify the expected
+// lexing behavior for the `const` keyword in null-safety support.
+// =======================================================================
+
+#[test]
+fn test_keyword_const() {
+    assert_token_kind("const", TokenKind::Const);
+}
+
+#[test]
+fn test_const_not_an_identifier() {
+    // After implementation, `const` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("const");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("const".to_string()),
+        "`const` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_sequence_const_binding() {
+    assert_token_sequence(
+        "const x = 42",
+        &[
+            TokenKind::Const,
+            TokenKind::Ident("x".to_string()),
+            TokenKind::Eq,
+            TokenKind::Int(42),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_const_with_type_annotation() {
+    assert_token_sequence(
+        "const x: Int = 42",
+        &[
+            TokenKind::Const,
+            TokenKind::Ident("x".to_string()),
+            TokenKind::Colon,
+            TokenKind::Ident("Int".to_string()),
+            TokenKind::Eq,
+            TokenKind::Int(42),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_const_string_value() {
+    assert_token_sequence(
+        r#"const greeting = "hello""#,
+        &[
+            TokenKind::Const,
+            TokenKind::Ident("greeting".to_string()),
+            TokenKind::Eq,
+            TokenKind::Str("hello".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_pub_const() {
+    assert_token_sequence(
+        "pub const MAX_SIZE = 100",
+        &[
+            TokenKind::Pub,
+            TokenKind::Const,
+            TokenKind::Ident("MAX_SIZE".to_string()),
+            TokenKind::Eq,
+            TokenKind::Int(100),
+        ],
+    );
+}
+
+// =======================================================================
+// OPTIONAL CHAINING `?.` TOKEN (RED Phase — expected to fail)
+//
+// TokenKind::QuestionDot does not exist yet. These tests specify the
+// expected lexing behavior for the `?.` optional chaining operator.
+// `?.` must lex as a single compound token, NOT as separate `?` + `.`.
+// =======================================================================
+
+#[test]
+fn test_op_question_dot() {
+    // `?.` should lex as a single QuestionDot token
+    assert_token_kind("?.", TokenKind::QuestionDot);
+}
+
+#[test]
+fn test_question_dot_not_separate_tokens() {
+    // `?.` must NOT lex as Question + Dot (two separate tokens)
+    let mut lexer = Lexer::new("?.");
+    let token = lexer.next_token().unwrap();
+    assert_eq!(
+        token.kind,
+        TokenKind::QuestionDot,
+        "`?.` should be a single QuestionDot token, not separate ? and ."
+    );
+    // After consuming QuestionDot, the next token should be Eof —
+    // there should NOT be a leftover Dot token
+    let next = lexer.next_token().unwrap();
+    assert_eq!(
+        next.kind,
+        TokenKind::Eof,
+        "After QuestionDot, should be Eof (no leftover Dot)"
+    );
+}
+
+#[test]
+fn test_sequence_optional_chain() {
+    // `obj?.field` should lex as: Ident("obj"), QuestionDot, Ident("field")
+    assert_token_sequence(
+        "obj?.field",
+        &[
+            TokenKind::Ident("obj".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("field".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_question_dot_span() {
+    // `?.` should have a span covering both characters
+    let mut lexer = Lexer::new("?.");
+    let token = lexer.next_token().unwrap();
+    assert_eq!(token.kind, TokenKind::QuestionDot);
+    assert_eq!(token.span.start, 0);
+    assert_eq!(
+        token.span.end, 2,
+        "QuestionDot span should cover both '?' and '.'"
+    );
+}
+
+#[test]
+fn test_question_dot_in_expression() {
+    // `a?.b?.c` should produce: Ident, QuestionDot, Ident, QuestionDot, Ident
+    assert_token_sequence(
+        "a?.b?.c",
+        &[
+            TokenKind::Ident("a".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("b".to_string()),
+            TokenKind::QuestionDot,
+            TokenKind::Ident("c".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_question_followed_by_space_then_dot() {
+    // `? .` (with space) should still lex as Question + Dot (separate tokens)
+    assert_token_sequence("? .", &[TokenKind::Question, TokenKind::Dot]);
+}
+
+// =======================================================================
+// ENUM KEYWORD (RED Phase — expected to fail)
+//
+// TokenKind::Enum does not exist yet. These tests specify the expected
+// lexing behavior for the `enum` keyword, which is syntactic sugar for
+// union types. `enum Color { Red, Green, Blue }` should lex identically
+// to the tokens needed for a union definition.
+// =======================================================================
+
+#[test]
+fn test_keyword_enum() {
+    assert_token_kind("enum", TokenKind::Enum);
+}
+
+#[test]
+fn test_enum_not_an_identifier() {
+    // After implementation, `enum` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("enum");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("enum".to_string()),
+        "`enum` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_sequence_enum_declaration() {
+    // `enum Color { Red, Green, Blue }` should lex as:
+    // Enum, Ident("Color"), LBrace, Ident("Red"), Comma, Ident("Green"),
+    // Comma, Ident("Blue"), RBrace
+    assert_token_sequence(
+        "enum Color { Red, Green, Blue }",
+        &[
+            TokenKind::Enum,
+            TokenKind::Ident("Color".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Ident("Red".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("Green".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("Blue".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_pub_enum() {
+    assert_token_sequence(
+        "pub enum Direction { North, South }",
+        &[
+            TokenKind::Pub,
+            TokenKind::Enum,
+            TokenKind::Ident("Direction".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Ident("North".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("South".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_enum_with_generic() {
+    // `enum Option<T> { Some(T), None }` — generic enum with payload variants
+    assert_token_sequence(
+        "enum Option<T> { Some(T), None }",
+        &[
+            TokenKind::Enum,
+            TokenKind::Ident("Option".to_string()),
+            TokenKind::Lt,
+            TokenKind::Ident("T".to_string()),
+            TokenKind::Gt,
+            TokenKind::LBrace,
+            TokenKind::Ident("Some".to_string()),
+            TokenKind::LParen,
+            TokenKind::Ident("T".to_string()),
+            TokenKind::RParen,
+            TokenKind::Comma,
+            TokenKind::Ident("None".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}

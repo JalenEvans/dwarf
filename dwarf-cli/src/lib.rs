@@ -14,8 +14,10 @@ pub mod check;
 pub mod dev;
 pub mod emit;
 pub mod fmt;
+pub mod init;
 pub mod output;
 pub mod run;
+pub mod splash;
 pub mod test;
 
 #[derive(Parser)]
@@ -209,6 +211,12 @@ pub enum Commands {
         /// Apply auto-fix patches for failing tests by shrinking counterexamples
         #[arg(long)]
         fix: bool,
+    },
+
+    /// Initialize a new Dwarf project
+    Init {
+        /// Project name (directory will be created)
+        name: String,
     },
 }
 

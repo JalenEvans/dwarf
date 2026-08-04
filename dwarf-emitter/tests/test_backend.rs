@@ -149,6 +149,10 @@ impl EmitterBackend for MockBackend {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("member({obj_str}, {field})"))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                Ok(format!("optional_member({obj_str}, {field})"))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -288,6 +292,10 @@ impl EmitterBackend for MockBackend {
                 let inner = self.emit_expr(expr)?;
                 Ok(format!("propagate({})", inner))
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("nonNullAssert({})", inner))
+            }
         }
     }
 
@@ -352,7 +360,16 @@ impl EmitterBackend for MockBackend {
                 let base_str = self.emit_type(base)?;
                 match constraint {
                     RefConstraint::Range { min, max } => Ok(format!("{base_str}({min}..{max})")),
+                    RefConstraint::NonEmpty => Ok(format!("{base_str}(nonempty)")),
                 }
+            }
+            Type::KeyOf(inner) => {
+                let inner_str = self.emit_type(inner)?;
+                Ok(format!("keyof({inner_str})"))
+            }
+            Type::IndexedAccess { obj, key } => {
+                let obj_str = self.emit_type(obj)?;
+                Ok(format!("{obj_str}[\"{key}\"]"))
             }
         }
     }

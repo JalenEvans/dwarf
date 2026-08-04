@@ -4,22 +4,24 @@ expression: decls
 ---
 [
   {
-    "RecordDef": {
+    "TypeDef": {
       "name": "Point",
-      "fields": [
-        {
-          "name": "x",
-          "type_": {
-            "Named": "i32"
-          }
-        },
-        {
-          "name": "y",
-          "type_": {
-            "Named": "i32"
-          }
-        }
-      ],
+      "type_": {
+        "Record": [
+          [
+            "x",
+            {
+              "Named": "i32"
+            }
+          ],
+          [
+            "y",
+            {
+              "Named": "i32"
+            }
+          ]
+        ]
+      },
       "is_pub": false,
       "span": {
         "file_id": 0,

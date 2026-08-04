@@ -303,6 +303,8 @@ impl PythonBackend {
                 self.register_stdlib_imports(return_);
             }
             Type::Refined { base, .. } => self.register_stdlib_imports(base),
+            Type::KeyOf(inner) => self.register_stdlib_imports(inner),
+            Type::IndexedAccess { obj, .. } => self.register_stdlib_imports(obj),
             Type::Named(_) => {}
         }
     }
@@ -367,6 +369,7 @@ impl PythonBackend {
                 self.scan_expr_for_stdlib(value);
             }
             LirExpr::Member { obj, .. } => self.scan_expr_for_stdlib(obj),
+            LirExpr::OptionalAccess { obj, .. } => self.scan_expr_for_stdlib(obj),
             LirExpr::Record { fields, .. } => {
                 for (_, val) in fields {
                     self.scan_expr_for_stdlib(val);
@@ -401,6 +404,7 @@ impl PythonBackend {
                 self.needs_result = true;
                 self.scan_expr_for_stdlib(expr);
             }
+            LirExpr::NonNullAssert { expr, .. } => self.scan_expr_for_stdlib(expr),
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
@@ -723,6 +727,14 @@ impl EmitterBackend for PythonBackend {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                // Python: obj.field if obj is not None else None
+                Ok(format!(
+                    "{}.{} if {} is not None else None",
+                    obj_str, field, obj_str
+                ))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -875,6 +887,12 @@ impl EmitterBackend for PythonBackend {
                     "__v = {}\nif is_err(__v):\n    return __v\nreturn __v.value",
                     expr_str
                 ))
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                // Python doesn't have a non-null assertion operator, so we just emit the expression
+                // The type checker ensures it's non-null at compile time
+                Ok(expr_str)
             }
         }
     }

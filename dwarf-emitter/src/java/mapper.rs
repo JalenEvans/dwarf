@@ -52,6 +52,13 @@ impl TypeMapper for JavaMapper {
                 format!("{}<{}>", base, args_str.join(", "))
             }
             Type::Refined { base, .. } => self.map_type(base),
+            Type::KeyOf(inner) => {
+                // Java doesn't have keyof; emit as String
+                format!("String /* keyof {} */", self.map_type(inner))
+            }
+            Type::IndexedAccess { obj, key } => {
+                format!("Object /* {}[\"{}\"] */", self.map_type(obj), key)
+            }
         }
     }
 }

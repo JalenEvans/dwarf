@@ -5,7 +5,7 @@
 //! after resolving all aliases.
 
 use crate::registry::TypeRegistry;
-use crate::types::{FieldDef, PrimitiveType, TypeDef, TypeId, ANY_TYPE_ID};
+use crate::types::{FieldDef, LiteralType, PrimitiveType, TypeDef, TypeId, ANY_TYPE_ID};
 use std::collections::{BTreeSet, HashMap};
 
 /// The result of a structural compatibility check.
@@ -99,6 +99,69 @@ pub fn check(registry: &TypeRegistry, expected: TypeId, actual: TypeId) -> Compa
                 args: actual_args,
             }),
         ) => check_generic_instances(registry, base, args, actual_base, actual_args),
+        // String literal is compatible with Str primitive (both directions)
+        (
+            Some(TypeDef::Primitive(PrimitiveType::Str)),
+            Some(TypeDef::Literal(LiteralType::String(_))),
+        ) => CompatibilityResult {
+            compatible: true,
+            details: vec![CompatDetail::Ok],
+        },
+        (
+            Some(TypeDef::Literal(LiteralType::String(_))),
+            Some(TypeDef::Primitive(PrimitiveType::Str)),
+        ) => CompatibilityResult {
+            compatible: true,
+            details: vec![CompatDetail::Ok],
+        },
+        // Int literal is compatible with Int primitive (both directions)
+        (
+            Some(TypeDef::Primitive(PrimitiveType::Int)),
+            Some(TypeDef::Literal(LiteralType::Int(_))),
+        ) => CompatibilityResult {
+            compatible: true,
+            details: vec![CompatDetail::Ok],
+        },
+        (
+            Some(TypeDef::Literal(LiteralType::Int(_))),
+            Some(TypeDef::Primitive(PrimitiveType::Int)),
+        ) => CompatibilityResult {
+            compatible: true,
+            details: vec![CompatDetail::Ok],
+        },
+        // Same literal values are compatible; different literal values are not
+        (Some(TypeDef::Literal(e_lit)), Some(TypeDef::Literal(a_lit))) => {
+            if e_lit == a_lit {
+                CompatibilityResult {
+                    compatible: true,
+                    details: vec![CompatDetail::Ok],
+                }
+            } else {
+                CompatibilityResult {
+                    compatible: false,
+                    details: vec![],
+                }
+            }
+        }
+        // A union of all string literals is compatible with Str primitive
+        (Some(TypeDef::Primitive(PrimitiveType::Str)), Some(TypeDef::Union(variants))) => {
+            let all_string_literals = variants.iter().all(|v| {
+                v.type_id
+                    .and_then(|tid| registry.get(tid))
+                    .is_some_and(|def| matches!(def, TypeDef::Literal(LiteralType::String(_))))
+            });
+            if all_string_literals {
+                CompatibilityResult {
+                    compatible: true,
+                    details: vec![CompatDetail::Ok],
+                }
+            } else {
+                CompatibilityResult {
+                    compatible: false,
+                    details: vec![],
+                }
+            }
+        }
         // Cross-kind (or unresolved types) are always incompatible.
         _ => CompatibilityResult {
             compatible: false,

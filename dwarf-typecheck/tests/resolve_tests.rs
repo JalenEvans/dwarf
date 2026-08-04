@@ -87,6 +87,7 @@ fn test_register_union_def() {
                 arg: Some(Type::Named("int".to_string())),
             },
         ],
+        type_params: vec![],
         is_pub: true,
         span: dummy_span(),
     }];
@@ -175,6 +176,7 @@ fn test_multiple_declarations() {
                     arg: Some(Type::Named("int".to_string())),
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -555,6 +557,7 @@ fn test_resolve_generic_type_simple() {
                     arg: Some(Type::Named("int".to_string())),
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -704,4 +707,140 @@ fn test_resolve_generic_unknown_base() {
         }
         other => panic!("Expected Record at ID 9, got {:?}", other),
     }
+}
+
+// ===========================================================================
+// CONST DECLARATION TESTS (RED Phase — expected to fail)
+//
+// These tests specify the expected behavior for const declarations in the
+// typechecker. They will FAIL to compile because Decl::Const does not exist
+// yet in the HIR.
+//
+// Expected behavior:
+// - Decl::Const should be handled by register_decls() without panicking
+// - Const declarations should not add to the type registry (they're values, not types)
+// - Const names should be tracked so they can be referenced in expressions
+// ===========================================================================
+
+#[test]
+fn test_register_const_int_does_not_panic() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::Const {
+        name: "MAX_SIZE".to_string(),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Int(100),
+            span: dummy_span(),
+        }),
+        type_: None,
+        is_pub: false,
+        span: dummy_span(),
+    }];
+
+    // Should not panic — const is a value declaration, not a type
+    let result = register_decls(&mut registry, &decls);
+
+    // Const should not add to the type registry (it's a value, not a type)
+    // 5 primitives + 4 built-in generics = 9 entries (no new types)
+    assert_eq!(result.registry.len(), 9);
+}
+
+#[test]
+fn test_register_const_with_type_annotation() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![Decl::Const {
+        name: "PI".to_string(),
+        value: Box::new(Expr::Literal {
+            value: LiteralValue::Float(3.14),
+            span: dummy_span(),
+        }),
+        type_: Some(Type::Named("Float".to_string())),
+        is_pub: true,
+        span: dummy_span(),
+    }];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // Should not panic, and should not add to type registry
+    assert_eq!(result.registry.len(), 9);
+}
+
+#[test]
+fn test_register_multiple_consts() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![
+        Decl::Const {
+            name: "MAX".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(100),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
+            span: dummy_span(),
+        },
+        Decl::Const {
+            name: "MIN".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(0),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
+            span: dummy_span(),
+        },
+        Decl::Const {
+            name: "NAME".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Str("dwarf".to_string()),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: true,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // Should handle multiple consts without panic
+    assert_eq!(result.registry.len(), 9);
+}
+
+#[test]
+fn test_register_const_mixed_with_types() {
+    let mut registry = TypeRegistry::new();
+    let decls = vec![
+        Decl::RecordDef {
+            name: "Point".to_string(),
+            fields: vec![
+                Field {
+                    name: "x".to_string(),
+                    type_: Type::Named("int".to_string()),
+                },
+                Field {
+                    name: "y".to_string(),
+                    type_: Type::Named("int".to_string()),
+                },
+            ],
+            is_pub: true,
+            span: dummy_span(),
+        },
+        Decl::Const {
+            name: "ORIGIN_X".to_string(),
+            value: Box::new(Expr::Literal {
+                value: LiteralValue::Int(0),
+                span: dummy_span(),
+            }),
+            type_: None,
+            is_pub: false,
+            span: dummy_span(),
+        },
+    ];
+
+    let result = register_decls(&mut registry, &decls);
+
+    // Point should be registered (5 primitives + 4 built-in generics + 1 user type = 10)
+    // Const should not add to registry
+    assert_eq!(result.registry.len(), 10);
+    assert_eq!(result.name_map.get("Point"), Some(&9));
 }

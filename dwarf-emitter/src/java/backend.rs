@@ -521,6 +521,14 @@ impl EmitterBackend for JavaBackend {
                 let obj_str = self.emit_expr(obj)?;
                 Ok(format!("{}.{}", obj_str, field))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                // Java: obj != null ? obj.field : null
+                Ok(format!(
+                    "{} != null ? {}.{} : null",
+                    obj_str, obj_str, field
+                ))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -685,6 +693,11 @@ impl EmitterBackend for JavaBackend {
                     "((java.util.function.Supplier<Object>)(() -> {{ Object __v = {}; if (Result.isErr(__v)) {{ return __v; }} return __v.value; }})).get()",
                     expr_str
                 ))
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                // Java doesn't have a non-null assertion operator, so we use Objects.requireNonNull
+                Ok(format!("java.util.Objects.requireNonNull({})", expr_str))
             }
         }
     }
@@ -908,6 +921,22 @@ impl JavaBackend {
                 needs_string,
                 needs_math,
             ),
+            Type::KeyOf(inner) => Self::scan_type_for_stdlib(
+                inner,
+                needs_option,
+                needs_result,
+                needs_list,
+                needs_string,
+                needs_math,
+            ),
+            Type::IndexedAccess { obj, .. } => Self::scan_type_for_stdlib(
+                obj,
+                needs_option,
+                needs_result,
+                needs_list,
+                needs_string,
+                needs_math,
+            ),
             Type::Named(_) => {}
         }
     }
@@ -1066,6 +1095,9 @@ impl JavaBackend {
                 *needs_result = true;
                 Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math, needs_result);
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math, needs_result);
+            }
             _ => {}
         }
     }
@@ -1106,6 +1138,9 @@ impl JavaBackend {
                 }
             }
             LirExpr::Member { obj, .. } => {
+                Self::scan_expr_for_imports(obj, needs_cf, needs_opt);
+            }
+            LirExpr::OptionalAccess { obj, .. } => {
                 Self::scan_expr_for_imports(obj, needs_cf, needs_opt);
             }
             LirExpr::If {
@@ -1187,6 +1222,9 @@ impl JavaBackend {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
             LirExpr::Propagate { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
         }

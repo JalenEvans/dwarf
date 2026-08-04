@@ -904,3 +904,82 @@ fn test_compat_generic_instance_record() {
     // Different kinds → NOT compatible
     assert!(!compat::check(&registry, id_record, id_generic).compatible);
 }
+
+// ===========================================================================
+// String literal type compatibility tests (DWARF-60 Chunk B)
+//
+// These tests specify the expected compatibility behavior of string literal
+// types. They will fail to compile until:
+//   1. LiteralType enum and TypeDef::Literal variant are added
+//   2. compat::check handles Literal types:
+//      - Literal(String) is compatible with Primitive(Str)
+//      - Same literals are compatible
+//      - Different literals are NOT compatible
+//      - Union of literals is compatible with Str
+// ===========================================================================
+
+#[test]
+fn test_string_literal_compatible_with_str_primitive() {
+    // Literal(String("x")) should be compatible with Primitive(Str)
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+
+    let result = compat::check(&registry, 2, lit_x); // Str vs Literal("x")
+    assert!(
+        result.compatible,
+        "String literal 'x' should be compatible with Str primitive"
+    );
+}
+
+#[test]
+fn test_same_string_literal_compatible() {
+    // Literal(String("x")) should be compatible with Literal(String("x"))
+    let mut registry = TypeRegistry::new();
+    let lit_x1 = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_x2 = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+
+    let result = compat::check(&registry, lit_x1, lit_x2);
+    assert!(
+        result.compatible,
+        "Same string literals should be compatible"
+    );
+}
+
+#[test]
+fn test_different_string_literals_incompatible() {
+    // Literal(String("x")) should NOT be compatible with Literal(String("y"))
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
+
+    let result = compat::check(&registry, lit_x, lit_y);
+    assert!(
+        !result.compatible,
+        "Different string literals should NOT be compatible"
+    );
+}
+
+#[test]
+fn test_union_of_string_literals_compatible_with_str() {
+    // Union of "x" | "y" (as string literals) should be compatible with Str
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
+    let union_id = registry.register(TypeDef::Union(vec![
+        VariantDef {
+            name: "x".to_string(),
+            type_id: Some(lit_x),
+        },
+        VariantDef {
+            name: "y".to_string(),
+            type_id: Some(lit_y),
+        },
+    ]));
+
+    // Union of string literals should be compatible with Str
+    let result = compat::check(&registry, 2, union_id); // Str vs Union("x" | "y")
+    assert!(
+        result.compatible,
+        "Union of string literals should be compatible with Str"
+    );
+}

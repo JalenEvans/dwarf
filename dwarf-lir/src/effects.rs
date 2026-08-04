@@ -170,6 +170,7 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
         }
         MirExpr::Literal { .. } | MirExpr::Variable { .. } | MirExpr::Wildcard { .. } => {}
         MirExpr::Member { obj, .. } => extract_calls_inner(obj, calls),
+        MirExpr::OptionalAccess { obj, .. } => extract_calls_inner(obj, calls),
         MirExpr::If {
             cond, then, else_, ..
         } => {
@@ -242,6 +243,7 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
         }
         MirExpr::Throw { expr, .. } => extract_calls_inner(expr, calls),
         MirExpr::Propagate { expr, .. } => extract_calls_inner(expr, calls),
+        MirExpr::NonNullAssert { expr, .. } => extract_calls_inner(expr, calls),
     }
 }
 

@@ -122,6 +122,12 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::OptionalAccess { obj, field, span } => LirExpr::OptionalAccess {
+            obj: Box::new(lower_expr(obj)),
+            field: field.clone(),
+            hint: TargetHint::None,
+            span: *span,
+        },
         MirExpr::If {
             cond,
             then,
@@ -244,6 +250,11 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             span: *span,
         },
         MirExpr::Propagate { expr, span } => LirExpr::Propagate {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
+        MirExpr::NonNullAssert { expr, span } => LirExpr::NonNullAssert {
             expr: Box::new(lower_expr(expr)),
             hint: TargetHint::None,
             span: *span,

@@ -458,6 +458,10 @@ impl EmitterBackend for TypeScriptBackend {
                 };
                 Ok(format!("{}{}{}", obj_str, op, field))
             }
+            LirExpr::OptionalAccess { obj, field, .. } => {
+                let obj_str = self.emit_expr(obj)?;
+                Ok(format!("{}?.{}", obj_str, field))
+            }
             LirExpr::If {
                 cond, then, else_, ..
             } => {
@@ -608,6 +612,10 @@ impl EmitterBackend for TypeScriptBackend {
                     "(function() {{ const __v = {}; if (isErr(__v)) {{ return __v; }} return __v.value; }})()",
                     expr_str
                 ))
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!("{}!", expr_str))
             }
         }
     }
@@ -961,6 +969,12 @@ impl TypeScriptBackend {
             Type::Refined { base, .. } => {
                 self.register_stdlib_imports(base);
             }
+            Type::KeyOf(inner) => {
+                self.register_stdlib_imports(inner);
+            }
+            Type::IndexedAccess { obj, .. } => {
+                self.register_stdlib_imports(obj);
+            }
             Type::Named(_) => {} // No stdlib imports needed for simple names
         }
     }
@@ -1070,6 +1084,7 @@ impl TypeScriptBackend {
                 self.scan_expr_for_stdlib(value);
             }
             LirExpr::Member { obj, .. } => self.scan_expr_for_stdlib(obj),
+            LirExpr::OptionalAccess { obj, .. } => self.scan_expr_for_stdlib(obj),
             LirExpr::Variant { arg, .. } => {
                 if let Some(a) = arg {
                     self.scan_expr_for_stdlib(a);
@@ -1095,6 +1110,7 @@ impl TypeScriptBackend {
                 self.imports
                     .add_import("dwarf-runtime/result.js", "isErr", None);
             }
+            LirExpr::NonNullAssert { expr, .. } => self.scan_expr_for_stdlib(expr),
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }

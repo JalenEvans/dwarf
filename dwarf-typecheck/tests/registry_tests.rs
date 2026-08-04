@@ -466,3 +466,62 @@ fn test_resolve_mutual_alias_chain() {
     let canonical = registry.resolve(9);
     let _ = canonical;
 }
+
+// ---------------------------------------------------------------------------
+// String literal type tests (DWARF-60 Chunk B)
+//
+// These tests specify the expected shape of string literal types in the
+// type system. They will fail to compile until:
+//   1. `LiteralType` enum is added to types.rs with a `String(String)` variant
+//   2. `TypeDef::Literal(LiteralType)` variant is added to TypeDef
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_string_literal_type_registration() {
+    // Register a string literal type and verify it's retrievable
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+
+    assert_eq!(
+        registry.get(lit_x),
+        Some(&TypeDef::Literal(LiteralType::String("x".to_string())))
+    );
+
+    // String literal should be distinct from Primitive(Str)
+    assert_ne!(
+        registry.get(lit_x),
+        Some(&TypeDef::Primitive(PrimitiveType::Str))
+    );
+}
+
+#[test]
+fn test_string_literal_types_distinct_from_each_other() {
+    // Two different string literals should get different TypeIds
+    let mut registry = TypeRegistry::new();
+    let lit_x = registry.register(TypeDef::Literal(LiteralType::String("x".to_string())));
+    let lit_y = registry.register(TypeDef::Literal(LiteralType::String("y".to_string())));
+
+    assert_ne!(
+        lit_x, lit_y,
+        "Different string literals must have different TypeIds"
+    );
+
+    // Each should be retrievable independently
+    assert_eq!(
+        registry.get(lit_x),
+        Some(&TypeDef::Literal(LiteralType::String("x".to_string())))
+    );
+    assert_eq!(
+        registry.get(lit_y),
+        Some(&TypeDef::Literal(LiteralType::String("y".to_string())))
+    );
+}
+
+#[test]
+fn test_string_literal_json_roundtrip() {
+    // TypeDef::Literal(LiteralType::String("hello")) should survive serialize/deserialize
+    let ty = TypeDef::Literal(LiteralType::String("hello".to_string()));
+    let json = serde_json::to_string(&ty).expect("serialize string literal");
+    let back: TypeDef = serde_json::from_str(&json).expect("deserialize string literal");
+    assert_eq!(back, ty);
+}

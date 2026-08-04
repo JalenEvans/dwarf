@@ -210,6 +210,12 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             span: *span,
         },
 
+        Expr::OptionalAccess { obj, field, span } => MirExpr::OptionalAccess {
+            obj: Box::new(desugar_pipe(obj)),
+            field: field.clone(),
+            span: *span,
+        },
+
         Expr::If {
             cond,
             then,
@@ -292,6 +298,13 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
         // Propagate is preserved through MIR so the backend can emit
         // target-specific error propagation.
         Expr::Propagate { expr, span } => MirExpr::Propagate {
+            expr: Box::new(desugar_pipe(expr)),
+            span: *span,
+        },
+
+        // NonNullAssert is preserved through MIR so the backend can emit
+        // target-specific non-null assertion.
+        Expr::NonNullAssert { expr, span } => MirExpr::NonNullAssert {
             expr: Box::new(desugar_pipe(expr)),
             span: *span,
         },
@@ -518,6 +531,10 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             // Decorators are handled by a separate decorator pass.
             Decl::Decorator { .. } => None,
 
+            // Const declarations are value bindings — exclude from MIR for now.
+            // (Future work: lower to a synthetic getter function or global.)
+            Decl::Const { .. } => None,
+
             // Function declarations pass through with desugared bodies.
             Decl::Function {
                 name,
@@ -559,6 +576,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             Decl::UnionDef {
                 name,
                 variants,
+                type_params: _,
                 is_pub,
                 span,
             } => Some(MirDecl::UnionDef {
@@ -1452,6 +1470,7 @@ mod tests {
                     arg: None,
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: s,
         }];

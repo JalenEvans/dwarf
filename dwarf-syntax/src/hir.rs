@@ -75,6 +75,8 @@ pub enum Pat {
 pub enum RefConstraint {
     /// Range constraint: min..max (inclusive)
     Range { min: i64, max: i64 },
+    /// Non-empty constraint: string must not be empty
+    NonEmpty,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +98,15 @@ pub enum Type {
         base: Box<Type>,
         constraint: RefConstraint,
     },
+    /// keyof T — the union of field names of a record type.
+    /// e.g., `keyof Person` → Type::KeyOf(Box::new(Type::Named("Person")))
+    KeyOf(Box<Type>),
+    /// T["key"] — the type of field "key" in type T.
+    /// e.g., `Person["name"]` → Type::IndexedAccess { obj: Box::new(Type::Named("Person")), key: "name" }
+    IndexedAccess {
+        obj: Box<Type>,
+        key: String,
+    },
 }
 
 // ---- Expressions ----
@@ -114,6 +125,12 @@ pub enum Expr {
     },
     /// Member access (obj.field)
     Member {
+        obj: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+    /// Optional member access (obj?.field)
+    OptionalAccess {
         obj: Box<Expr>,
         field: String,
         span: Span,
@@ -207,6 +224,8 @@ pub enum Expr {
     },
     /// Assert that an expression produces consistent results across all targets.
     AssertConsistent { expr: Box<Expr>, span: Span },
+    /// Non-null assertion operator (expr!)
+    NonNullAssert { expr: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -217,6 +236,7 @@ impl Expr {
             Expr::Variable { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::Member { span, .. } => *span,
+            Expr::OptionalAccess { span, .. } => *span,
             Expr::If { span, .. } => *span,
             Expr::Match { span, .. } => *span,
             Expr::Block { span, .. } => *span,
@@ -235,6 +255,7 @@ impl Expr {
             Expr::Unary { span, .. } => *span,
             Expr::ForAll { span, .. } => *span,
             Expr::AssertConsistent { span, .. } => *span,
+            Expr::NonNullAssert { span, .. } => *span,
         }
     }
 }
@@ -296,6 +317,7 @@ pub enum Decl {
     UnionDef {
         name: String,
         variants: Vec<Variant>,
+        type_params: Vec<String>,
         is_pub: bool,
         span: Span,
     },
@@ -311,6 +333,13 @@ pub enum Decl {
         name: String,
         params: Vec<Param>,
         return_type: Option<Type>,
+        is_pub: bool,
+        span: Span,
+    },
+    Const {
+        name: String,
+        value: Box<Expr>,
+        type_: Option<Type>,
         is_pub: bool,
         span: Span,
     },

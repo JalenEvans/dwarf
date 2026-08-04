@@ -93,6 +93,14 @@ pub trait LirBackend<R> {
         span: Span,
     ) -> Result<R, BackendError>;
 
+    fn visit_expr_optional_access(
+        &mut self,
+        obj: R,
+        field: &str,
+        hint: &TargetHint,
+        span: Span,
+    ) -> Result<R, BackendError>;
+
     fn visit_expr_if(
         &mut self,
         cond: R,
@@ -208,6 +216,13 @@ pub trait LirBackend<R> {
     ) -> Result<R, BackendError>;
 
     fn visit_expr_propagate(
+        &mut self,
+        expr: R,
+        hint: &TargetHint,
+        span: Span,
+    ) -> Result<R, BackendError>;
+
+    fn visit_expr_non_null_assert(
         &mut self,
         expr: R,
         hint: &TargetHint,
@@ -354,6 +369,15 @@ pub fn walk_expr<R>(backend: &mut impl LirBackend<R>, expr: &LirExpr) -> Result<
         } => {
             let reduced_obj = walk_expr(backend, obj)?;
             backend.visit_expr_member(reduced_obj, field, hint, *span)
+        }
+        LirExpr::OptionalAccess {
+            obj,
+            field,
+            hint,
+            span,
+        } => {
+            let reduced_obj = walk_expr(backend, obj)?;
+            backend.visit_expr_optional_access(reduced_obj, field, hint, *span)
         }
         LirExpr::If {
             cond,
@@ -514,6 +538,10 @@ pub fn walk_expr<R>(backend: &mut impl LirBackend<R>, expr: &LirExpr) -> Result<
             let reduced_expr = walk_expr(backend, expr)?;
             backend.visit_expr_propagate(reduced_expr, hint, *span)
         }
+        LirExpr::NonNullAssert { expr, hint, span } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_non_null_assert(reduced_expr, hint, *span)
+        }
     }
 }
 
@@ -667,6 +695,16 @@ impl LirBackend<String> for DebugBackend {
         _span: Span,
     ) -> Result<String, BackendError> {
         Ok(format!("(member {obj} {field})"))
+    }
+
+    fn visit_expr_optional_access(
+        &mut self,
+        obj: String,
+        field: &str,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(optional_member {obj} {field})"))
     }
 
     fn visit_expr_if(
@@ -844,6 +882,15 @@ impl LirBackend<String> for DebugBackend {
         _span: Span,
     ) -> Result<String, BackendError> {
         Ok(format!("(propagate {expr})"))
+    }
+
+    fn visit_expr_non_null_assert(
+        &mut self,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(non-null-assert {expr})"))
     }
 
     // ------ Statement hooks (2) ------
@@ -1079,6 +1126,16 @@ mod tests {
             Ok(())
         }
 
+        fn visit_expr_optional_access(
+            &mut self,
+            _obj: (),
+            _field: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
         fn visit_expr_if(
             &mut self,
             _cond: (),
@@ -1228,6 +1285,15 @@ mod tests {
         }
 
         fn visit_expr_propagate(
+            &mut self,
+            _expr: (),
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn visit_expr_non_null_assert(
             &mut self,
             _expr: (),
             _hint: &TargetHint,
@@ -1703,6 +1769,15 @@ mod tests {
         ) -> Result<String, BackendError> {
             Ok(format!("{obj}.{field}"))
         }
+        fn visit_expr_optional_access(
+            &mut self,
+            obj: String,
+            field: &str,
+            _h: &TargetHint,
+            _s: Span,
+        ) -> Result<String, BackendError> {
+            Ok(format!("{obj}?.{field}"))
+        }
         fn visit_expr_if(
             &mut self,
             c: String,
@@ -1851,6 +1926,14 @@ mod tests {
             _s: Span,
         ) -> Result<String, BackendError> {
             Ok(format!("{expr}?"))
+        }
+        fn visit_expr_non_null_assert(
+            &mut self,
+            expr: String,
+            _h: &TargetHint,
+            _s: Span,
+        ) -> Result<String, BackendError> {
+            Ok(format!("{expr}!"))
         }
 
         fn visit_stmt_let(&mut self, pat: String, value: String) -> Result<String, BackendError> {
@@ -2008,6 +2091,15 @@ mod tests {
             ) -> Result<i32, BackendError> {
                 Ok(obj)
             }
+            fn visit_expr_optional_access(
+                &mut self,
+                obj: i32,
+                _f: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(obj)
+            }
             fn visit_expr_if(
                 &mut self,
                 c: i32,
@@ -2142,6 +2234,14 @@ mod tests {
                 Ok(e)
             }
             fn visit_expr_propagate(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_non_null_assert(
                 &mut self,
                 e: i32,
                 _h: &TargetHint,
@@ -2378,6 +2478,16 @@ mod tests {
             self.record("visit_expr_member");
             Ok(format!("{obj}.{field}"))
         }
+        fn visit_expr_optional_access(
+            &mut self,
+            obj: String,
+            field: &str,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_optional_access");
+            Ok(format!("{obj}?.{field}"))
+        }
 
         fn visit_expr_if(
             &mut self,
@@ -2559,6 +2669,16 @@ mod tests {
         ) -> Result<String, BackendError> {
             self.record("visit_expr_propagate");
             Ok(format!("{expr}?"))
+        }
+
+        fn visit_expr_non_null_assert(
+            &mut self,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_non_null_assert");
+            Ok(format!("{expr}!"))
         }
 
         // ------ Statement hooks ------
@@ -3167,6 +3287,15 @@ mod tests {
             ) -> Result<i32, BackendError> {
                 Ok(obj)
             }
+            fn visit_expr_optional_access(
+                &mut self,
+                obj: i32,
+                _f: &str,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(obj)
+            }
             fn visit_expr_if(
                 &mut self,
                 c: i32,
@@ -3301,6 +3430,14 @@ mod tests {
                 Ok(e)
             }
             fn visit_expr_propagate(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_non_null_assert(
                 &mut self,
                 e: i32,
                 _h: &TargetHint,

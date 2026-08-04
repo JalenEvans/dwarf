@@ -136,6 +136,7 @@ fn test_union_def_decl_construction() {
                 arg: None,
             },
         ],
+        type_params: vec![],
         is_pub: false,
         span: Default::default(),
     };
@@ -853,4 +854,176 @@ fn test_deeply_nested_expr() {
     } else {
         panic!("Expected Call expr");
     }
+}
+
+// =======================================================================
+// OPTIONAL ACCESS EXPRESSION (RED Phase — expected to fail)
+//
+// Expr::OptionalAccess does not exist yet. These tests specify the
+// expected HIR shape for the `?.` optional chaining operator.
+//
+// Expected variant:
+//   Expr::OptionalAccess {
+//       obj: Box<Expr>,
+//       field: String,
+//       span: Span,
+//   }
+// =======================================================================
+
+#[test]
+fn test_optional_access_construction() {
+    // obj?.field
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "field".to_string(),
+        span: Default::default(),
+    };
+
+    if let Expr::OptionalAccess { obj, field, .. } = &expr {
+        assert!(matches!(obj.as_ref(), Expr::Variable { name, .. } if name == "obj"));
+        assert_eq!(field, "field");
+    } else {
+        panic!("Expected OptionalAccess expr");
+    }
+}
+
+#[test]
+fn test_optional_access_chained() {
+    // obj?.name?.first  ===  OptionalAccess { obj: OptionalAccess { obj: Var("obj"), field: "name" }, field: "first" }
+    let inner = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "name".to_string(),
+        span: Default::default(),
+    };
+    let outer = Expr::OptionalAccess {
+        obj: Box::new(inner),
+        field: "first".to_string(),
+        span: Default::default(),
+    };
+
+    if let Expr::OptionalAccess { obj, field, .. } = &outer {
+        assert_eq!(field, "first");
+        assert!(
+            matches!(obj.as_ref(), Expr::OptionalAccess { field: ref f, .. } if f == "name"),
+            "Inner should be OptionalAccess with field 'name'"
+        );
+    } else {
+        panic!("Expected OptionalAccess expr");
+    }
+}
+
+#[test]
+fn test_optional_access_json_roundtrip() {
+    // Verify that OptionalAccess can be serialized to JSON and deserialized back
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "user".to_string(),
+            span: Span::default(),
+        }),
+        field: "email".to_string(),
+        span: Default::default(),
+    };
+
+    let json = serde_json::to_string(&expr).expect("OptionalAccess should serialize to JSON");
+    let deserialized: Expr =
+        serde_json::from_str(&json).expect("OptionalAccess should deserialize from JSON");
+
+    assert_eq!(
+        expr, deserialized,
+        "OptionalAccess should survive JSON roundtrip"
+    );
+}
+
+#[test]
+fn test_optional_access_span() {
+    // Verify that OptionalAccess has a span field accessible via Expr::span()
+    let span = Span::new(5, 15, 0);
+    let expr = Expr::OptionalAccess {
+        obj: Box::new(Expr::Variable {
+            name: "obj".to_string(),
+            span: Span::default(),
+        }),
+        field: "field".to_string(),
+        span,
+    };
+
+    assert_eq!(
+        expr.span(),
+        span,
+        "OptionalAccess::span() should return its span"
+    );
+}
+
+// ============================================================================
+// NonNullAssert expression tests (DWARF-72 Chunk C — RED Phase)
+//
+// These tests will FAIL to compile because Expr::NonNullAssert does not exist
+// in the HIR yet. NonNullAssert represents the postfix `!` operator that
+// strips the nullable wrapper from a type (e.g., Option<T> → T).
+//
+// Expected Expr::NonNullAssert shape:
+//   Expr::NonNullAssert {
+//       expr: Box<Expr>,
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_non_null_assert_construction_and_partial_eq() {
+    // Verify that NonNullAssert can be constructed and PartialEq works
+    let inner = Expr::Variable {
+        name: "x".to_string(),
+        span: Span::default(),
+    };
+    let expr1 = Expr::NonNullAssert {
+        expr: Box::new(inner.clone()),
+        span: Span::default(),
+    };
+    let expr2 = Expr::NonNullAssert {
+        expr: Box::new(inner.clone()),
+        span: Span::default(),
+    };
+
+    assert_eq!(
+        expr1, expr2,
+        "Two identical NonNullAssert expressions should be equal"
+    );
+
+    // Verify the inner expression is accessible
+    match &expr1 {
+        Expr::NonNullAssert { expr, .. } => {
+            assert!(
+                matches!(expr.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                "Inner expr should be Variable(\"x\")"
+            );
+        }
+        other => panic!("Expected NonNullAssert, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_non_null_assert_json_roundtrip() {
+    // Verify that NonNullAssert can be serialized to JSON and deserialized back
+    let expr = Expr::NonNullAssert {
+        expr: Box::new(Expr::Variable {
+            name: "result".to_string(),
+            span: Span::default(),
+        }),
+        span: Default::default(),
+    };
+
+    let json = serde_json::to_string(&expr).expect("NonNullAssert should serialize to JSON");
+    let deserialized: Expr =
+        serde_json::from_str(&json).expect("NonNullAssert should deserialize from JSON");
+
+    assert_eq!(
+        expr, deserialized,
+        "NonNullAssert should survive JSON roundtrip"
+    );
 }
