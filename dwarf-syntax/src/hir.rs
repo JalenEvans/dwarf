@@ -317,6 +317,7 @@ pub enum Decl {
     UnionDef {
         name: String,
         variants: Vec<Variant>,
+        type_params: Vec<String>,
         is_pub: bool,
         span: Span,
     },

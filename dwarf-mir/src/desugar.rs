@@ -576,6 +576,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             Decl::UnionDef {
                 name,
                 variants,
+                type_params: _,
                 is_pub,
                 span,
             } => Some(MirDecl::UnionDef {
@@ -1469,6 +1470,7 @@ mod tests {
                     arg: None,
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: s,
         }];

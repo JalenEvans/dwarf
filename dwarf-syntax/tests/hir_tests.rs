@@ -136,6 +136,7 @@ fn test_union_def_decl_construction() {
                 arg: None,
             },
         ],
+        type_params: vec![],
         is_pub: false,
         span: Default::default(),
     };

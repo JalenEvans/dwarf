@@ -29,6 +29,7 @@ pub enum TokenKind {
     Const,
     In,
     KeyOf,
+    Enum,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -114,6 +115,7 @@ impl TokenKind {
             Self::Const => "'const'",
             Self::In => "'in'",
             Self::KeyOf => "'keyof'",
+            Self::Enum => "'enum'",
 
             // Arithmetic
             Self::Plus => "'+'",

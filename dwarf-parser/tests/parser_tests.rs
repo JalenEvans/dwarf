@@ -1968,3 +1968,280 @@ fn test_parse_non_null_assert_double() {
         other => panic!("Expected outer NonNullAssert expr, got {:?}", other),
     }
 }
+
+// ============================================================================
+// ENUM KEYWORD PARSING (RED Phase — expected to fail)
+//
+// These tests will FAIL to compile because TokenKind::Enum does not exist
+// in the lexer, and the parser has no handling for `enum` syntax.
+//
+// `enum` is syntactic sugar for union types. The parser should desugar:
+//   `enum Color { Red, Green, Blue }`
+// into the same HIR as:
+//   `type Color = Red | Green | Blue`  →  Decl::UnionDef
+//
+// Expected behavior:
+//   - `enum Name { Var1, Var2, ... }` → Decl::UnionDef with unit variants
+//   - `enum Name { Var1(T), Var2 }`   → Decl::UnionDef with payload variants
+//   - `pub enum Name { ... }`          → Decl::UnionDef with is_pub = true
+//   - `enum Name<T> { ... }`           → Decl::UnionDef with type_params
+// ============================================================================
+
+#[test]
+fn test_parse_enum_basic_desugars_to_union() {
+    // `enum Color { Red, Green, Blue }` should produce the same HIR as
+    // `type Color = Red | Green | Blue`
+    let enum_tokens = tokenize("enum Color { Red, Green, Blue }");
+    let mut enum_parser = Parser::new(enum_tokens);
+    let (enum_decls, enum_errors) = enum_parser.parse();
+
+    assert!(
+        enum_errors.is_empty(),
+        "No errors for enum: {:?}",
+        enum_errors
+    );
+    assert_eq!(enum_decls.len(), 1);
+
+    let union_tokens = tokenize("type Color = Red | Green | Blue");
+    let mut union_parser = Parser::new(union_tokens);
+    let (union_decls, union_errors) = union_parser.parse();
+    assert!(union_errors.is_empty());
+    assert_eq!(union_decls.len(), 1);
+
+    // Both should produce Decl::UnionDef with identical structure
+    match (&enum_decls[0], &union_decls[0]) {
+        (
+            Decl::UnionDef {
+                name: enum_name,
+                variants: enum_variants,
+                is_pub: enum_pub,
+                ..
+            },
+            Decl::UnionDef {
+                name: union_name,
+                variants: union_variants,
+                is_pub: union_pub,
+                ..
+            },
+        ) => {
+            assert_eq!(enum_name, union_name);
+            assert_eq!(enum_name, "Color");
+            assert_eq!(enum_variants.len(), union_variants.len());
+            assert_eq!(enum_variants.len(), 3);
+            assert_eq!(enum_pub, union_pub);
+
+            // Check variant names match
+            assert_eq!(enum_variants[0].name, "Red");
+            assert_eq!(enum_variants[1].name, "Green");
+            assert_eq!(enum_variants[2].name, "Blue");
+
+            // All unit variants — no payloads
+            assert!(enum_variants[0].arg.is_none());
+            assert!(enum_variants[1].arg.is_none());
+            assert!(enum_variants[2].arg.is_none());
+        }
+        (enum_decl, union_decl) => panic!(
+            "Expected both to be UnionDef, got enum={:?}, union={:?}",
+            enum_decl, union_decl
+        ),
+    }
+}
+
+#[test]
+fn test_parse_enum_status_variants() {
+    // `enum Status { Active, Inactive }` — correct variant names
+    let tokens = tokenize("enum Status { Active, Inactive }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for enum: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Status");
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Active");
+            assert_eq!(variants[1].name, "Inactive");
+            assert!(variants[0].arg.is_none());
+            assert!(variants[1].arg.is_none());
+        }
+        other => panic!("Expected UnionDef from enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_pub_enum_visibility() {
+    // `pub enum Direction { North, South, East, West }` — pub visibility
+    let tokens = tokenize("pub enum Direction { North, South, East, West }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors for pub enum: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            variants,
+            is_pub,
+            ..
+        } => {
+            assert_eq!(name, "Direction");
+            assert!(is_pub, "pub enum should have is_pub = true");
+            assert_eq!(variants.len(), 4);
+            assert_eq!(variants[0].name, "North");
+            assert_eq!(variants[1].name, "South");
+            assert_eq!(variants[2].name, "East");
+            assert_eq!(variants[3].name, "West");
+        }
+        other => panic!("Expected UnionDef from pub enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_private_enum_default_visibility() {
+    // `enum` without `pub` should have is_pub = false
+    let tokens = tokenize("enum Color { Red, Green, Blue }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty());
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { is_pub, .. } => {
+            assert!(!is_pub, "enum without pub should have is_pub = false");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_with_payload_variants() {
+    // `enum Option<T> { Some(T), None }` — generic enum with payload variants
+    // This requires type_params on UnionDef
+    let tokens = tokenize("enum Option<T> { Some(T), None }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(
+        errors.is_empty(),
+        "No errors for generic enum: {:?}",
+        errors
+    );
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            variants,
+            type_params,
+            ..
+        } => {
+            assert_eq!(name, "Option");
+            assert_eq!(type_params.len(), 1, "Should have one type param");
+            assert_eq!(type_params[0], "T");
+
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Some");
+            assert!(
+                variants[0].arg.is_some(),
+                "Some should have a payload of type T"
+            );
+            // The payload should be Named("T")
+            match &variants[0].arg {
+                Some(Type::Named(n)) => assert_eq!(n, "T"),
+                other => panic!("Expected Named(\"T\") payload, got {:?}", other),
+            }
+
+            assert_eq!(variants[1].name, "None");
+            assert!(variants[1].arg.is_none(), "None should have no payload");
+        }
+        other => panic!("Expected UnionDef from generic enum, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_multiple_type_params() {
+    // `enum Result<T, E> { Ok(T), Err(E) }` — multiple type params
+    let tokens = tokenize("enum Result<T, E> { Ok(T), Err(E) }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(name, "Result");
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(type_params[0], "T");
+            assert_eq!(type_params[1], "E");
+
+            assert_eq!(variants.len(), 2);
+            assert_eq!(variants[0].name, "Ok");
+            assert!(variants[0].arg.is_some());
+            assert_eq!(variants[1].name, "Err");
+            assert!(variants[1].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_single_variant() {
+    // Edge case: single variant enum
+    let tokens = tokenize("enum Wrapper { Wrapped(i32) }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Wrapper");
+            assert_eq!(variants.len(), 1);
+            assert_eq!(variants[0].name, "Wrapped");
+            assert!(variants[0].arg.is_some());
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_enum_mixed_unit_and_payload_variants() {
+    // `enum Value { Int(i32), Str(String), Bool(bool), Null }`
+    let tokens = tokenize("enum Value { Int(i32), Str(String), Bool(bool), Null }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "No errors: {:?}", errors);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Decl::UnionDef { name, variants, .. } => {
+            assert_eq!(name, "Value");
+            assert_eq!(variants.len(), 4);
+
+            assert_eq!(variants[0].name, "Int");
+            assert!(variants[0].arg.is_some());
+
+            assert_eq!(variants[1].name, "Str");
+            assert!(variants[1].arg.is_some());
+
+            assert_eq!(variants[2].name, "Bool");
+            assert!(variants[2].arg.is_some());
+
+            assert_eq!(variants[3].name, "Null");
+            assert!(variants[3].arg.is_none(), "Null should be a unit variant");
+        }
+        other => panic!("Expected UnionDef, got {:?}", other),
+    }
+}

@@ -1214,3 +1214,90 @@ fn test_question_followed_by_space_then_dot() {
     // `? .` (with space) should still lex as Question + Dot (separate tokens)
     assert_token_sequence("? .", &[TokenKind::Question, TokenKind::Dot]);
 }
+
+// =======================================================================
+// ENUM KEYWORD (RED Phase — expected to fail)
+//
+// TokenKind::Enum does not exist yet. These tests specify the expected
+// lexing behavior for the `enum` keyword, which is syntactic sugar for
+// union types. `enum Color { Red, Green, Blue }` should lex identically
+// to the tokens needed for a union definition.
+// =======================================================================
+
+#[test]
+fn test_keyword_enum() {
+    assert_token_kind("enum", TokenKind::Enum);
+}
+
+#[test]
+fn test_enum_not_an_identifier() {
+    // After implementation, `enum` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("enum");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("enum".to_string()),
+        "`enum` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_sequence_enum_declaration() {
+    // `enum Color { Red, Green, Blue }` should lex as:
+    // Enum, Ident("Color"), LBrace, Ident("Red"), Comma, Ident("Green"),
+    // Comma, Ident("Blue"), RBrace
+    assert_token_sequence(
+        "enum Color { Red, Green, Blue }",
+        &[
+            TokenKind::Enum,
+            TokenKind::Ident("Color".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Ident("Red".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("Green".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("Blue".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_pub_enum() {
+    assert_token_sequence(
+        "pub enum Direction { North, South }",
+        &[
+            TokenKind::Pub,
+            TokenKind::Enum,
+            TokenKind::Ident("Direction".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Ident("North".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("South".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_enum_with_generic() {
+    // `enum Option<T> { Some(T), None }` — generic enum with payload variants
+    assert_token_sequence(
+        "enum Option<T> { Some(T), None }",
+        &[
+            TokenKind::Enum,
+            TokenKind::Ident("Option".to_string()),
+            TokenKind::Lt,
+            TokenKind::Ident("T".to_string()),
+            TokenKind::Gt,
+            TokenKind::LBrace,
+            TokenKind::Ident("Some".to_string()),
+            TokenKind::LParen,
+            TokenKind::Ident("T".to_string()),
+            TokenKind::RParen,
+            TokenKind::Comma,
+            TokenKind::Ident("None".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}

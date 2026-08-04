@@ -20,6 +20,7 @@ expression: decls
           }
         }
       ],
+      "type_params": [],
       "is_pub": false,
       "span": {
         "file_id": 0,

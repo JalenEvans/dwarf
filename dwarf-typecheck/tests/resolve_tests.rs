@@ -87,6 +87,7 @@ fn test_register_union_def() {
                 arg: Some(Type::Named("int".to_string())),
             },
         ],
+        type_params: vec![],
         is_pub: true,
         span: dummy_span(),
     }];
@@ -175,6 +176,7 @@ fn test_multiple_declarations() {
                     arg: Some(Type::Named("int".to_string())),
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -555,6 +557,7 @@ fn test_resolve_generic_type_simple() {
                     arg: Some(Type::Named("int".to_string())),
                 },
             ],
+            type_params: vec![],
             is_pub: true,
             span: dummy_span(),
         },

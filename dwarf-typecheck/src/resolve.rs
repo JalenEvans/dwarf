@@ -99,6 +99,7 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
             Decl::UnionDef {
                 name,
                 variants,
+                type_params: _,
                 is_pub: _,
                 span: _,
             } => {

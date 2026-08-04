@@ -83,6 +83,7 @@ impl Parser {
                 | TokenKind::Import
                 | TokenKind::Extern
                 | TokenKind::Const
+                | TokenKind::Enum
                 | TokenKind::At
                 | TokenKind::Pub => return,
                 _ => {
@@ -196,6 +197,7 @@ impl Parser {
             TokenKind::Extern => self.parse_extern(is_pub),
             TokenKind::Const => self.parse_const(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
+            TokenKind::Enum => self.parse_enum(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
                 // function so the top-level parse produces at least one decl.
@@ -504,6 +506,55 @@ impl Parser {
         Ok(Decl::UnionDef {
             name,
             variants,
+            type_params: vec![],
+            is_pub,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an enum definition: `enum Name<T, U> { Var1, Var2(Type), ... }`.
+    /// Desugars to `Decl::UnionDef` with optional `type_params`.
+    fn parse_enum(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let start = self.advance().span; // consume `enum`
+        let name = self.consume_ident("expected enum name")?;
+
+        // Optional generic type params: <T, U, ...>
+        let type_params = if self.match_token(TokenKind::Lt) {
+            let mut params = Vec::new();
+            while !self.check(TokenKind::Gt) && !self.is_at_end() {
+                params.push(self.consume_ident("expected type parameter name")?);
+                self.match_token(TokenKind::Comma);
+            }
+            self.consume(TokenKind::Gt, "expected '>' after enum type parameters")?;
+            params
+        } else {
+            vec![]
+        };
+
+        self.consume(TokenKind::LBrace, "expected '{' after enum name")?;
+
+        let mut variants = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let var_name = self.consume_ident("expected variant name")?;
+            let arg = if self.match_token(TokenKind::LParen) {
+                let arg_type = self.parse_type()?;
+                self.consume(TokenKind::RParen, "expected ')' after variant arg")?;
+                Some(arg_type)
+            } else {
+                None
+            };
+            variants.push(Variant {
+                name: var_name,
+                arg,
+            });
+            self.match_token(TokenKind::Comma);
+        }
+        self.consume(TokenKind::RBrace, "expected '}' after enum variants")?;
+
+        Ok(Decl::UnionDef {
+            name,
+            variants,
+            type_params,
             is_pub,
             span: Span::new(start.file_id, start.start, self.previous().span.end),
         })

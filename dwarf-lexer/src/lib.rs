@@ -786,6 +786,7 @@ impl<'a> Lexer<'a> {
             "const" => TokenKind::Const,
             "in" => TokenKind::In,
             "keyof" => TokenKind::KeyOf,
+            "enum" => TokenKind::Enum,
             _ => TokenKind::Ident(word.to_string()),
         };
         Ok(Token::new(
