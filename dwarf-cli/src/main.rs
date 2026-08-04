@@ -4,6 +4,16 @@ use clap::Parser;
 use dwarf_cli::{build, check, dev, emit, fmt, init, run, test, Cli, Commands};
 
 fn main() {
+    // Show splash screen on --version / -V
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 && (args[1] == "--version" || args[1] == "-V") {
+        print!(
+            "{}",
+            dwarf_cli::splash::splash_screen(env!("CARGO_PKG_VERSION"))
+        );
+        return;
+    }
+
     let cli = Cli::parse();
 
     if cli.list_runtimes {

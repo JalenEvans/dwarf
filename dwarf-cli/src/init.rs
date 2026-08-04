@@ -54,7 +54,9 @@ pub fn run_init(name: &str) -> Result<(), String> {
     let main_path = src_dir.join("main.kzd");
     fs::write(&main_path, template).map_err(|e| format!("Failed to write main.kzd: {}", e))?;
 
-    // Print a helpful success message.
+    // Print the splash screen followed by project details.
+    use crate::splash::SPLASH_ART;
+    println!("{}", SPLASH_ART);
     println!("Created Dwarf project '{}'", name);
     println!("  {} (project config)", config_path.display());
     println!("  {} (entry point)", main_path.display());

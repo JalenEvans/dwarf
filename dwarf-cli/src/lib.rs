@@ -17,6 +17,7 @@ pub mod fmt;
 pub mod init;
 pub mod output;
 pub mod run;
+pub mod splash;
 pub mod test;
 
 #[derive(Parser)]

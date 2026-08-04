@@ -311,6 +311,65 @@ fn test_init_config_name_matches_argument() {
     );
 }
 
+// =========================================================================
+// 4. Splash Screen Tests (DWARF-74 Chunk A)
+// =========================================================================
+
+/// The ASCII art must contain at least one of these distinctive markers
+/// that cannot appear in normal prose output.
+fn output_contains_ascii_art(output: &str) -> bool {
+    // Check for distinctive ASCII art characters that wouldn't appear in
+    // regular text. The Dwarven Warhammer art uses these patterns.
+    output.contains("/\\") || output.contains("[_]") || output.contains("___")
+}
+
+#[test]
+fn test_init_shows_splash_art() {
+    // `dwarf init my-project` should display the Dwarven Warhammer ASCII
+    // art as part of its success output (DWARF-74).
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let output = dwarf_in_dir(dir.path(), &["init", "splash-test"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "dwarf init should succeed.\nstdout: {}\nstderr: {}",
+        stdout,
+        stderr,
+    );
+
+    assert!(
+        output_contains_ascii_art(&stdout),
+        "dwarf init success output should contain ASCII art \
+         (expected distinctive characters like '/\\' or '[_]' or '___').\n\
+         Got stdout:\n{}",
+        stdout,
+    );
+}
+
+#[test]
+fn test_version_shows_splash_art() {
+    // `dwarf -V` (or `dwarf --version`) should display the Dwarven Warhammer
+    // ASCII art alongside or as part of the version output (DWARF-74).
+    let output = dwarf(&["-V"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Combine stdout and stderr — clap may print version to either stream
+    // depending on configuration, and the art could be on either.
+    let combined = format!("{}{}", stdout, stderr);
+
+    assert!(
+        output_contains_ascii_art(&combined),
+        "dwarf -V output should contain ASCII art \
+         (expected distinctive characters like '/\\' or '[_]' or '___').\n\
+         Got stdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr,
+    );
+}
+
 #[test]
 fn test_init_config_is_valid_json() {
     // The generated config file must be parseable by serde_json.
