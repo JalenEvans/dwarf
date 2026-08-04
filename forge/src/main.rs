@@ -105,6 +105,18 @@ enum Commands {
         /// Path to standard library runtime files
         #[arg(long, id = "stdlib-path")]
         stdlib_path: Option<String>,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<String>,
     },
 
     /// Build Dwarf source files into target language
@@ -254,6 +266,18 @@ enum Commands {
         /// Apply auto-fix patches for failing tests by shrinking counterexamples
         #[arg(long)]
         fix: bool,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<String>,
     },
 
     /// Initialize a new Dwarf project
@@ -290,6 +314,9 @@ fn main() {
             skip_passes,
             list_passes,
             stdlib_path,
+            quick: _,
+            skip_edge_check: _,
+            test_coverage: _,
         }) => {
             check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
         }
@@ -357,6 +384,9 @@ fn main() {
             json,
             diff,
             fix,
+            quick: _,
+            skip_edge_check: _,
+            test_coverage: _,
         }) => {
             test::run_test(files, target, json, diff, fix);
         }

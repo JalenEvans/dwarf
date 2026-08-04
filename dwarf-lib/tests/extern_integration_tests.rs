@@ -21,6 +21,7 @@ fn ts_options() -> CompileOptions {
         skip_passes: vec![],
         source_map: false,
         stdlib_path: None,
+        ..Default::default()
     }
 }
 

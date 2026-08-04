@@ -47,6 +47,7 @@ pub fn run_check(
             .collect(),
         source_map: false,
         stdlib_path,
+        ..Default::default()
     };
 
     let options = crate::config::merge_config_with_cli(cli_options);

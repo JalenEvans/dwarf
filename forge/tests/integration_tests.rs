@@ -229,3 +229,87 @@ fn test_forge_build_help() {
         stdout,
     );
 }
+
+// ---------------------------------------------------------------------------
+// 7. forge test --quick — bypasses coverage checks (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_test_quick_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "quick_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&[
+        "test",
+        file_path.to_str().unwrap(),
+        "-t",
+        "ts",
+        "--quick",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --quick should be recognized as a valid flag
+    // The test may fail for other reasons (no test runner, etc.) but should not
+    // fail with "unknown flag" or "unexpected argument"
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--quick flag should be recognized by forge test.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. forge check --skip-edge-check — bypasses edge analysis (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_check_skip_edge_check_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "edge_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&[
+        "check",
+        file_path.to_str().unwrap(),
+        "--skip-edge-check",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --skip-edge-check should be recognized as a valid flag
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--skip-edge-check flag should be recognized by forge check.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. forge test --test-coverage=off — disables coverage enforcement (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_test_coverage_off_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "coverage_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&[
+        "test",
+        file_path.to_str().unwrap(),
+        "-t",
+        "ts",
+        "--test-coverage=off",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --test-coverage=off should be recognized as a valid flag
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--test-coverage=off flag should be recognized by forge test.\nGot:\n{}",
+        combined,
+    );
+}

@@ -134,6 +134,15 @@ pub struct CompileOptions {
     /// If None, the compiler searches default locations.
     #[serde(default)]
     pub stdlib_path: Option<String>,
+    /// Bypass all coverage checks.
+    #[serde(default)]
+    pub quick: bool,
+    /// Bypass edge-case analysis only.
+    #[serde(default)]
+    pub skip_edge_check: bool,
+    /// How strictly test coverage is enforced.
+    #[serde(default = "default_test_coverage")]
+    pub test_coverage: CoverageMode,
 }
 
 impl Default for CompileOptions {
@@ -145,6 +154,9 @@ impl Default for CompileOptions {
             skip_passes: Vec::new(),
             source_map: false,
             stdlib_path: None,
+            quick: false,
+            skip_edge_check: false,
+            test_coverage: CoverageMode::On,
         }
     }
 }
@@ -191,6 +203,86 @@ impl std::fmt::Display for Severity {
     }
 }
 
+/// How strictly test coverage is enforced.
+///
+/// - `Off`: no coverage checks
+/// - `Warning`: emit warnings but build continues
+/// - `Required`: hard error, build fails
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CoverageMode {
+    On,
+    Off,
+    Warning,
+    Required,
+}
+
+impl std::str::FromStr for CoverageMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "on" => Ok(CoverageMode::On),
+            "off" => Ok(CoverageMode::Off),
+            "warning" => Ok(CoverageMode::Warning),
+            "required" => Ok(CoverageMode::Required),
+            _ => Err(format!("invalid coverage mode: '{}'", s)),
+        }
+    }
+}
+
+/// Which functions require test coverage.
+///
+/// - `AllPub`: only public functions
+/// - `All`: all functions except those with `@skip_test`
+/// - `AnnotatedOnly`: only functions with `@tested`
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CoverageScope {
+    AllPub,
+    All,
+    AnnotatedOnly,
+}
+
+/// Test coverage configuration — controls the coverage pass behavior.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct TestCoverageConfig {
+    /// How strictly coverage is enforced.
+    #[serde(default)]
+    pub mode: CoverageMode,
+    /// Which functions are checked for coverage.
+    #[serde(default)]
+    pub scope: CoverageScope,
+    /// Whether `@tested` or `@test` annotations are required (vs. inference).
+    #[serde(default)]
+    pub annotation_required: bool,
+    /// How edge-case coverage gaps are treated.
+    #[serde(default)]
+    pub edge_check: CoverageMode,
+}
+
+impl Default for TestCoverageConfig {
+    fn default() -> Self {
+        Self {
+            mode: CoverageMode::Required,
+            scope: CoverageScope::AllPub,
+            annotation_required: false,
+            edge_check: CoverageMode::Required,
+        }
+    }
+}
+
+impl Default for CoverageMode {
+    fn default() -> Self {
+        CoverageMode::Off
+    }
+}
+
+impl Default for CoverageScope {
+    fn default() -> Self {
+        CoverageScope::AllPub
+    }
+}
+
 /// Project configuration (`dwarf.conf.json`).
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CompilerConfig {
@@ -213,6 +305,24 @@ pub struct CompilerConfig {
     /// Path to the standard library runtime directory.
     #[serde(default)]
     pub stdlib_path: Option<String>,
+    /// Test coverage configuration.
+    #[serde(default)]
+    pub test_coverage: TestCoverageConfig,
+}
+
+impl Default for CompilerConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            version: None,
+            targets: default_targets(),
+            out_dir: default_out_dir(),
+            pretty: false,
+            skip_passes: Vec::new(),
+            stdlib_path: None,
+            test_coverage: TestCoverageConfig::default(),
+        }
+    }
 }
 
 fn default_targets() -> Vec<String> {
@@ -221,6 +331,10 @@ fn default_targets() -> Vec<String> {
 
 fn default_out_dir() -> String {
     "dist".to_string()
+}
+
+fn default_test_coverage() -> CoverageMode {
+    CoverageMode::On
 }
 
 impl CompilerConfig {
@@ -263,6 +377,9 @@ impl CompilerConfig {
             } else {
                 self.stdlib_path.clone()
             },
+            quick: options.quick,
+            skip_edge_check: options.skip_edge_check,
+            test_coverage: options.test_coverage.clone(),
         }
     }
 }
@@ -305,5 +422,87 @@ mod tests {
         let opts = CompileOptions::default();
         // stdlib_path should default to None (system will search default paths)
         assert!(opts.stdlib_path.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // DWARF-117: CompilerConfig test_coverage — RED PHASE
+    //
+    // These tests verify that CompilerConfig has a test_coverage field
+    // with correct defaults and JSON deserialization. They will fail
+    // because the Default impl for TestCoverageConfig returns wrong
+    // values (mode: Off instead of Required, etc.).
+    // ------------------------------------------------------------------
+
+    /// Test 1: CompilerConfig::default() should have correct test_coverage defaults.
+    ///
+    /// Expected defaults:
+    ///   mode: Required, scope: AllPub, annotation_required: false, edge_check: Required
+    ///
+    /// Failure mode: The stub Default impl returns mode=Off, annotation_required=true,
+    /// edge_check=Off — so assertions on mode, annotation_required, and edge_check fail.
+    #[test]
+    fn test_compiler_config_default_test_coverage() {
+        let config = CompilerConfig::default();
+        assert_eq!(
+            config.test_coverage.mode,
+            CoverageMode::Required,
+            "default coverage mode should be Required"
+        );
+        assert_eq!(
+            config.test_coverage.scope,
+            CoverageScope::AllPub,
+            "default coverage scope should be AllPub"
+        );
+        assert!(
+            !config.test_coverage.annotation_required,
+            "default annotation_required should be false"
+        );
+        assert_eq!(
+            config.test_coverage.edge_check,
+            CoverageMode::Required,
+            "default edge_check should be Required"
+        );
+    }
+
+    /// Test 2: JSON deserialization of test_coverage config.
+    ///
+    /// Deserialize `{ "test_coverage": { "mode": "off", "edge_check": "warning" } }`
+    /// and verify the values. Fields not in JSON should use defaults.
+    ///
+    /// Failure mode: CoverageMode enum does not have `#[serde(rename_all = "lowercase")]`,
+    /// so "off" and "warning" (lowercase) fail to deserialize — serde expects "Off"
+    /// and "Warning" (PascalCase). The from_str call returns Err.
+    #[test]
+    fn test_compiler_config_json_deserialize_test_coverage() {
+        let json = r#"{
+            "test_coverage": {
+                "mode": "off",
+                "edge_check": "warning"
+            }
+        }"#;
+
+        let config = CompilerConfig::from_json(json)
+            .expect("should deserialize CompilerConfig with test_coverage");
+
+        assert_eq!(
+            config.test_coverage.mode,
+            CoverageMode::Off,
+            "mode should deserialize from 'off'"
+        );
+        assert_eq!(
+            config.test_coverage.edge_check,
+            CoverageMode::Warning,
+            "edge_check should deserialize from 'warning'"
+        );
+        // Fields not in JSON should use their defaults
+        assert_eq!(
+            config.test_coverage.scope,
+            CoverageScope::AllPub,
+            "scope should default to AllPub when not in JSON"
+        );
+        assert!(
+            !config.test_coverage.annotation_required,
+            "annotation_required should default to false when not in JSON"
+        );
     }
 }

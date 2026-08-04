@@ -75,6 +75,7 @@ pub fn run_emit(
                     .collect(),
                 source_map: false,
                 stdlib_path: stdlib_path.clone(),
+                ..Default::default()
             };
 
             let options = crate::config::merge_config_with_cli(cli_options);

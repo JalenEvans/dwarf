@@ -40,6 +40,9 @@ fn main() {
             skip_passes,
             list_passes,
             stdlib_path,
+            quick: _,
+            skip_edge_check: _,
+            test_coverage: _,
         }) => {
             check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
         }
@@ -98,6 +101,9 @@ fn main() {
             json,
             diff,
             fix,
+            quick: _,
+            skip_edge_check: _,
+            test_coverage: _,
         }) => {
             test::run_test(files, target, json, diff, fix);
         }
