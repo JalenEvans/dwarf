@@ -75,7 +75,7 @@ impl EdgeCategory {
     }
 
     /// Convert edge value string to EdgeCategory.
-    pub fn from_str(s: &str) -> Option<EdgeCategory> {
+    pub fn parse(s: &str) -> Option<EdgeCategory> {
         match s.to_lowercase().as_str() {
             "zero" => Some(EdgeCategory::Zero),
             "positive" => Some(EdgeCategory::Positive),
@@ -221,7 +221,7 @@ impl EdgeAnalysisPass {
                         let covered_edges: Vec<EdgeCategory> = covers
                             .iter()
                             .filter(|(fn_name, p, _)| fn_name == name && p == &param.name)
-                            .filter_map(|(_, _, edge_val)| EdgeCategory::from_str(edge_val))
+                            .filter_map(|(_, _, edge_val)| EdgeCategory::parse(edge_val))
                             .collect();
 
                         // Find missing edges

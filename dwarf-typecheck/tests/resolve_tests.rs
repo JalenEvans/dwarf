@@ -776,7 +776,7 @@ fn test_register_const_with_type_annotation() {
     let decls = vec![Decl::Const {
         name: "PI".to_string(),
         value: Box::new(Expr::Literal {
-            value: LiteralValue::Float(3.14),
+            value: LiteralValue::Float(std::f64::consts::PI),
             span: dummy_span(),
         }),
         type_: Some(Type::Named("Float".to_string())),

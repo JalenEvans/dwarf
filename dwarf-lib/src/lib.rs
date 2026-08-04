@@ -209,10 +209,11 @@ impl std::fmt::Display for Severity {
 /// - `Off`: no coverage checks
 /// - `Warning`: emit warnings but build continues
 /// - `Required`: hard error, build fails
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CoverageMode {
     On,
+    #[default]
     Off,
     Warning,
     Required,
@@ -236,9 +237,10 @@ impl std::str::FromStr for CoverageMode {
 /// - `AllPub`: only public functions
 /// - `All`: all functions except those with `@skip_test`
 /// - `AnnotatedOnly`: only functions with `@tested`
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CoverageScope {
+    #[default]
     AllPub,
     All,
     AnnotatedOnly,
@@ -269,18 +271,6 @@ impl Default for TestCoverageConfig {
             annotation_required: false,
             edge_check: CoverageMode::Required,
         }
-    }
-}
-
-impl Default for CoverageMode {
-    fn default() -> Self {
-        CoverageMode::Off
-    }
-}
-
-impl Default for CoverageScope {
-    fn default() -> Self {
-        CoverageScope::AllPub
     }
 }
 

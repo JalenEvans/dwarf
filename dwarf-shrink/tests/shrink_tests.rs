@@ -212,7 +212,7 @@ fn test_shrink_list_all_greater_than() {
         list.iter().all(|x| *x > 10)
     });
     assert!(
-        result.len() >= 1,
+        !result.is_empty(),
         "should have at least 1 element, got {:?} (len={})",
         result,
         result.len()

@@ -338,7 +338,7 @@ fn test_parse_chained_method_calls() {
                                     }
                                 ),
                                 "Argument should be Int(5), got {:?}",
-                                &args[0]
+                                args[0]
                             );
 
                             // func should be Member { obj: Call(...), field: "add" }

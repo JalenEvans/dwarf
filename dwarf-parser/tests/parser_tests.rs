@@ -1225,7 +1225,7 @@ fn test_parse_extern_java_generic_return() {
                     assert!(
                         matches!(&args[0], Type::Named(n) if n == "any"),
                         "Expected generic arg Named(\"any\"), got {:?}",
-                        &args[0]
+                        args[0]
                     );
                 }
                 other => panic!("Expected Generic return type List<any>, got {:?}", other),
@@ -1560,7 +1560,7 @@ fn test_parse_const_string_literal() {
 
 #[test]
 fn test_parse_const_float_literal() {
-    let tokens = tokenize("const pi = 3.14");
+    let tokens = tokenize("const pi = 3.25");
     let mut parser = Parser::new(tokens);
     let (decls, errors) = parser.parse();
     assert!(errors.is_empty(), "No errors expected: {:?}", errors);
@@ -1570,8 +1570,8 @@ fn test_parse_const_float_literal() {
         Decl::Const { name, value, .. } => {
             assert_eq!(name, "pi");
             assert!(
-                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Float(f), .. } if (f - 3.14).abs() < f64::EPSILON),
-                "Expected Float(3.14) literal, got {:?}",
+                matches!(value.as_ref(), Expr::Literal { value: LiteralValue::Float(f), .. } if (f - 3.25).abs() < f64::EPSILON),
+                "Expected Float(3.25) literal, got {:?}",
                 value
             );
         }
@@ -2380,7 +2380,7 @@ fn test_parse_interface_declaration() {
                     assert!(
                         matches!(&params[0].type_, Some(Type::Named(ref n)) if n == "Str"),
                         "Expected param type Named(\"Str\"), got {:?}",
-                        &params[0].type_
+                        params[0].type_
                     );
                     assert!(
                         matches!(return_type, Some(Type::Named(ref n)) if n == "Self"),
@@ -2953,7 +2953,7 @@ fn test_parse_chained_method_calls() {
                                     }
                                 ),
                                 "Argument should be Int(5), got {:?}",
-                                &args[0]
+                                args[0]
                             );
 
                             // func should be Member { obj: Call(...), field: "add" }

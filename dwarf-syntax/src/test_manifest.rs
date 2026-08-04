@@ -43,10 +43,7 @@ pub fn collect_test_manifest(decls: &[Decl]) -> TestManifest {
 
     for decl in decls {
         if let Decl::Function {
-            name,
-            decorators,
-            span: _,
-            ..
+            name, decorators, ..
         } = decl
         {
             // Only include functions with @test decorator
