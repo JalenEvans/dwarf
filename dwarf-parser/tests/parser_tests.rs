@@ -2245,3 +2245,47 @@ fn test_parse_enum_mixed_unit_and_payload_variants() {
         other => panic!("Expected UnionDef, got {:?}", other),
     }
 }
+
+// ============================================================================
+// DWARF-116: Decorator parser integration tests
+//
+// These tests verify that decorators are parsed into typed Decorator enum
+// variants on the function's `decorators` field, rather than being wrapped
+// as Decl::Decorator around the target.
+//
+// They will FAIL until the decorator parser (dwarf-syntax/src/decorator.rs)
+// is implemented and the parser is updated to populate Decl::Function's
+// `decorators: Vec<Decorator>` field.
+// ============================================================================
+
+#[test]
+fn test_dwarf116_integration_test_decorator_on_function() {
+    // Parse `@test fn my_test() { 42 }` and verify the function declaration
+    // carries Decorator::Test in its decorators field.
+    let tokens = tokenize("@test fn my_test() { 42 }");
+    let mut parser = Parser::new(tokens);
+    let (decls, errors) = parser.parse();
+
+    assert!(errors.is_empty(), "unexpected parse errors: {:?}", errors);
+    assert_eq!(decls.len(), 1, "expected exactly one top-level declaration");
+
+    match &decls[0] {
+        Decl::Function {
+            name,
+            decorators,
+            ..
+        } => {
+            assert_eq!(name, "my_test");
+            assert_eq!(
+                decorators.len(),
+                1,
+                "expected exactly one decorator on my_test"
+            );
+            assert_eq!(decorators[0], Decorator::Test);
+        }
+        other => panic!(
+            "Expected Decl::Function with decorators, got {:?}",
+            other
+        ),
+    }
+}
