@@ -613,6 +613,10 @@ impl EmitterBackend for TypeScriptBackend {
                     expr_str
                 ))
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                Ok(format!("{}!", expr_str))
+            }
         }
     }
 
@@ -1106,6 +1110,7 @@ impl TypeScriptBackend {
                 self.imports
                     .add_import("dwarf-runtime/result.js", "isErr", None);
             }
+            LirExpr::NonNullAssert { expr, .. } => self.scan_expr_for_stdlib(expr),
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }

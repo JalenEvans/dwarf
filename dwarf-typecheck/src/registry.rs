@@ -54,6 +54,18 @@ impl TypeRegistry {
         7
     }
 
+    /// Get the Option base type used for non-null assertion inference.
+    ///
+    /// Option is permanently registered as built-in generic ID 5.
+    pub fn get_or_create_option_base(&mut self) -> TypeId {
+        5
+    }
+
+    /// Register an anonymous union type from a list of variants.
+    pub fn register_anonymous_union(&mut self, variants: Vec<crate::types::VariantDef>) -> TypeId {
+        self.register(TypeDef::Union(variants))
+    }
+
     /// Returns the TypeId for a built-in generic type constructor by name.
     pub fn get_builtin_id(&self, name: &str) -> Option<TypeId> {
         self.types

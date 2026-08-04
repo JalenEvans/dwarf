@@ -254,6 +254,11 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
+        MirExpr::NonNullAssert { expr, span } => LirExpr::NonNullAssert {
+            expr: Box::new(lower_expr(expr)),
+            hint: TargetHint::None,
+            span: *span,
+        },
     }
 }
 

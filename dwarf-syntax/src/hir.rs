@@ -224,6 +224,8 @@ pub enum Expr {
     },
     /// Assert that an expression produces consistent results across all targets.
     AssertConsistent { expr: Box<Expr>, span: Span },
+    /// Non-null assertion operator (expr!)
+    NonNullAssert { expr: Box<Expr>, span: Span },
 }
 
 impl Expr {
@@ -253,6 +255,7 @@ impl Expr {
             Expr::Unary { span, .. } => *span,
             Expr::ForAll { span, .. } => *span,
             Expr::AssertConsistent { span, .. } => *span,
+            Expr::NonNullAssert { span, .. } => *span,
         }
     }
 }

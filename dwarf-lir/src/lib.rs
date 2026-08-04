@@ -198,6 +198,12 @@ pub enum LirExpr {
         hint: TargetHint,
         span: Span,
     },
+    /// Non-null assertion operator (`!`).
+    NonNullAssert {
+        expr: Box<LirExpr>,
+        hint: TargetHint,
+        span: Span,
+    },
 }
 
 impl LirExpr {
@@ -224,7 +230,8 @@ impl LirExpr {
             | LirExpr::AssertConsistent { span, .. }
             | LirExpr::Try { span, .. }
             | LirExpr::Throw { span, .. }
-            | LirExpr::Propagate { span, .. } => *span,
+            | LirExpr::Propagate { span, .. }
+            | LirExpr::NonNullAssert { span, .. } => *span,
         }
     }
 
@@ -251,7 +258,8 @@ impl LirExpr {
             | LirExpr::AssertConsistent { hint, .. }
             | LirExpr::Try { hint, .. }
             | LirExpr::Throw { hint, .. }
-            | LirExpr::Propagate { hint, .. } => hint.clone(),
+            | LirExpr::Propagate { hint, .. }
+            | LirExpr::NonNullAssert { hint, .. } => hint.clone(),
         }
     }
 }

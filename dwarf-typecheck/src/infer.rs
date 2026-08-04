@@ -170,6 +170,9 @@ pub fn infer_expr(
         // 16. Propagate expressions (?expr)
         Expr::Propagate { expr, .. } => infer_propagate(expr, env, registry),
 
+        // 17. Non-null assertion expressions (expr!)
+        Expr::NonNullAssert { expr, .. } => infer_non_null_assert(expr, env, registry),
+
         // 17. For loop expressions (for x in iterable { body })
         Expr::For {
             binding,
@@ -838,6 +841,61 @@ fn infer_propagate(
         }
         Some(_) => Err("Propagate target must be a union type (Result/Option)".to_string()),
         None => Err("Propagate target type not found".to_string()),
+    }
+}
+
+/// Infer the type of a non-null assertion expression `expr!`.
+///
+/// The non-null assertion operator unwraps an `Option<T>` or removes `Null`
+/// from a union type:
+/// 1. Infer the inner `expr` type.
+/// 2. Look it up — if it's a `GenericInstance` with base == Option base,
+///    extract the inner type `T` from the args.
+/// 3. If it's a `Union`, filter out the `Null` variant and return the
+///    remaining union (or the single type if only one remains).
+/// 4. Otherwise, pass through the type as-is (no error).
+fn infer_non_null_assert(
+    expr: &Expr,
+    env: &TypeEnv,
+    registry: &mut TypeRegistry,
+) -> Result<TypeId, String> {
+    let inner_type = infer_expr(expr, env, registry)?;
+    let resolved = registry.resolve(inner_type);
+
+    // Get the option base type ID for comparison
+    let option_base = registry.get_or_create_option_base();
+
+    match registry.get(resolved) {
+        Some(TypeDef::GenericInstance { base, args }) if *base == option_base => {
+            // Option<T> -> T
+            if let Some(inner) = args.first() {
+                Ok(*inner)
+            } else {
+                Err("Option type must have exactly one type argument".to_string())
+            }
+        }
+        Some(TypeDef::Union(variants)) => {
+            // Filter out Null variants
+            let non_null_variants: Vec<_> = variants
+                .iter()
+                .filter(|v| v.name != "Null")
+                .cloned()
+                .collect();
+
+            if non_null_variants.is_empty() {
+                Err("Cannot assert non-null on a type that is only Null".to_string())
+            } else if non_null_variants.len() == 1 {
+                // Single variant left, return its type directly
+                Ok(non_null_variants[0].type_id.unwrap_or(4)) // 4 = Null type ID as fallback
+            } else {
+                // Multiple variants left, create a new union
+                Ok(registry.register_anonymous_union(non_null_variants))
+            }
+        }
+        _ => {
+            // Not an Option or Union, pass through as-is
+            Ok(inner_type)
+        }
     }
 }
 

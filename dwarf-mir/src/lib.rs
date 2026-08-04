@@ -170,6 +170,11 @@ pub enum MirExpr {
         expr: Box<MirExpr>,
         span: Span,
     },
+    /// Non-null assertion operator (`!`).
+    NonNullAssert {
+        expr: Box<MirExpr>,
+        span: Span,
+    },
 }
 
 impl MirExpr {
@@ -197,7 +202,8 @@ impl MirExpr {
             | MirExpr::AssertConsistent { span, .. }
             | MirExpr::Try { span, .. }
             | MirExpr::Throw { span, .. }
-            | MirExpr::Propagate { span, .. } => *span,
+            | MirExpr::Propagate { span, .. }
+            | MirExpr::NonNullAssert { span, .. } => *span,
         }
     }
 }

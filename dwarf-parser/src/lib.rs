@@ -769,6 +769,13 @@ impl Parser {
                     expr: Box::new(expr),
                     span: Span::new(file_id, start, self.previous().span.end),
                 };
+            } else if self.match_token(TokenKind::Bang) {
+                let start = expr.span().start;
+                let file_id = expr.span().file_id;
+                expr = Expr::NonNullAssert {
+                    expr: Box::new(expr),
+                    span: Span::new(file_id, start, self.previous().span.end),
+                };
             } else {
                 break;
             }

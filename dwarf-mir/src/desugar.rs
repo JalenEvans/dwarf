@@ -302,6 +302,13 @@ pub fn desugar_pipe(expr: &Expr) -> MirExpr {
             span: *span,
         },
 
+        // NonNullAssert is preserved through MIR so the backend can emit
+        // target-specific non-null assertion.
+        Expr::NonNullAssert { expr, span } => MirExpr::NonNullAssert {
+            expr: Box::new(desugar_pipe(expr)),
+            span: *span,
+        },
+
         // For doesn't have a direct MirExpr equivalent yet; it is desugared
         // in a separate pass. For now, recursively desugar the inner
         // expressions so the function is total over Expr.

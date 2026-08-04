@@ -958,3 +958,71 @@ fn test_optional_access_span() {
         "OptionalAccess::span() should return its span"
     );
 }
+
+// ============================================================================
+// NonNullAssert expression tests (DWARF-72 Chunk C — RED Phase)
+//
+// These tests will FAIL to compile because Expr::NonNullAssert does not exist
+// in the HIR yet. NonNullAssert represents the postfix `!` operator that
+// strips the nullable wrapper from a type (e.g., Option<T> → T).
+//
+// Expected Expr::NonNullAssert shape:
+//   Expr::NonNullAssert {
+//       expr: Box<Expr>,
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_non_null_assert_construction_and_partial_eq() {
+    // Verify that NonNullAssert can be constructed and PartialEq works
+    let inner = Expr::Variable {
+        name: "x".to_string(),
+        span: Span::default(),
+    };
+    let expr1 = Expr::NonNullAssert {
+        expr: Box::new(inner.clone()),
+        span: Span::default(),
+    };
+    let expr2 = Expr::NonNullAssert {
+        expr: Box::new(inner.clone()),
+        span: Span::default(),
+    };
+
+    assert_eq!(
+        expr1, expr2,
+        "Two identical NonNullAssert expressions should be equal"
+    );
+
+    // Verify the inner expression is accessible
+    match &expr1 {
+        Expr::NonNullAssert { expr, .. } => {
+            assert!(
+                matches!(expr.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                "Inner expr should be Variable(\"x\")"
+            );
+        }
+        other => panic!("Expected NonNullAssert, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_non_null_assert_json_roundtrip() {
+    // Verify that NonNullAssert can be serialized to JSON and deserialized back
+    let expr = Expr::NonNullAssert {
+        expr: Box::new(Expr::Variable {
+            name: "result".to_string(),
+            span: Span::default(),
+        }),
+        span: Default::default(),
+    };
+
+    let json = serde_json::to_string(&expr).expect("NonNullAssert should serialize to JSON");
+    let deserialized: Expr =
+        serde_json::from_str(&json).expect("NonNullAssert should deserialize from JSON");
+
+    assert_eq!(
+        expr, deserialized,
+        "NonNullAssert should survive JSON roundtrip"
+    );
+}

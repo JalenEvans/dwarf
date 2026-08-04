@@ -404,6 +404,7 @@ impl PythonBackend {
                 self.needs_result = true;
                 self.scan_expr_for_stdlib(expr);
             }
+            LirExpr::NonNullAssert { expr, .. } => self.scan_expr_for_stdlib(expr),
             LirExpr::Variable { .. } | LirExpr::Literal { .. } | LirExpr::Wildcard { .. } => {}
         }
     }
@@ -886,6 +887,12 @@ impl EmitterBackend for PythonBackend {
                     "__v = {}\nif is_err(__v):\n    return __v\nreturn __v.value",
                     expr_str
                 ))
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                // Python doesn't have a non-null assertion operator, so we just emit the expression
+                // The type checker ensures it's non-null at compile time
+                Ok(expr_str)
             }
         }
     }

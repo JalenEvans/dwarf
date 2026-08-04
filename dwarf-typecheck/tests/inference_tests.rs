@@ -2200,3 +2200,146 @@ fn test_optional_access_chained_nested_options() {
         "obj?.field?.value where obj: Option<{{ field: Option<{{ value: Str }}> }}> should yield Str (2)"
     );
 }
+
+// ===========================================================================
+// 24. Non-null assertion `!` inference (DWARF-72 Chunk C)
+//     `x!` where `x: Option<Int>` infers to `Int` — the NonNullAssert
+//     unwraps the Option and returns the inner type.
+//     `x!` where `x: String | Null` infers to `String` — strips the Null
+//     variant from a union type.
+//     `result!!` where `result: Option<Option<Int>>` infers to `Int` —
+//     double assertion unwraps nested Options.
+//
+//     These tests will FAIL to compile because Expr::NonNullAssert does
+//     not exist in the HIR yet.
+// ===========================================================================
+
+/// Helper: register `Option<Int>` in the registry.
+///
+/// Creates a GenericInstance with base OPTION_TYPE_ID and args [Int].
+/// Returns the GenericInstance TypeId.
+fn register_option_int(registry: &mut TypeRegistry) -> TypeId {
+    registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![0], // Int
+    })
+}
+
+/// Helper: register `String | Null` union type in the registry.
+///
+/// Creates a Union with two variants:
+///   - String (type_id: 2)
+///   - Null (type_id: 4)
+///
+/// Returns the Union TypeId.
+fn register_string_or_null(registry: &mut TypeRegistry) -> TypeId {
+    registry.register(TypeDef::Union(vec![
+        VariantDef {
+            name: "String".to_string(),
+            type_id: Some(2), // Str
+        },
+        VariantDef {
+            name: "Null".to_string(),
+            type_id: Some(4), // Null
+        },
+    ]))
+}
+
+/// Helper: register `Option<Option<Int>>` in the registry.
+///
+/// Creates nested GenericInstances.
+/// Returns the outer Option TypeId.
+fn register_option_option_int(registry: &mut TypeRegistry) -> TypeId {
+    let inner_option = registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![0], // Int
+    });
+    registry.register(TypeDef::GenericInstance {
+        base: OPTION_TYPE_ID,
+        args: vec![inner_option],
+    })
+}
+
+#[test]
+fn test_non_null_assert_on_option_int() {
+    // x: Option<Int>
+    // x!  →  Int (0)
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let option_int_id = register_option_int(&mut registry);
+    env.bind("x".to_string(), option_int_id);
+
+    // x!
+    let expr = Expr::NonNullAssert {
+        expr: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(0),
+        "x! where x: Option<Int> should yield Int (0)"
+    );
+}
+
+#[test]
+fn test_non_null_assert_on_string_or_null() {
+    // x: String | Null
+    // x!  →  String (2)
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let string_or_null_id = register_string_or_null(&mut registry);
+    env.bind("x".to_string(), string_or_null_id);
+
+    // x!
+    let expr = Expr::NonNullAssert {
+        expr: Box::new(Expr::Variable {
+            name: "x".to_string(),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(2),
+        "x! where x: String | Null should yield String (2)"
+    );
+}
+
+#[test]
+fn test_non_null_assert_double_nested_option() {
+    // result: Option<Option<Int>>
+    // result!!  →  Int (0)
+    let mut registry = TypeRegistry::new();
+    let mut env = TypeEnv::new();
+
+    let option_option_int_id = register_option_option_int(&mut registry);
+    env.bind("result".to_string(), option_option_int_id);
+
+    // result!!
+    let expr = Expr::NonNullAssert {
+        expr: Box::new(Expr::NonNullAssert {
+            expr: Box::new(Expr::Variable {
+                name: "result".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        }),
+        span: dummy_span(),
+    };
+
+    let result = infer_expr(&expr, &env, &mut registry);
+    assert_eq!(
+        result,
+        Ok(0),
+        "result!! where result: Option<Option<Int>> should yield Int (0)"
+    );
+}

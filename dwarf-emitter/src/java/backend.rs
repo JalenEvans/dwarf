@@ -694,6 +694,11 @@ impl EmitterBackend for JavaBackend {
                     expr_str
                 ))
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let expr_str = self.emit_expr(expr)?;
+                // Java doesn't have a non-null assertion operator, so we use Objects.requireNonNull
+                Ok(format!("java.util.Objects.requireNonNull({})", expr_str))
+            }
         }
     }
 
@@ -1090,6 +1095,9 @@ impl JavaBackend {
                 *needs_result = true;
                 Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math, needs_result);
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                Self::scan_expr_for_stdlib(expr, needs_io, needs_string, needs_math, needs_result);
+            }
             _ => {}
         }
     }
@@ -1214,6 +1222,9 @@ impl JavaBackend {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
             LirExpr::Propagate { expr, .. } => {
+                Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
+            }
+            LirExpr::NonNullAssert { expr, .. } => {
                 Self::scan_expr_for_imports(expr, needs_cf, needs_opt);
             }
         }

@@ -243,6 +243,7 @@ fn extract_calls_inner(expr: &MirExpr, calls: &mut Vec<String>) {
         }
         MirExpr::Throw { expr, .. } => extract_calls_inner(expr, calls),
         MirExpr::Propagate { expr, .. } => extract_calls_inner(expr, calls),
+        MirExpr::NonNullAssert { expr, .. } => extract_calls_inner(expr, calls),
     }
 }
 

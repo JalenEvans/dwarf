@@ -307,6 +307,10 @@ impl EmitterBackend for DebugBackend {
                 let inner = self.emit_expr(expr)?;
                 Ok(format!("propagate({})", inner))
             }
+            LirExpr::NonNullAssert { expr, .. } => {
+                let inner = self.emit_expr(expr)?;
+                Ok(format!("nonNullAssert({})", inner))
+            }
         }
     }
 

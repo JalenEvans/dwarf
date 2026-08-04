@@ -1891,3 +1891,80 @@ fn test_parse_optional_access_mixed_with_regular() {
         other => panic!("Expected Member expr, got {:?}", other),
     }
 }
+
+// ============================================================================
+// Non-null assertion `!` postfix tests (DWARF-72 Chunk C — RED Phase)
+//
+// These tests will FAIL to compile because Expr::NonNullAssert does not exist
+// in the HIR yet. The `!` token already exists as a prefix `Not` operator.
+// We need to add postfix `!` (non-null assertion) that strips the nullable
+// wrapper. In the parser's postfix loop, when `!` appears after an expression,
+// it produces `Expr::NonNullAssert { expr, span }`.
+//
+// Expected Expr::NonNullAssert shape:
+//   Expr::NonNullAssert {
+//       expr: Box<Expr>,
+//       span: Span,
+//   }
+// ============================================================================
+
+#[test]
+fn test_parse_non_null_assert_simple() {
+    // x!  →  NonNullAssert { expr: Var("x") }
+    let expr = parse_fn_body("fn f() { x! }");
+    match &expr {
+        Expr::NonNullAssert { expr: inner, .. } => {
+            assert!(
+                matches!(inner.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                "Inner expr should be Variable(\"x\"), got {:?}",
+                inner
+            );
+        }
+        other => panic!("Expected NonNullAssert expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_non_null_assert_then_member_access() {
+    // obj!.field  — non-null assertion followed by member access
+    // Should parse as: Member { obj: NonNullAssert { obj: Var("obj") }, field: "field" }
+    let expr = parse_fn_body("fn f() { obj!.field }");
+    match &expr {
+        Expr::Member { obj, field, .. } => {
+            assert_eq!(field, "field", "field should be \"field\"");
+            match obj.as_ref() {
+                Expr::NonNullAssert {
+                    expr: inner_obj, ..
+                } => {
+                    assert!(
+                        matches!(inner_obj.as_ref(), Expr::Variable { name, .. } if name == "obj"),
+                        "Inner obj should be Variable(\"obj\"), got {:?}",
+                        inner_obj
+                    );
+                }
+                other => panic!("Expected NonNullAssert as obj, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Member expr, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_non_null_assert_double() {
+    // x!!  — double non-null assertion (should parse)
+    // Should parse as: NonNullAssert { expr: NonNullAssert { expr: Var("x") } }
+    let expr = parse_fn_body("fn f() { x!! }");
+    match &expr {
+        Expr::NonNullAssert { expr: outer, .. } => match outer.as_ref() {
+            Expr::NonNullAssert { expr: inner, .. } => {
+                assert!(
+                    matches!(inner.as_ref(), Expr::Variable { name, .. } if name == "x"),
+                    "Innermost expr should be Variable(\"x\"), got {:?}",
+                    inner
+                );
+            }
+            other => panic!("Expected inner NonNullAssert, got {:?}", other),
+        },
+        other => panic!("Expected outer NonNullAssert expr, got {:?}", other),
+    }
+}

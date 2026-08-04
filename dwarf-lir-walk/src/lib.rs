@@ -222,6 +222,13 @@ pub trait LirBackend<R> {
         span: Span,
     ) -> Result<R, BackendError>;
 
+    fn visit_expr_non_null_assert(
+        &mut self,
+        expr: R,
+        hint: &TargetHint,
+        span: Span,
+    ) -> Result<R, BackendError>;
+
     // ------ Statement hooks (2) ------
 
     fn visit_stmt_let(&mut self, pat: R, value: R) -> Result<R, BackendError>;
@@ -530,6 +537,10 @@ pub fn walk_expr<R>(backend: &mut impl LirBackend<R>, expr: &LirExpr) -> Result<
         LirExpr::Propagate { expr, hint, span } => {
             let reduced_expr = walk_expr(backend, expr)?;
             backend.visit_expr_propagate(reduced_expr, hint, *span)
+        }
+        LirExpr::NonNullAssert { expr, hint, span } => {
+            let reduced_expr = walk_expr(backend, expr)?;
+            backend.visit_expr_non_null_assert(reduced_expr, hint, *span)
         }
     }
 }
@@ -871,6 +882,15 @@ impl LirBackend<String> for DebugBackend {
         _span: Span,
     ) -> Result<String, BackendError> {
         Ok(format!("(propagate {expr})"))
+    }
+
+    fn visit_expr_non_null_assert(
+        &mut self,
+        expr: String,
+        _hint: &TargetHint,
+        _span: Span,
+    ) -> Result<String, BackendError> {
+        Ok(format!("(non-null-assert {expr})"))
     }
 
     // ------ Statement hooks (2) ------
@@ -1265,6 +1285,15 @@ mod tests {
         }
 
         fn visit_expr_propagate(
+            &mut self,
+            _expr: (),
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn visit_expr_non_null_assert(
             &mut self,
             _expr: (),
             _hint: &TargetHint,
@@ -1898,6 +1927,14 @@ mod tests {
         ) -> Result<String, BackendError> {
             Ok(format!("{expr}?"))
         }
+        fn visit_expr_non_null_assert(
+            &mut self,
+            expr: String,
+            _h: &TargetHint,
+            _s: Span,
+        ) -> Result<String, BackendError> {
+            Ok(format!("{expr}!"))
+        }
 
         fn visit_stmt_let(&mut self, pat: String, value: String) -> Result<String, BackendError> {
             Ok(format!("let {pat} = {value}"))
@@ -2197,6 +2234,14 @@ mod tests {
                 Ok(e)
             }
             fn visit_expr_propagate(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_non_null_assert(
                 &mut self,
                 e: i32,
                 _h: &TargetHint,
@@ -2624,6 +2669,16 @@ mod tests {
         ) -> Result<String, BackendError> {
             self.record("visit_expr_propagate");
             Ok(format!("{expr}?"))
+        }
+
+        fn visit_expr_non_null_assert(
+            &mut self,
+            expr: String,
+            _hint: &TargetHint,
+            _span: Span,
+        ) -> Result<String, BackendError> {
+            self.record("visit_expr_non_null_assert");
+            Ok(format!("{expr}!"))
         }
 
         // ------ Statement hooks ------
@@ -3375,6 +3430,14 @@ mod tests {
                 Ok(e)
             }
             fn visit_expr_propagate(
+                &mut self,
+                e: i32,
+                _h: &TargetHint,
+                _s: Span,
+            ) -> Result<i32, BackendError> {
+                Ok(e)
+            }
+            fn visit_expr_non_null_assert(
                 &mut self,
                 e: i32,
                 _h: &TargetHint,
