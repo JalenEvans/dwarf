@@ -30,6 +30,9 @@ pub enum TokenKind {
     In,
     KeyOf,
     Enum,
+    Self_,
+    Interface,
+    Implements,
 
     // ---- Arithmetic Operators ----
     Plus,  // +
@@ -116,6 +119,9 @@ impl TokenKind {
             Self::In => "'in'",
             Self::KeyOf => "'keyof'",
             Self::Enum => "'enum'",
+            Self::Self_ => "'self'",
+            Self::Interface => "'interface'",
+            Self::Implements => "'implements'",
 
             // Arithmetic
             Self::Plus => "'+'",

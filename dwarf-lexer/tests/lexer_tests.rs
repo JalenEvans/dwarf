@@ -1301,3 +1301,179 @@ fn test_sequence_enum_with_generic() {
         ],
     );
 }
+
+// =======================================================================
+// SELF, INTERFACE, IMPLEMENTS KEYWORDS (RED Phase — expected to fail)
+//
+// TokenKind::Self_, TokenKind::Interface, and TokenKind::Implements do not
+// exist yet. These tests specify the expected lexing behavior for these
+// keywords in Phase 1 interface/OOP support.
+// =======================================================================
+
+#[test]
+fn test_keyword_self() {
+    // WILL FAIL — RED PHASE
+    assert_token_kind("self", TokenKind::Self_);
+}
+
+#[test]
+fn test_keyword_interface() {
+    // WILL FAIL — RED PHASE
+    assert_token_kind("interface", TokenKind::Interface);
+}
+
+#[test]
+fn test_keyword_implements() {
+    // WILL FAIL — RED PHASE
+    assert_token_kind("implements", TokenKind::Implements);
+}
+
+#[test]
+fn test_self_not_an_identifier() {
+    // WILL FAIL — RED PHASE
+    // After implementation, `self` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("self");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("self".to_string()),
+        "`self` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_interface_not_an_identifier() {
+    // WILL FAIL — RED PHASE
+    // After implementation, `interface` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("interface");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("interface".to_string()),
+        "`interface` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_implements_not_an_identifier() {
+    // WILL FAIL — RED PHASE
+    // After implementation, `implements` should be a keyword, NOT an Ident
+    let mut lexer = Lexer::new("implements");
+    let token = lexer.next_token().unwrap();
+    assert_ne!(
+        token.kind,
+        TokenKind::Ident("implements".to_string()),
+        "`implements` should be lexed as a keyword, not an identifier"
+    );
+}
+
+#[test]
+fn test_sequence_self_method_call() {
+    // WILL FAIL — RED PHASE
+    // `self.getValue()` should lex as: Self_, Dot, Ident("getValue"), LParen, RParen
+    assert_token_sequence(
+        "self.getValue()",
+        &[
+            TokenKind::Self_,
+            TokenKind::Dot,
+            TokenKind::Ident("getValue".to_string()),
+            TokenKind::LParen,
+            TokenKind::RParen,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_interface_declaration() {
+    // WILL FAIL — RED PHASE
+    // `interface Printable { toString(): String }` should lex as:
+    // Interface, Ident("Printable"), LBrace, Ident("toString"), LParen, RParen,
+    // Colon, Ident("String"), RBrace
+    assert_token_sequence(
+        "interface Printable { toString(): String }",
+        &[
+            TokenKind::Interface,
+            TokenKind::Ident("Printable".to_string()),
+            TokenKind::LBrace,
+            TokenKind::Ident("toString".to_string()),
+            TokenKind::LParen,
+            TokenKind::RParen,
+            TokenKind::Colon,
+            TokenKind::Ident("String".to_string()),
+            TokenKind::RBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_class_implements_interface() {
+    // WILL FAIL — RED PHASE
+    // `class MyClass implements Serializable` should lex as:
+    // Ident("class"), Ident("MyClass"), Implements, Ident("Serializable")
+    assert_token_sequence(
+        "class MyClass implements Serializable",
+        &[
+            TokenKind::Ident("class".to_string()),
+            TokenKind::Ident("MyClass".to_string()),
+            TokenKind::Implements,
+            TokenKind::Ident("Serializable".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_multiple_implements() {
+    // WILL FAIL — RED PHASE
+    // `class Foo implements Bar, Baz` should lex as:
+    // Ident("class"), Ident("Foo"), Implements, Ident("Bar"), Comma, Ident("Baz")
+    assert_token_sequence(
+        "class Foo implements Bar, Baz",
+        &[
+            TokenKind::Ident("class".to_string()),
+            TokenKind::Ident("Foo".to_string()),
+            TokenKind::Implements,
+            TokenKind::Ident("Bar".to_string()),
+            TokenKind::Comma,
+            TokenKind::Ident("Baz".to_string()),
+        ],
+    );
+}
+
+#[test]
+fn test_sequence_interface_with_generic() {
+    // WILL FAIL — RED PHASE
+    // `interface Collection<T>` should lex as:
+    // Interface, Ident("Collection"), Lt, Ident("T"), Gt
+    assert_token_sequence(
+        "interface Collection<T>",
+        &[
+            TokenKind::Interface,
+            TokenKind::Ident("Collection".to_string()),
+            TokenKind::Lt,
+            TokenKind::Ident("T".to_string()),
+            TokenKind::Gt,
+        ],
+    );
+}
+
+// =======================================================================
+// Snapshot test for self, interface, implements keywords
+// =======================================================================
+
+#[test]
+fn test_snapshot_oop_keywords() {
+    // WILL FAIL — RED PHASE
+    // Snapshot test for the three new OOP keywords
+    let input = "self interface implements";
+    let mut lexer = Lexer::new(input);
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token().unwrap();
+        let is_eof = token.kind == TokenKind::Eof;
+        tokens.push(format!("{:?}", token.kind));
+        if is_eof {
+            break;
+        }
+    }
+    insta::assert_debug_snapshot!("oop_keywords", tokens);
+}
