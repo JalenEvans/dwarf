@@ -543,6 +543,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 body,
                 is_pub,
                 span,
+                ..
             } => Some(MirDecl::Function {
                 name: name.clone(),
                 params: params.iter().map(convert_param).collect(),
@@ -644,6 +645,7 @@ pub fn desugar_decorators(decls: &[Decl]) -> Vec<MirDecl> {
                     body,
                     is_pub: func_is_pub,
                     span: func_span,
+                    ..
                 } = target.as_ref().clone()
                 {
                     // Convert the original function's parameters to MIR params.
@@ -1419,6 +1421,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         }];
         let result = expand_type_aliases(&decls);
@@ -1508,6 +1511,7 @@ mod tests {
                     span: s,
                 },
                 is_pub: true,
+                decorators: vec![],
                 span: s,
             },
             Decl::RecordDef {
@@ -1549,6 +1553,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -1600,6 +1605,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -1661,6 +1667,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
 
@@ -1706,6 +1713,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -1811,6 +1819,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -1909,6 +1918,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -1970,6 +1980,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -2031,6 +2042,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -2092,6 +2104,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -2150,6 +2163,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -2227,6 +2241,7 @@ mod tests {
                 span: s,
             },
             is_pub: true,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {
@@ -2320,6 +2335,7 @@ mod tests {
             return_type: None,
             body: inner,
             is_pub: false,
+            decorators: vec![],
             span: s,
         };
         let input = vec![Decl::Decorator {

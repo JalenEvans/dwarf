@@ -209,6 +209,7 @@ impl Parser {
                     return_type: None,
                     body: expr,
                     is_pub,
+                    decorators: Vec::new(),
                     span,
                 })
             }
@@ -274,6 +275,7 @@ impl Parser {
             return_type,
             body,
             is_pub,
+            decorators: Vec::new(),
             span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
         })
     }

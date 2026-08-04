@@ -39,6 +39,7 @@ fn test_function_decl_construction() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Default::default(),
     };
 
@@ -164,6 +165,7 @@ fn test_decorator_decl_construction() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Default::default(),
     };
 
