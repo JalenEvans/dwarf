@@ -39,7 +39,8 @@ fn test_register_record_def() {
                 type_: Type::Named("int".to_string()),
             },
         ],
-        is_pub: true,
+            methods: vec![],
+            is_pub: true,
         span: dummy_span(),
     }];
 
@@ -161,6 +162,7 @@ fn test_multiple_declarations() {
                     type_: Type::Named("int".to_string()),
                 },
             ],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -254,7 +256,8 @@ fn test_named_type_resolution_primitives() {
                 type_: Type::Named("string".to_string()),
             },
         ],
-        is_pub: true,
+            methods: vec![],
+            is_pub: true,
         span: dummy_span(),
     }];
 
@@ -312,6 +315,7 @@ fn test_named_type_resolution_cross_reference() {
                     type_: Type::Named("int".to_string()),
                 },
             ],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -327,6 +331,7 @@ fn test_named_type_resolution_cross_reference() {
                     type_: Type::Named("Address".to_string()),
                 },
             ],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -391,6 +396,7 @@ fn test_anonymous_record_type() {
                 ),
             ]),
         }],
+        methods: vec![],
         is_pub: true,
         span: dummy_span(),
     }];
@@ -445,6 +451,7 @@ fn test_function_type_in_field() {
                 return_: Box::new(Type::Named("bool".to_string())),
             },
         }],
+        methods: vec![],
         is_pub: true,
         span: dummy_span(),
     }];
@@ -507,7 +514,8 @@ fn test_missing_type_name() {
             name: "bar".to_string(),
             type_: Type::Named("UnknownType".to_string()),
         }],
-        is_pub: true,
+            methods: vec![],
+            is_pub: true,
         span: dummy_span(),
     }];
 
@@ -570,6 +578,7 @@ fn test_resolve_generic_type_simple() {
                     args: vec![Type::Named("int".to_string())],
                 },
             }],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -612,12 +621,14 @@ fn test_resolve_generic_type_nested() {
         Decl::RecordDef {
             name: "HashMap".to_string(),
             fields: vec![],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
         Decl::RecordDef {
             name: "List".to_string(),
             fields: vec![],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -636,6 +647,7 @@ fn test_resolve_generic_type_nested() {
                     ],
                 },
             }],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },
@@ -692,6 +704,7 @@ fn test_resolve_generic_unknown_base() {
                     args: vec![Type::Named("int".to_string())],
                 },
             }],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         }],
@@ -822,6 +835,7 @@ fn test_register_const_mixed_with_types() {
                     type_: Type::Named("int".to_string()),
                 },
             ],
+            methods: vec![],
             is_pub: true,
             span: dummy_span(),
         },

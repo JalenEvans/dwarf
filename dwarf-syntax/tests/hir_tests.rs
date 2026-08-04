@@ -109,7 +109,8 @@ fn test_record_def_decl_construction() {
                 type_: Type::Named("f64".to_string()),
             },
         ],
-        is_pub: false,
+            methods: vec![],
+            is_pub: false,
         span: Default::default(),
     };
 

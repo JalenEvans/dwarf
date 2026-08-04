@@ -334,6 +334,7 @@ pub enum Decl {
     RecordDef {
         name: String,
         fields: Vec<Field>,
+        methods: Vec<Decl>,
         is_pub: bool,
         span: Span,
     },

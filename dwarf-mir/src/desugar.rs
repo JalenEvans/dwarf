@@ -558,6 +558,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
             Decl::RecordDef {
                 name,
                 fields,
+                methods: _,
                 is_pub,
                 span,
             } => Some(MirDecl::RecordDef {
@@ -1447,6 +1448,7 @@ mod tests {
                     type_: Type::Named("Int".into()),
                 },
             ],
+            methods: vec![],
             is_pub: true,
             span: s,
         }];
@@ -1517,6 +1519,7 @@ mod tests {
             Decl::RecordDef {
                 name: "Point".into(),
                 fields: vec![],
+                methods: vec![],
                 is_pub: true,
                 span: s,
             },
