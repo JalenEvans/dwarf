@@ -4,9 +4,9 @@
 //! MIR → LIR → emitter) into a reusable library API. It also handles
 //! project configuration via `dwarf.conf.json`.
 
+pub mod dunit;
 mod pipeline;
 pub mod resolver;
-pub mod dunit;
 pub use resolver::{FilesystemResolver, ModuleResolver, PureResolver};
 
 /// The main entry point for the Dwarf compiler.

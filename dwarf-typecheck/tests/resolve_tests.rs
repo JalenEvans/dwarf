@@ -39,9 +39,9 @@ fn test_register_record_def() {
                 type_: Type::Named("int".to_string()),
             },
         ],
-            methods: vec![],
-            implements: vec![],
-            is_pub: true,
+        methods: vec![],
+        implements: vec![],
+        is_pub: true,
         span: dummy_span(),
     }];
 
@@ -258,9 +258,9 @@ fn test_named_type_resolution_primitives() {
                 type_: Type::Named("string".to_string()),
             },
         ],
-            methods: vec![],
-            implements: vec![],
-            is_pub: true,
+        methods: vec![],
+        implements: vec![],
+        is_pub: true,
         span: dummy_span(),
     }];
 
@@ -521,9 +521,9 @@ fn test_missing_type_name() {
             name: "bar".to_string(),
             type_: Type::Named("UnknownType".to_string()),
         }],
-            methods: vec![],
-            implements: vec![],
-            is_pub: true,
+        methods: vec![],
+        implements: vec![],
+        is_pub: true,
         span: dummy_span(),
     }];
 

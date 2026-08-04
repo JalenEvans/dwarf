@@ -41,8 +41,8 @@ pub fn compile_dunit() -> String {
 
     // Read the source file so compilation happens through the same string-based
     // entry point the rest of the pipeline uses.
-    let source = std::fs::read_to_string(&dunit_path)
-        .expect("dunit.dwarf source file should exist");
+    let source =
+        std::fs::read_to_string(&dunit_path).expect("dunit.dwarf source file should exist");
 
     // Compile through the standard pipeline.
     let compiler = DwarfCompiler::new();

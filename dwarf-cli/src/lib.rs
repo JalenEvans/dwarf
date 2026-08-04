@@ -433,8 +433,7 @@ mod coverage_flag_tests {
     #[test]
     /// The --skip-edge-check flag should be parseable from the CLI.
     fn test_skip_edge_check_flag_parses() {
-        let cli =
-            Cli::try_parse_from(["dwarf-cli", "check", "test.kzd", "--skip-edge-check"]);
+        let cli = Cli::try_parse_from(["dwarf-cli", "check", "test.kzd", "--skip-edge-check"]);
         assert!(
             cli.is_ok(),
             "dwarf-cli check --skip-edge-check should parse: {:?}",
@@ -444,10 +443,7 @@ mod coverage_flag_tests {
             Some(Commands::Check {
                 skip_edge_check, ..
             }) => {
-                assert!(
-                    skip_edge_check,
-                    "--skip-edge-check flag should be true"
-                );
+                assert!(skip_edge_check, "--skip-edge-check flag should be true");
             }
             other => panic!("Expected Commands::Check, got {:?}", other),
         }
@@ -492,9 +488,7 @@ mod coverage_flag_tests {
             cli.err()
         );
         match cli.unwrap().command {
-            Some(Commands::Test {
-                test_coverage, ..
-            }) => {
+            Some(Commands::Test { test_coverage, .. }) => {
                 assert!(
                     matches!(test_coverage, Some(CoverageMode::Off)),
                     "--test-coverage=off should set test_coverage to Off"

@@ -298,12 +298,22 @@ pub enum Decorator {
         param: String,
         edge_value: String,
     },
-    Tested { fn_name: String },
-    SkipTest { reason: String },
+    Tested {
+        fn_name: String,
+    },
+    SkipTest {
+        reason: String,
+    },
     Gungnir,
-    Requires { condition: String },
-    Ensures { condition: String },
-    Invariant { condition: String },
+    Requires {
+        condition: String,
+    },
+    Ensures {
+        condition: String,
+    },
+    Invariant {
+        condition: String,
+    },
 }
 
 // ---- Declarations (top-level) ----
@@ -831,8 +841,7 @@ mod tests {
         ];
 
         for variant in &variants {
-            let json =
-                serde_json::to_string(variant).expect("serialize variant in roundtrip test");
+            let json = serde_json::to_string(variant).expect("serialize variant in roundtrip test");
             let deserialized: Decorator =
                 serde_json::from_str(&json).expect("deserialize variant in roundtrip test");
             assert_eq!(variant, &deserialized, "roundtrip failed for {variant:?}");

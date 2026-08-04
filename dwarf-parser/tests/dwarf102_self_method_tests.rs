@@ -141,9 +141,7 @@ fn test_parse_self_method_call() {
     assert_eq!(decls.len(), 1, "Should parse one type declaration");
 
     match &decls[0] {
-        Decl::RecordDef {
-            name, methods, ..
-        } => {
+        Decl::RecordDef { name, methods, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(methods.len(), 2, "Should have two methods");
 
@@ -275,10 +273,7 @@ fn test_parse_instance_method_call() {
                                             obj
                                         );
                                     }
-                                    other => panic!(
-                                        "Expected Member for p.get_x, got {:?}",
-                                        other
-                                    ),
+                                    other => panic!("Expected Member for p.get_x, got {:?}", other),
                                 }
                             }
                             other => panic!("Expected Call expression, got {:?}", other),
@@ -335,7 +330,13 @@ fn test_parse_chained_method_calls() {
                         Expr::Call { func, args, .. } => {
                             assert_eq!(args.len(), 1, "add should have one argument");
                             assert!(
-                                matches!(&args[0], Expr::Literal { value: LiteralValue::Int(5), .. }),
+                                matches!(
+                                    &args[0],
+                                    Expr::Literal {
+                                        value: LiteralValue::Int(5),
+                                        ..
+                                    }
+                                ),
                                 "Argument should be Int(5), got {:?}",
                                 &args[0]
                             );
@@ -431,14 +432,16 @@ fn test_parse_self_in_match_expression() {
     assert_eq!(decls.len(), 1, "Should parse one type declaration");
 
     match &decls[0] {
-        Decl::RecordDef {
-            name, methods, ..
-        } => {
+        Decl::RecordDef { name, methods, .. } => {
             assert_eq!(name, "Value");
             assert_eq!(methods.len(), 1, "Should have one method");
 
             match &methods[0] {
-                Decl::Function { name: method_name, body, .. } => {
+                Decl::Function {
+                    name: method_name,
+                    body,
+                    ..
+                } => {
                     assert_eq!(method_name, "check");
 
                     if let Expr::Block { stmts, .. } = body {
@@ -446,7 +449,11 @@ fn test_parse_self_in_match_expression() {
                         if let Stmt::Expr(expr) = &stmts[0] {
                             // Should be Match expression
                             match expr {
-                                Expr::Match { expr: match_expr, arms, .. } => {
+                                Expr::Match {
+                                    expr: match_expr,
+                                    arms,
+                                    ..
+                                } => {
                                     // match_expr should be Member { obj: Variable("self"), field: "data" }
                                     match match_expr.as_ref() {
                                         Expr::Member { obj, field, .. } => {
@@ -457,10 +464,9 @@ fn test_parse_self_in_match_expression() {
                                                 obj
                                             );
                                         }
-                                        other => panic!(
-                                            "Expected Member for self.data, got {:?}",
-                                            other
-                                        ),
+                                        other => {
+                                            panic!("Expected Member for self.data, got {:?}", other)
+                                        }
                                     }
 
                                     // Verify arms

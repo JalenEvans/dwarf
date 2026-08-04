@@ -24,7 +24,8 @@ pub fn parse_decorator_name(name: &str, args: &[String]) -> Result<Decorator, St
         "skip" => Ok(Decorator::Skip),
         "gungnir" => Ok(Decorator::Gungnir),
         "skip_test" => {
-            let reason = args.first()
+            let reason = args
+                .first()
                 .map(|s| s.trim_matches('"').to_string())
                 .unwrap_or_default();
             Ok(Decorator::SkipTest { reason })
@@ -129,11 +130,7 @@ mod tests {
 
     #[test]
     fn test_parse_decorator_covers_with_three_args() {
-        let args = vec![
-            "divide".to_string(),
-            "b".to_string(),
-            "zero".to_string(),
-        ];
+        let args = vec!["divide".to_string(), "b".to_string(), "zero".to_string()];
         let result = parse_decorator_name("covers", &args);
         assert_eq!(
             result.unwrap(),

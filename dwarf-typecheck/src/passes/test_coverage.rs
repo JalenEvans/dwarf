@@ -77,11 +77,7 @@ impl TestCoveragePass {
     ///
     /// Returns a list of coverage diagnostics for functions that lack
     /// adequate test coverage according to the provided config.
-    pub fn check(
-        &self,
-        decls: &[Decl],
-        config: &CoverageCheckConfig,
-    ) -> Vec<CoverageDiagnostic> {
+    pub fn check(&self, decls: &[Decl], config: &CoverageCheckConfig) -> Vec<CoverageDiagnostic> {
         // If coverage checking is off, nothing to do
         if config.mode == CoverageMode::Off {
             return Vec::new();
@@ -195,15 +191,13 @@ pub fn has_test(decl: &Decl) -> bool {
 /// Get the target function name from a @tested decorator, if present.
 pub fn get_tested_target(decl: &Decl) -> Option<String> {
     match decl {
-        Decl::Function { decorators, .. } => {
-            decorators.iter().find_map(|d| {
-                if let Decorator::Tested { fn_name } = d {
-                    Some(fn_name.clone())
-                } else {
-                    None
-                }
-            })
-        }
+        Decl::Function { decorators, .. } => decorators.iter().find_map(|d| {
+            if let Decorator::Tested { fn_name } = d {
+                Some(fn_name.clone())
+            } else {
+                None
+            }
+        }),
         _ => None,
     }
 }

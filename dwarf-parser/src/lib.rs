@@ -673,12 +673,30 @@ impl Parser {
             .iter()
             .map(|arg| match arg {
                 Expr::Variable { name, .. } => name.clone(),
-                Expr::Literal { value: LiteralValue::Str(s), .. } => format!("\"{}\"", s),
-                Expr::Literal { value: LiteralValue::RawStr(s), .. } => s.clone(),
-                Expr::Literal { value: LiteralValue::Int(i), .. } => i.to_string(),
-                Expr::Literal { value: LiteralValue::Float(f), .. } => f.to_string(),
-                Expr::Literal { value: LiteralValue::Bool(b), .. } => b.to_string(),
-                Expr::Literal { value: LiteralValue::Null, .. } => "null".to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Str(s),
+                    ..
+                } => format!("\"{}\"", s),
+                Expr::Literal {
+                    value: LiteralValue::RawStr(s),
+                    ..
+                } => s.clone(),
+                Expr::Literal {
+                    value: LiteralValue::Int(i),
+                    ..
+                } => i.to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Float(f),
+                    ..
+                } => f.to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Bool(b),
+                    ..
+                } => b.to_string(),
+                Expr::Literal {
+                    value: LiteralValue::Null,
+                    ..
+                } => "null".to_string(),
                 other => format!("{:?}", other),
             })
             .collect();
@@ -942,10 +960,14 @@ impl Parser {
 
     fn parse_call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
-        
+
         // Check for record construction: TypeName { field: value, ... }
         // This must happen before the postfix loop to avoid ambiguity with blocks
-        if let Expr::Variable { name: _, span: var_span } = &expr {
+        if let Expr::Variable {
+            name: _,
+            span: var_span,
+        } = &expr
+        {
             if self.check(TokenKind::LBrace) && self.looks_like_record_construction() {
                 let start = var_span.start;
                 let file_id = var_span.file_id;
@@ -961,7 +983,7 @@ impl Parser {
                 // e.g., Point { x: 1 }.get_x()
             }
         }
-        
+
         loop {
             if self.match_token(TokenKind::LParen) {
                 let start = expr.span().start;
@@ -1021,12 +1043,12 @@ impl Parser {
         if pos + 1 >= self.tokens.len() {
             return false;
         }
-        
+
         // Empty record: `{ }`
         if self.tokens[pos + 1].kind == TokenKind::RBrace {
             return true;
         }
-        
+
         // Record with fields: `{ ident : ...`
         if pos + 2 < self.tokens.len() {
             if let TokenKind::Ident(_) = &self.tokens[pos + 1].kind {
@@ -1035,7 +1057,7 @@ impl Parser {
                 }
             }
         }
-        
+
         false
     }
 

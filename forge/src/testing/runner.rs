@@ -78,7 +78,11 @@ impl WasmTestRunner {
     ///
     /// GREEN PHASE: Validates the Wasm module header and returns a passing
     /// TestResult. Actual @test execution will happen once wasmtime is wired up.
-    pub fn run_test(&self, wasm_bytes: &[u8], function_name: &str) -> Result<TestResult, RunnerError> {
+    pub fn run_test(
+        &self,
+        wasm_bytes: &[u8],
+        function_name: &str,
+    ) -> Result<TestResult, RunnerError> {
         // Minimal Wasm module validation: verify the 8-byte magic + version header.
         // This mirrors the invocation required to compile a real module without
         // pulling wasmtime in as a dependency for the tests to pass.
@@ -124,9 +128,7 @@ pub fn is_after_each_hook(decorators: &[String]) -> bool {
 ///
 /// Returns `true` if any decorator string equals `"skip"` or `"skip_test"`.
 pub fn is_skipped(decorators: &[String]) -> bool {
-    decorators
-        .iter()
-        .any(|d| d == "skip" || d == "skip_test")
+    decorators.iter().any(|d| d == "skip" || d == "skip_test")
 }
 
 // ---------------------------------------------------------------------------
@@ -213,10 +215,7 @@ mod tests {
             message: Some("assertion failed".to_string()),
         };
         assert!(!result_with_msg.passed);
-        assert_eq!(
-            result_with_msg.message.as_deref(),
-            Some("assertion failed")
-        );
+        assert_eq!(result_with_msg.message.as_deref(), Some("assertion failed"));
     }
 
     // ==================================================================
@@ -284,10 +283,7 @@ mod tests {
         let is_skip = is_skipped(&decorators);
 
         // RED PHASE: This assertion will FAIL because stub returns false.
-        assert!(
-            is_skip,
-            "is_skipped should return true for @skip decorator"
-        );
+        assert!(is_skip, "is_skipped should return true for @skip decorator");
     }
 
     #[test]

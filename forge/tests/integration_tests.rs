@@ -239,13 +239,7 @@ fn test_forge_test_quick_flag() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "quick_test.kzd", "fn main() { 42 }");
 
-    let output = forge(&[
-        "test",
-        file_path.to_str().unwrap(),
-        "-t",
-        "ts",
-        "--quick",
-    ]);
+    let output = forge(&["test", file_path.to_str().unwrap(), "-t", "ts", "--quick"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -269,11 +263,7 @@ fn test_forge_check_skip_edge_check_flag() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "edge_test.kzd", "fn main() { 42 }");
 
-    let output = forge(&[
-        "check",
-        file_path.to_str().unwrap(),
-        "--skip-edge-check",
-    ]);
+    let output = forge(&["check", file_path.to_str().unwrap(), "--skip-edge-check"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -371,8 +361,7 @@ fn test_forge_scaffold_tests_subcommand_exists() {
     // scaffold-tests should be recognized as a valid subcommand
     let combined = format!("{}{}", stdout, stderr).to_lowercase();
     assert!(
-        !combined.contains("invalid subcommand")
-            && !combined.contains("unrecognized subcommand"),
+        !combined.contains("invalid subcommand") && !combined.contains("unrecognized subcommand"),
         "scaffold-tests should be a recognized subcommand.\nGot:\n{}",
         combined,
     );
@@ -394,8 +383,7 @@ fn test_forge_coverage_subcommand_exists() {
     // coverage should be recognized as a valid subcommand
     let combined = format!("{}{}", stdout, stderr).to_lowercase();
     assert!(
-        !combined.contains("invalid subcommand")
-            && !combined.contains("unrecognized subcommand"),
+        !combined.contains("invalid subcommand") && !combined.contains("unrecognized subcommand"),
         "coverage should be a recognized subcommand.\nGot:\n{}",
         combined,
     );
@@ -446,11 +434,7 @@ fn test_forge_coverage_reports_edges_covered() {
 #[test]
 fn test_forge_coverage_reports_gungnir_status() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
-    let file_path = write_kzd(
-        dir.path(),
-        "gungnir_coverage.kzd",
-        "fn main() { 42 }",
-    );
+    let file_path = write_kzd(dir.path(), "gungnir_coverage.kzd", "fn main() { 42 }");
 
     let output = forge(&["coverage", file_path.to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&output.stdout);

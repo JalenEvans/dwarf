@@ -93,7 +93,10 @@ fn test_untested_public_function_produces_error() {
     assert!(
         has_diagnostic_for(&diagnostics, "calculate_total"),
         "Coverage diagnostic should reference 'calculate_total', got: {:?}",
-        diagnostics.iter().map(|d| &d.function_name).collect::<Vec<_>>()
+        diagnostics
+            .iter()
+            .map(|d| &d.function_name)
+            .collect::<Vec<_>>()
     );
 
     // The error code should be DWARF-E-COVER-*

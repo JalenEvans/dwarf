@@ -109,9 +109,9 @@ fn test_record_def_decl_construction() {
                 type_: Type::Named("f64".to_string()),
             },
         ],
-            methods: vec![],
-            implements: vec![],
-            is_pub: false,
+        methods: vec![],
+        implements: vec![],
+        is_pub: false,
         span: Default::default(),
     };
 

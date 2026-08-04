@@ -1323,14 +1323,8 @@ mod cli_dwarf118_tests {
     #[test]
     fn test_forge_test_filter_flag_parses() {
         // forge test --filter=my_test should filter tests by name
-        let cli = Cli::try_parse_from([
-            "forge",
-            "test",
-            "test.kzd",
-            "-t",
-            "ts",
-            "--filter=my_test",
-        ]);
+        let cli =
+            Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts", "--filter=my_test"]);
         assert!(
             cli.is_ok(),
             "forge test --filter=my_test should parse: {:?}",
@@ -1427,13 +1421,7 @@ mod cli_dwarf118_tests {
     #[test]
     fn test_forge_scaffold_tests_with_multiple_args() {
         // forge scaffold-tests should accept a source file too
-        let cli = Cli::try_parse_from([
-            "forge",
-            "scaffold-tests",
-            "divide",
-            "--file",
-            "math.kzd",
-        ]);
+        let cli = Cli::try_parse_from(["forge", "scaffold-tests", "divide", "--file", "math.kzd"]);
         assert!(
             cli.is_ok(),
             "forge scaffold-tests divide --file math.kzd should parse: {:?}",
@@ -1487,8 +1475,7 @@ mod cli_dwarf118_tests {
     #[test]
     fn test_forge_coverage_with_skip_edge_check() {
         // forge coverage --skip-edge-check should bypass edge analysis
-        let cli =
-            Cli::try_parse_from(["forge", "coverage", "test.kzd", "--skip-edge-check"]);
+        let cli = Cli::try_parse_from(["forge", "coverage", "test.kzd", "--skip-edge-check"]);
         assert!(
             cli.is_ok(),
             "forge coverage --skip-edge-check should parse: {:?}",
@@ -1498,10 +1485,7 @@ mod cli_dwarf118_tests {
             Some(Commands::Coverage {
                 skip_edge_check, ..
             }) => {
-                assert!(
-                    skip_edge_check,
-                    "--skip-edge-check flag should be true"
-                );
+                assert!(skip_edge_check, "--skip-edge-check flag should be true");
             }
             other => panic!("Expected Commands::Coverage, got {:?}", other),
         }

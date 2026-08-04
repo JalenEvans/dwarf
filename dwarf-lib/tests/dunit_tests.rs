@@ -36,9 +36,8 @@ fn dunit_source_path() -> PathBuf {
 /// Read the dUnit source file, panicking with a helpful message if absent.
 fn read_dunit_source() -> String {
     let path = dunit_source_path();
-    std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!("Failed to read dunit.dwarf at {:?}: {}", path, e)
-    })
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read dunit.dwarf at {:?}: {}", path, e))
 }
 
 /// Tokenize and parse Dwarf source, returning (decls, parse_errors).
@@ -150,8 +149,7 @@ fn test_dunit_module_declared_in_lib() {
         lib_rs_path
     );
 
-    let lib_content = std::fs::read_to_string(&lib_rs_path)
-        .expect("should be able to read lib.rs");
+    let lib_content = std::fs::read_to_string(&lib_rs_path).expect("should be able to read lib.rs");
 
     assert!(
         lib_content.contains("mod dunit") || lib_content.contains("pub mod dunit"),

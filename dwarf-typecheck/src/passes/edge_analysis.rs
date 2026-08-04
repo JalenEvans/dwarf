@@ -158,11 +158,7 @@ impl EdgeAnalysisPass {
                                 edge_value,
                             } = dec
                             {
-                                covers.push((
-                                    fn_name.clone(),
-                                    param.clone(),
-                                    edge_value.clone(),
-                                ));
+                                covers.push((fn_name.clone(), param.clone(), edge_value.clone()));
                             }
                         }
                     }
@@ -224,9 +220,7 @@ impl EdgeAnalysisPass {
                         // Find which edges are covered by @covers decorators
                         let covered_edges: Vec<EdgeCategory> = covers
                             .iter()
-                            .filter(|(fn_name, p, _)| {
-                                fn_name == name && p == &param.name
-                            })
+                            .filter(|(fn_name, p, _)| fn_name == name && p == &param.name)
                             .filter_map(|(_, _, edge_val)| EdgeCategory::from_str(edge_val))
                             .collect();
 
@@ -301,11 +295,7 @@ mod tests {
             edges.contains(&EdgeCategory::Min),
             "Int should have Min edge"
         );
-        assert_eq!(
-            edges.len(),
-            5,
-            "Int should have exactly 5 edge categories"
-        );
+        assert_eq!(edges.len(), 5, "Int should have exactly 5 edge categories");
     }
 
     #[test]

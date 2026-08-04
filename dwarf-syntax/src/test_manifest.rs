@@ -244,7 +244,11 @@ mod tests {
             manifest.tests.len()
         );
 
-        let names: Vec<&str> = manifest.tests.iter().map(|e| e.function_name.as_str()).collect();
+        let names: Vec<&str> = manifest
+            .tests
+            .iter()
+            .map(|e| e.function_name.as_str())
+            .collect();
         assert_eq!(names, vec!["test_add", "test_sub", "test_mul"]);
     }
 

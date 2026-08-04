@@ -162,8 +162,7 @@ pub fn run_coverage(
 /// Analyze a single source file and produce a coverage report.
 fn analyze_file(file: &PathBuf) -> Result<CoverageReport, String> {
     let file_str = file.to_string_lossy().to_string();
-    let source =
-        std::fs::read_to_string(file).map_err(|e| format!("cannot read file: {}", e))?;
+    let source = std::fs::read_to_string(file).map_err(|e| format!("cannot read file: {}", e))?;
 
     let tokenizer = TokenizePass;
     let tokens = tokenizer
@@ -297,9 +296,7 @@ fn count_expr_edges(expr: &Expr) -> usize {
             edges
         }
         Expr::Throw { expr, .. } => count_expr_edges(expr),
-        Expr::For {
-            iterable, body, ..
-        } => {
+        Expr::For { iterable, body, .. } => {
             let mut edges = 2;
             edges += count_expr_edges(iterable) + count_expr_edges(body);
             edges
@@ -358,9 +355,7 @@ mod tests {
 
     #[test]
     fn test_edges_counted_for_if_else() {
-        let report = analyze(
-            "fn divide(a: Int, b: Int) -> Int { if b == 0 { 0 } else { a / b } }",
-        );
+        let report = analyze("fn divide(a: Int, b: Int) -> Int { if b == 0 { 0 } else { a / b } }");
         assert_eq!(report.edges_total, 2);
     }
 
