@@ -7,4 +7,5 @@ pub mod diagnostic;
 pub mod error;
 pub mod hir;
 pub mod span;
+pub mod test_manifest;
 pub mod token;
