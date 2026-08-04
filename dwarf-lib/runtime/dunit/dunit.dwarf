@@ -1,0 +1,31 @@
+// dUnit — Dwarf Unit Testing Assertion Library
+// DWARF-118: Assertion library available to @test functions.
+//
+// These functions are called by compiled test bodies. Each function
+// reports a failure through the dUnit runtime when the assertion does
+// not hold.
+//
+// NOTE: Function-level generics (`fn assert_eq<A>(...)`) are not yet
+// supported by the parser, so the generic argument is lifted to the
+// most permissive concrete types that the current compiler accepts.
+
+/// Assert that a condition is true
+/// Panics with the given message if condition is false
+fn assert(condition: Bool, message: Str) {
+    // TODO: Implement runtime assertion logic
+    // This is a stub — implementation will be provided by the runtime
+}
+
+/// Assert that two integer values are equal
+/// Panics with the given message if actual != expected
+fn assert_eq(actual: Int, expected: Int, message: Str) {
+    // TODO: Implement equality assertion for integers
+    // This is a stub — implementation will be provided by the runtime
+}
+
+/// Assert that an expression resulted in an error
+/// Panics with the given message if result is not an error
+fn assert_err(result: Result, message: Str) {
+    // TODO: Implement error assertion
+    // This is a stub — implementation will be provided by the runtime
+}
