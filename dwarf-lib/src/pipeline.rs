@@ -16,8 +16,13 @@ use dwarf_mir::modules::ModuleGraph;
 use dwarf_mir::pass::MirPass;
 use dwarf_parser::pass::ParsePass;
 use dwarf_typecheck::pass::TypeCheckPass;
+use dwarf_typecheck::passes::edge_analysis::EdgeAnalysisPass;
+use dwarf_typecheck::passes::test_coverage::{
+    CoverageCheckConfig, CoverageMode as TcCoverageMode, CoverageScope as TcCoverageScope,
+    TestCoveragePass,
+};
 
-use crate::{CompileOptions, Diagnostic, Severity};
+use crate::{CompileOptions, CoverageMode, Diagnostic, Severity};
 
 /// Run the full compiler pipeline on a source string, collecting diagnostics.
 /// Returns the LIR declarations and any diagnostics, or an error string.
@@ -27,7 +32,6 @@ pub(crate) fn run_pipeline(
     options: &CompileOptions,
 ) -> Result<(Vec<LirDecl>, Vec<Diagnostic>), String> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
-    let _ = options; // options may be used later for pass filtering, etc.
 
     // 1. Tokenize
     let tokenizer = TokenizePass;
@@ -71,6 +75,65 @@ pub(crate) fn run_pipeline(
             line: Some(line),
             col: Some(col),
         });
+    }
+
+    // 3.5 Test coverage enforcement + edge-case analysis (DWARF-117).
+    //
+    // After typechecking, verify that public functions have test coverage and
+    // that edge cases are covered. Both passes are skipped when `--quick`
+    // bypasses the checks or when coverage is set to `Off`. Edge analysis is
+    // additionally gated behind `--skip-edge-check`. Diagnostics are surfaced
+    // as hard errors in `Required` mode and as warnings in `Warning` mode.
+    if !options.quick && options.test_coverage != CoverageMode::Off {
+        let tc_mode = match options.test_coverage {
+            CoverageMode::Off => TcCoverageMode::Off,
+            CoverageMode::Warning => TcCoverageMode::Warning,
+            CoverageMode::Required | CoverageMode::On => TcCoverageMode::Required,
+        };
+
+        let coverage_pass = TestCoveragePass::new();
+        let cover_config = CoverageCheckConfig {
+            mode: tc_mode.clone(),
+            scope: TcCoverageScope::AllPub,
+        };
+
+        for cov in coverage_pass.check(&decls, &cover_config) {
+            let severity = match tc_mode {
+                TcCoverageMode::Off => continue,
+                TcCoverageMode::Warning => Severity::Warning,
+                TcCoverageMode::Required => Severity::Error,
+            };
+            diagnostics.push(Diagnostic {
+                code: cov.code.to_string(),
+                severity,
+                message: cov.message,
+                file: Some(filename.to_string()),
+                line: None,
+                col: None,
+            });
+        }
+
+        if !options.skip_edge_check {
+            let edge_pass = EdgeAnalysisPass::new();
+            for warn in edge_pass.analyze(&decls) {
+                let (line, col) =
+                    dwarf_syntax::diagnostic::byte_to_line_col(source, warn.span.start)
+                        .unwrap_or((0, 0));
+                let severity = match tc_mode {
+                    TcCoverageMode::Off => continue,
+                    TcCoverageMode::Warning => Severity::Warning,
+                    TcCoverageMode::Required => Severity::Error,
+                };
+                diagnostics.push(Diagnostic {
+                    code: warn.code.to_string(),
+                    severity,
+                    message: warn.message,
+                    file: Some(filename.to_string()),
+                    line: Some(line),
+                    col: Some(col),
+                });
+            }
+        }
     }
 
     // 4. Modules — build dependency graph (optional, used for import resolution)

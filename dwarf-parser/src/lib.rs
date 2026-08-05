@@ -669,37 +669,7 @@ impl Parser {
         };
 
         // Convert Expr args to their string representations for the decorator resolver.
-        let string_args: Vec<String> = args
-            .iter()
-            .map(|arg| match arg {
-                Expr::Variable { name, .. } => name.clone(),
-                Expr::Literal {
-                    value: LiteralValue::Str(s),
-                    ..
-                } => format!("\"{}\"", s),
-                Expr::Literal {
-                    value: LiteralValue::RawStr(s),
-                    ..
-                } => s.clone(),
-                Expr::Literal {
-                    value: LiteralValue::Int(i),
-                    ..
-                } => i.to_string(),
-                Expr::Literal {
-                    value: LiteralValue::Float(f),
-                    ..
-                } => f.to_string(),
-                Expr::Literal {
-                    value: LiteralValue::Bool(b),
-                    ..
-                } => b.to_string(),
-                Expr::Literal {
-                    value: LiteralValue::Null,
-                    ..
-                } => "null".to_string(),
-                other => format!("{:?}", other),
-            })
-            .collect();
+        let string_args: Vec<String> = args.iter().map(expr_to_source_string).collect();
 
         // Note: `pub` before the decorated decl is consumed by the caller
         // (`parse`).  We peek past any `pub` here.
@@ -2846,5 +2816,76 @@ mod error_handling_tests {
         let (program, errors) = parser.parse();
         assert!(!errors.is_empty(), "expected parse error for malformed try");
         assert!(program.is_empty(), "expected no declarations on error");
+    }
+}
+
+/// Render an expression as source-like text for decorator args (contract conditions,
+/// coverage edge values, etc.). Avoids `{:?}` Debug formatting of internal spans.
+fn expr_to_source_string(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal { value, .. } => match value {
+            LiteralValue::Str(s) => format!("\"{}\"", s),
+            LiteralValue::RawStr(s) => s.clone(),
+            LiteralValue::Int(i) => i.to_string(),
+            LiteralValue::Float(f) => f.to_string(),
+            LiteralValue::Bool(b) => b.to_string(),
+            LiteralValue::Null => "null".to_string(),
+        },
+        Expr::Variable { name, .. } => name.clone(),
+        Expr::Binary { op, lhs, rhs, .. } => {
+            let op_str = match op {
+                BinaryOp::Add => "+",
+                BinaryOp::Sub => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                BinaryOp::Eq => "==",
+                BinaryOp::Ne => "!=",
+                BinaryOp::Lt => "<",
+                BinaryOp::Gt => ">",
+                BinaryOp::Le => "<=",
+                BinaryOp::Ge => ">=",
+                BinaryOp::And => "&&",
+                BinaryOp::Or => "||",
+            };
+            format!(
+                "{} {} {}",
+                expr_to_source_string(lhs),
+                op_str,
+                expr_to_source_string(rhs)
+            )
+        }
+        Expr::Unary { op, expr, .. } => {
+            let prefix = match op {
+                UnaryOp::Neg => "-",
+                UnaryOp::Not => "!",
+            };
+            format!("{}{}", prefix, expr_to_source_string(expr))
+        }
+        Expr::Member { obj, field, .. } => {
+            format!("{}.{}", expr_to_source_string(obj), field)
+        }
+        Expr::OptionalAccess { obj, field, .. } => {
+            format!("{}?.{}", expr_to_source_string(obj), field)
+        }
+        Expr::Call { func, args, .. } => {
+            let rendered_args: Vec<String> = args.iter().map(expr_to_source_string).collect();
+            format!(
+                "{}({})",
+                expr_to_source_string(func),
+                rendered_args.join(", ")
+            )
+        }
+        Expr::Record { fields, .. } => {
+            let rendered: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, expr_to_source_string(v)))
+                .collect();
+            format!("{{ {} }}", rendered.join(", "))
+        }
+        Expr::Array { items, .. } => {
+            let rendered: Vec<String> = items.iter().map(expr_to_source_string).collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        _ => format!("{:?}", expr),
     }
 }

@@ -265,8 +265,18 @@ mod library_surface_tests {
     #[test]
     fn test_run_check_is_accessible_via_library() {
         // Minimal valid args: no files, no json, no passes, no skip_passes,
-        // list_passes=false, no stdlib_path.
-        crate::check::run_check(Vec::<PathBuf>::new(), false, None, None, false, None);
+        // list_passes=false, no stdlib_path, no coverage flags.
+        crate::check::run_check(
+            Vec::<PathBuf>::new(),
+            false,
+            None,
+            None,
+            false,
+            None,
+            false,
+            false,
+            None,
+        );
     }
 
     // 2. build::run_build
@@ -325,6 +335,9 @@ mod library_surface_tests {
             false,
             false,
             false,
+            false,
+            false,
+            None,
         );
     }
 }

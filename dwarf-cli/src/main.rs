@@ -40,11 +40,21 @@ fn main() {
             skip_passes,
             list_passes,
             stdlib_path,
-            quick: _,
-            skip_edge_check: _,
-            test_coverage: _,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
-            check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
+            check::run_check(
+                files,
+                json,
+                passes,
+                skip_passes,
+                list_passes,
+                stdlib_path,
+                quick,
+                skip_edge_check,
+                test_coverage,
+            );
         }
         Some(Commands::Emit {
             files,
@@ -101,11 +111,20 @@ fn main() {
             json,
             diff,
             fix,
-            quick: _,
-            skip_edge_check: _,
-            test_coverage: _,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
-            test::run_test(files, target, json, diff, fix);
+            test::run_test(
+                files,
+                target,
+                json,
+                diff,
+                fix,
+                quick,
+                skip_edge_check,
+                test_coverage,
+            );
         }
         Some(Commands::Init { name }) => {
             if let Err(e) = init::run_init(&name) {

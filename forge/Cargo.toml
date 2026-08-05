@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 dwarf-cli = { path = "../dwarf-cli" }
+dwarf-lib = { path = "../dwarf-lib" }
 dwarf-syntax = { path = "../dwarf-syntax" }
 dwarf-lexer = { path = "../dwarf-lexer" }
 dwarf-parser = { path = "../dwarf-parser" }

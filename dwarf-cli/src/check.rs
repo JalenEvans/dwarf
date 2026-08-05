@@ -4,13 +4,14 @@ use crate::output::{
     format_output, CheckPayload, FileCheckResult, OutputEnvelope, OutputFormat,
     StructuredDiagnostic,
 };
-use dwarf_lib::{CompileOptions, DwarfCompiler};
+use dwarf_lib::{CompileOptions, CoverageMode, DwarfCompiler};
 use dwarf_syntax::diagnostic::format_diagnostic;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_check(
     files: Vec<PathBuf>,
     json: bool,
@@ -18,6 +19,9 @@ pub fn run_check(
     skip_passes: Option<String>,
     list_passes: bool,
     stdlib_path: Option<String>,
+    quick: bool,
+    skip_edge_check: bool,
+    test_coverage: Option<CoverageMode>,
 ) {
     if list_passes {
         println!(
@@ -35,7 +39,7 @@ pub fn run_check(
         return;
     }
 
-    let cli_options = CompileOptions {
+    let mut cli_options = CompileOptions {
         target: "debug".to_string(),
         pretty: false,
         passes: passes.map(|s| s.split(',').map(|s| s.trim().to_string()).collect()),
@@ -47,8 +51,13 @@ pub fn run_check(
             .collect(),
         source_map: false,
         stdlib_path,
+        quick,
+        skip_edge_check,
         ..Default::default()
     };
+    if let Some(mode) = test_coverage {
+        cli_options.test_coverage = mode;
+    }
 
     let options = crate::config::merge_config_with_cli(cli_options);
     let compiler = DwarfCompiler::new();

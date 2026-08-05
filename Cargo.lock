@@ -662,6 +662,7 @@ dependencies = [
  "clap",
  "dwarf-cli",
  "dwarf-lexer",
+ "dwarf-lib",
  "dwarf-parser",
  "dwarf-syntax",
  "serde",

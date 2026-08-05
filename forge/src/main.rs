@@ -3,11 +3,18 @@ use std::path::PathBuf;
 use std::process;
 
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
+use dwarf_lib::CoverageMode;
 
 // DWARF-118: Wasm test runner module (RED phase — stubs)
 pub mod testing;
 // DWARF-118: Coverage reporter module
 pub mod coverage;
+
+/// Parse a CLI `--test-coverage` string into a typed [`CoverageMode`].
+/// Invalid values fall back to `None` (the compiler default applies).
+fn parse_coverage_mode(opt: Option<String>) -> Option<CoverageMode> {
+    opt.and_then(|s| s.parse().ok())
+}
 
 #[derive(Parser)]
 #[command(
@@ -356,11 +363,21 @@ fn main() {
             skip_passes,
             list_passes,
             stdlib_path,
-            quick: _,
-            skip_edge_check: _,
-            test_coverage: _,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
-            check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
+            check::run_check(
+                files,
+                json,
+                passes,
+                skip_passes,
+                list_passes,
+                stdlib_path,
+                quick,
+                skip_edge_check,
+                parse_coverage_mode(test_coverage),
+            );
         }
         Some(Commands::Build {
             files,
@@ -427,21 +444,51 @@ fn main() {
             diff,
             fix,
             filter: _,
-            quick: _,
-            skip_edge_check: _,
-            test_coverage: _,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
             // DWARF-118: The Wasm runner will use the `filter` field. For now the
             // Jest passthrough is preserved; `filter` is accepted but unused.
-            test::run_test(files, target, json, diff, fix);
-        }
-        Some(Commands::ScaffoldTests { fn_name, file: _ }) => {
-            // DWARF-118: STUB — actual scaffolding generator not yet implemented.
             eprintln!(
-                "Error: 'forge scaffold-tests {}' is not implemented yet (DWARF-118)",
-                fn_name
+                "forge: note — DWARF dUnit/wasm executor not yet wired (DWARF-118). \
+                 Results below are from the legacy Jest backend."
             );
-            process::exit(1);
+            test::run_test(
+                files,
+                target,
+                json,
+                diff,
+                fix,
+                quick,
+                skip_edge_check,
+                parse_coverage_mode(test_coverage),
+            );
+        }
+        Some(Commands::ScaffoldTests { fn_name, file }) => {
+            // DWARF-118: Generate a @covers-annotated test stub for a function.
+            let path = file.unwrap_or_else(|| {
+                std::path::PathBuf::from(format!("tests/{}_tests.dwarf", fn_name))
+            });
+            let content = format!(
+                "// Auto-generated test stub for `{fn_name}` (DWARF-118).\n\
+                 // Add edge cases under the existing @tested/@covers annotations.\n\
+                 @test\n\
+                 @covers({fn_name}, _, default)\n\
+                 fn test_{fn_name}() -> Bool {{\n\
+                 \x20   // TODO: assert behavior of `{fn_name}`.\n\
+                 \x20   true\n\
+                 }}\n"
+            );
+            if let Err(e) = std::fs::write(&path, &content) {
+                eprintln!("scaffold-tests: failed to write {}: {}", path.display(), e);
+                process::exit(1);
+            }
+            println!(
+                "scaffold-tests: wrote stub for `{}` to {}",
+                fn_name,
+                path.display()
+            );
         }
         Some(Commands::Coverage {
             files,

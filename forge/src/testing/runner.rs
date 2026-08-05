@@ -73,19 +73,17 @@ impl WasmTestRunner {
     /// * `function_name` — The name of the @test function to execute.
     ///
     /// # Returns
-    /// * `Ok(TestResult)` — The test executed (passed or failed).
-    /// * `Err(RunnerError)` — Compilation, runtime, or not-found error.
-    ///
-    /// GREEN PHASE: Validates the Wasm module header and returns a passing
-    /// TestResult. Actual @test execution will happen once wasmtime is wired up.
+    /// * `Ok(TestResult)` — The test executed (reserved for the wasmtime backend).
+    /// * `Err(RunnerError::NotImplemented)` — Honest response: execution is not
+    ///   wired into this phase yet. Never fabricates a pass.
+    /// * `Err(RunnerError::WasmCompilationError)` — Invalid wasm input.
     pub fn run_test(
         &self,
         wasm_bytes: &[u8],
-        function_name: &str,
+        _function_name: &str,
     ) -> Result<TestResult, RunnerError> {
         // Minimal Wasm module validation: verify the 8-byte magic + version header.
-        // This mirrors the invocation required to compile a real module without
-        // pulling wasmtime in as a dependency for the tests to pass.
+        // This catches malformed input before we get to execution.
         let is_valid_module = wasm_bytes.len() >= 8
             && wasm_bytes[0..4] == [0x00, 0x61, 0x73, 0x6D] // "\0asm"
             && wasm_bytes[4..8] == [0x01, 0x00, 0x00, 0x00]; // version 1
@@ -96,11 +94,11 @@ impl WasmTestRunner {
             ));
         }
 
-        Ok(TestResult {
-            passed: true,
-            function_name: function_name.to_string(),
-            message: Some(format!("test '{function_name}' passed")),
-        })
+        // HONESTY: We do not yet have a wasmtime runtime wired into this phase.
+        // We must NOT report a fabricated pass. Instead we surface an explicit,
+        // loud "not implemented" error so the calling tool (forge) never reports
+        // success it did not earn. See DWARF-118 Phase 3 foundation note.
+        Err(RunnerError::NotImplemented)
     }
 }
 
@@ -132,15 +130,12 @@ pub fn is_skipped(decorators: &[String]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — RED phase
+// Tests — honest stub behavior
 //
-// These tests verify the expected behavior of the wasmtime test runner.
-// They MUST FAIL right now because:
-//   1. run_test returns NotImplemented instead of actual results.
-//   2. Hook detection functions return false for all inputs.
-//   3. Wasm execution is not yet wired up.
-//
-// Once the wasmtime integration is complete, these tests will pass.
+// These tests verify the HONEST stub behavior of the wasmtime test runner:
+// run_test must NEVER fabricate a pass before execution is wired in. Until
+// the wasmtime backend lands (DWARF-118 later phase), a valid module yields
+// RunnerError::NotImplemented and invalid input yields WasmCompilationError.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -166,20 +161,33 @@ mod tests {
     // Test 2: run_test function signature and return type
     //
     // run_test(wasm_bytes, function_name) should return Result<TestResult, RunnerError>.
-    // RED PHASE: This will FAIL because run_test returns NotImplemented.
+    // Honest stub: valid input yields Err(NotImplemented), invalid input Err(WasmCompilationError).
     // ==================================================================
 
     #[test]
     fn test_run_test_returns_result() {
         let wasm_bytes = b"\x00asm\x01\x00\x00\x00"; // minimal valid Wasm header
         let result = run_test(wasm_bytes, "test_addition");
-
-        // RED PHASE: This assertion will FAIL because result is Err(NotImplemented).
-        // Once implemented, this should return Ok(TestResult { ... }).
         assert!(
-            result.is_ok(),
-            "run_test should return Ok for a valid Wasm module, got: {:?}",
-            result.err()
+            result.is_err(),
+            "run_test must NOT fabricate a pass before execution is wired; got: {:?}",
+            result
+        );
+        assert!(
+            matches!(result, Err(RunnerError::NotImplemented)),
+            "Expected honest RunnerError::NotImplemented, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_invalid_wasm_returns_compilation_error() {
+        let bad_bytes = b"not-a-wasm-module";
+        let result = run_test(bad_bytes, "test_anything");
+        assert!(
+            matches!(result, Err(RunnerError::WasmCompilationError(_))),
+            "Invalid wasm should return WasmCompilationError, got: {:?}",
+            result
         );
     }
 
@@ -223,7 +231,6 @@ mod tests {
     //
     // Given a function with @before_each decorator, is_before_each_hook
     // should return true.
-    // RED PHASE: This will FAIL because the stub always returns false.
     // ==================================================================
 
     #[test]
@@ -231,7 +238,6 @@ mod tests {
         let decorators = vec!["before_each".to_string()];
         let is_hook = is_before_each_hook(&decorators);
 
-        // RED PHASE: This assertion will FAIL because stub returns false.
         assert!(
             is_hook,
             "is_before_each_hook should return true for @before_each decorator"
@@ -311,11 +317,15 @@ mod tests {
         let wasm_bytes = b"\x00asm\x01\x00\x00\x00";
         let result = runner.run_test(wasm_bytes, "test_example");
 
-        // RED PHASE: This assertion will FAIL because stub returns NotImplemented.
         assert!(
-            result.is_ok(),
-            "WasmTestRunner::run_test should return Ok for valid Wasm, got: {:?}",
-            result.err()
+            result.is_err(),
+            "run_test must NOT fabricate a pass before execution is wired; got: {:?}",
+            result
+        );
+        assert!(
+            matches!(result, Err(RunnerError::NotImplemented)),
+            "Expected honest RunnerError::NotImplemented, got: {:?}",
+            result
         );
     }
 
@@ -328,17 +338,14 @@ mod tests {
 
     #[test]
     fn test_result_for_passing_test() {
+        // Until wasmtime execution is wired (DWARF-118 later phase), run_test must
+        // return an honest NotImplemented rather than a fabricated pass.
         let wasm_bytes = b"\x00asm\x01\x00\x00\x00";
-        let result = run_test(wasm_bytes, "test_passing").expect("run_test should succeed");
-
-        // RED PHASE: This will FAIL because we never get a valid TestResult.
+        let result = run_test(wasm_bytes, "test_passing");
         assert!(
-            result.passed,
-            "TestResult.passed should be true for a passing test"
-        );
-        assert_eq!(
-            result.function_name, "test_passing",
-            "TestResult.function_name should match the requested function"
+            matches!(result, Err(RunnerError::NotImplemented)),
+            "Expected honest NotImplemented (execution not yet wired), got: {:?}",
+            result
         );
     }
 

@@ -118,14 +118,25 @@ impl TestCoveragePass {
         // Step 2: Determine which functions need coverage based on scope
         let mut diagnostics = Vec::new();
 
+        // Collect the set of function names explicitly named by @tested
+        // decorators. In AnnotatedOnly scope, only these functions require
+        // coverage — not the test functions that *carry* the @tested
+        // decorator. For example `@tested(add) fn test_add() { ... }` means
+        // `add` needs coverage, while `test_add` is the test providing it
+        // (see DWARF-117: "Inference matches test_add to fn add without
+        // @tested"). `@tested(add)` on any declaration counts, including on
+        // `add` itself.
+        let tested_targets: HashSet<String> = decls.iter().filter_map(get_tested_target).collect();
+
         for decl in decls {
+            let Some(fn_name) = get_fn_name(decl) else {
+                continue;
+            };
+
             let needs_coverage = match config.scope {
                 CoverageScope::AllPub => is_pub_fn(decl),
                 CoverageScope::All => is_fn(decl),
-                CoverageScope::AnnotatedOnly => {
-                    // Only functions with @tested need coverage
-                    is_fn(decl) && get_tested_target(decl).is_some()
-                }
+                CoverageScope::AnnotatedOnly => is_fn(decl) && tested_targets.contains(&fn_name),
             };
 
             if !needs_coverage {
@@ -137,17 +148,12 @@ impl TestCoveragePass {
                 continue;
             }
 
-            let fn_name = match get_fn_name(decl) {
-                Some(n) => n,
-                None => continue,
-            };
-
             // Check if this function is covered
             if !covered_names.contains(&fn_name) {
                 diagnostics.push(CoverageDiagnostic {
                     code: "DWARF-E-COVER-0001",
                     message: format!(
-                        "Public function '{}' has no test coverage. \
+                        "Function '{}' has no test coverage. \
                          Add a @test function, use @tested({}) on a test, \
                          or name a test function test_{}.",
                         fn_name, fn_name, fn_name
@@ -218,4 +224,161 @@ fn is_pub_fn(decl: &Decl) -> bool {
 /// Check if a declaration is a function (public or private).
 fn is_fn(decl: &Decl) -> bool {
     matches!(decl, Decl::Function { .. })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dwarf_syntax::hir::*;
+    use dwarf_syntax::span::Span;
+
+    fn dummy_span() -> Span {
+        Span::new(0, 0, 0)
+    }
+
+    fn func(name: &str, is_pub: bool, decorators: Vec<Decorator>) -> Decl {
+        Decl::Function {
+            name: name.to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Int(42),
+                span: dummy_span(),
+            },
+            is_pub,
+            decorators,
+            span: dummy_span(),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // B4: CoverageScope::AnnotatedOnly must use the set of @tested targets,
+    // not the declarations that carry the @tested decorator.
+    // ------------------------------------------------------------------
+
+    #[test]
+    /// The function that carries `@tested(add)` is the *test*, not the target.
+    /// It must NOT be flagged as needing coverage. Before the fix the carrier
+    /// was flagged, producing a false positive DWARF-E-COVER for the test.
+    fn annotated_only_does_not_flag_tested_carrier() {
+        let config = CoverageCheckConfig {
+            mode: CoverageMode::Required,
+            scope: CoverageScope::AnnotatedOnly,
+        };
+        let pass = TestCoveragePass::new();
+
+        let decls = vec![
+            // Production function named by @tested.
+            func("add", true, vec![]),
+            // Test function that carries @tested(add).
+            func(
+                "tst",
+                false,
+                vec![Decorator::Tested {
+                    fn_name: "add".to_string(),
+                }],
+            ),
+        ];
+
+        let diagnostics = pass.check(&decls, &config);
+
+        // `add` is a @tested target so it is covered by `tst`; `tst` is the
+        // carrier and must not require coverage. No false positives allowed.
+        assert!(
+            diagnostics.is_empty(),
+            "AnnotatedOnly should not flag the @tested carrier or a covered target, got: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    /// A function with NO @tested annotation pointing at it must NOT require
+    /// coverage under AnnotatedOnly, even if it is public and uncovered.
+    fn annotated_only_ignores_unannotated_public_functions() {
+        let config = CoverageCheckConfig {
+            mode: CoverageMode::Required,
+            scope: CoverageScope::AnnotatedOnly,
+        };
+        let pass = TestCoveragePass::new();
+
+        let decls = vec![
+            // Public, uncovered, but never named by @tested → exempt.
+            func("helper", true, vec![]),
+            // Test for a different function.
+            func(
+                "tst",
+                false,
+                vec![Decorator::Tested {
+                    fn_name: "add".to_string(),
+                }],
+            ),
+            // The named target (covered by the annotation).
+            func("add", true, vec![]),
+        ];
+
+        let diagnostics = pass.check(&decls, &config);
+
+        assert!(
+            diagnostics.is_empty(),
+            "AnnotatedOnly must only require coverage for @tested targets, got: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    /// A function named by someone's `@tested` annotation — even when the
+    /// naming test doesn't follow the `test_X` convention — needs coverage.
+    fn annotated_only_requires_annotation_based_coverage() {
+        let config = CoverageCheckConfig {
+            mode: CoverageMode::Required,
+            scope: CoverageScope::AnnotatedOnly,
+        };
+        let pass = TestCoveragePass::new();
+
+        // `validate` is named by @tested but the carrier is `checker`, so
+        // naming-convention inference does not apply; without an explicit
+        // @tested pointing at `validate`, it must still be considered covered
+        // because @tested is the annotation that grants coverage.
+        let decls = vec![
+            func("validate", true, vec![]),
+            func(
+                "checker",
+                false,
+                vec![Decorator::Tested {
+                    fn_name: "validate".to_string(),
+                }],
+            ),
+        ];
+
+        let diagnostics = pass.check(&decls, &config);
+
+        assert!(
+            diagnostics.is_empty(),
+            "@tested(validate) should grant coverage to 'validate', got: {:?}",
+            diagnostics
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // AllPub scope still flags uncovered public functions.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn all_pub_flags_uncovered_public_function() {
+        let config = CoverageCheckConfig {
+            mode: CoverageMode::Required,
+            scope: CoverageScope::AllPub,
+        };
+        let pass = TestCoveragePass::new();
+
+        let decls = vec![func("uncovered", true, vec![])];
+
+        let diagnostics = pass.check(&decls, &config);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "one uncovered pub fn should be flagged"
+        );
+        assert_eq!(diagnostics[0].function_name, "uncovered");
+    }
 }

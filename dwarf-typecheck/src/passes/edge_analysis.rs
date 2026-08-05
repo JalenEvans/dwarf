@@ -212,6 +212,16 @@ impl EdgeAnalysisPass {
                     });
                 }
 
+                // Only functions that declare edge expectations via @covers
+                // are required to cover edges. Functions without any @covers
+                // referencing them opt out of edge checking — otherwise every
+                // function with a typed parameter would emit missing-edge
+                // warnings even though the module never asked for edge coverage.
+                let has_covers_for_fn = covers.iter().any(|(fn_name, _, _)| fn_name == name);
+                if !has_covers_for_fn {
+                    continue;
+                }
+
                 // Check edge coverage for each parameter
                 for param in params {
                     if let Some(ref ty) = param.type_ {

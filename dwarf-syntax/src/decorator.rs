@@ -6,6 +6,11 @@
 
 use crate::hir::Decorator;
 
+/// Strip surrounding double-quotes from a string if present (e.g. `"zero"` -> `zero`).
+fn unquote(s: &str) -> String {
+    s.trim_matches('"').to_string()
+}
+
 /// Parse a decorator name and its stringified arguments into a typed [`Decorator`].
 ///
 /// # Arguments
@@ -24,10 +29,7 @@ pub fn parse_decorator_name(name: &str, args: &[String]) -> Result<Decorator, St
         "skip" => Ok(Decorator::Skip),
         "gungnir" => Ok(Decorator::Gungnir),
         "skip_test" => {
-            let reason = args
-                .first()
-                .map(|s| s.trim_matches('"').to_string())
-                .unwrap_or_default();
+            let reason = args.first().map(|s| unquote(s)).unwrap_or_default();
             Ok(Decorator::SkipTest { reason })
         }
         "covers" => {
@@ -35,25 +37,25 @@ pub fn parse_decorator_name(name: &str, args: &[String]) -> Result<Decorator, St
                 return Err("covers requires 3 args: fn_name, param, edge_value".to_string());
             }
             Ok(Decorator::Covers {
-                fn_name: args[0].clone(),
-                param: args[1].clone(),
-                edge_value: args[2].clone(),
+                fn_name: unquote(&args[0]),
+                param: unquote(&args[1]),
+                edge_value: unquote(&args[2]),
             })
         }
         "tested" => {
-            let fn_name = args.first().cloned().unwrap_or_default();
+            let fn_name = args.first().map(|s| unquote(s)).unwrap_or_default();
             Ok(Decorator::Tested { fn_name })
         }
         "requires" => {
-            let condition = args.first().cloned().unwrap_or_default();
+            let condition = args.first().map(|s| unquote(s)).unwrap_or_default();
             Ok(Decorator::Requires { condition })
         }
         "ensures" => {
-            let condition = args.first().cloned().unwrap_or_default();
+            let condition = args.first().map(|s| unquote(s)).unwrap_or_default();
             Ok(Decorator::Ensures { condition })
         }
         "invariant" => {
-            let condition = args.first().cloned().unwrap_or_default();
+            let condition = args.first().map(|s| unquote(s)).unwrap_or_default();
             Ok(Decorator::Invariant { condition })
         }
         _ => Err(format!("unknown decorator: {}", name)),
@@ -213,5 +215,26 @@ mod tests {
     fn test_parse_decorator_unknown_returns_error() {
         let result = parse_decorator_name("unknown_decorator", &[]);
         assert!(result.is_err(), "expected Err for unknown decorator name");
+    }
+
+    // ==================================================================
+    // Test 13: @covers with quoted args strips surrounding quotes
+    //
+    // @covers(add, b, "zero") should produce Covers { fn_name: "add",
+    // param: "b", edge_value: "zero" } — quotes stripped uniformly.
+    // ==================================================================
+
+    #[test]
+    fn test_parse_decorator_covers_strips_quotes() {
+        let args = vec!["add".into(), "b".into(), "\"zero\"".into()];
+        let result = parse_decorator_name("covers", &args);
+        assert_eq!(
+            result.unwrap(),
+            Decorator::Covers {
+                fn_name: "add".to_string(),
+                param: "b".to_string(),
+                edge_value: "zero".to_string(),
+            }
+        );
     }
 }

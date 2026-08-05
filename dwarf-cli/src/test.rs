@@ -16,6 +16,7 @@ use std::time::Instant;
 use crate::diff_runner;
 use crate::output::{format_output, OutputEnvelope, OutputFormat, TestPayload, TestResultItem};
 use crate::runner::{JavaRunner, PyRunner, TsRunner};
+use dwarf_lib::{CompileOptions, CoverageMode, DwarfCompiler, Severity};
 use dwarf_shrink::{IntShrinker, Shrinker};
 
 /// Run the test subcommand.
@@ -26,7 +27,21 @@ use dwarf_shrink::{IntShrinker, Shrinker};
 ///
 /// When `fix` is `true` and any test fails, the shrinking engine is used to
 /// produce minimal counterexamples from failure output.
-pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix: bool) {
+///
+/// Coverage enforcement (DWARF-117): unless `--quick` bypasses the checks or
+/// coverage is `Off`, each file is compiled first and any coverage errors fail
+/// the run before the test runner is invoked.
+#[allow(clippy::too_many_arguments)]
+pub fn run_test(
+    files: Vec<PathBuf>,
+    target: String,
+    json: bool,
+    diff: bool,
+    fix: bool,
+    quick: bool,
+    skip_edge_check: bool,
+    test_coverage: Option<CoverageMode>,
+) {
     if diff {
         return run_diff_mode(files, json);
     }
@@ -39,6 +54,17 @@ pub fn run_test(files: Vec<PathBuf>, target: String, json: bool, diff: bool, fix
             supported.join(", ")
         );
         process::exit(1);
+    }
+
+    // Enforce test coverage before running the tests: a build with uncovered
+    // public functions must fail when coverage mode is Required, and --quick
+    // or --test-coverage=off bypasses the check entirely.
+    let coverage_mode = test_coverage.unwrap_or(CompileOptions::default().test_coverage);
+    if !quick && coverage_mode != CoverageMode::Off {
+        if let Err(msg) = enforce_test_coverage(&files, &coverage_mode, skip_edge_check) {
+            eprintln!("{}", msg);
+            process::exit(1);
+        }
     }
 
     let mut all_passed = true;
@@ -540,6 +566,62 @@ fn shrink_test_failure(result: &TestResultItem) {
         println!("    Counterexample: {}", value);
         println!("    Minimal failing: {}", minimal);
         println!("    Suggested fix: Change expected value or adjust assertion boundary");
+    }
+}
+
+/// Enforce test coverage on each file before running the test runner.
+///
+/// Compiles each file through the pipeline and fails when `Required` mode
+/// produces coverage errors. Returns `Ok(())` when coverage is satisfied, or
+/// `Err(message)` listing the uncovered functions.
+fn enforce_test_coverage(
+    files: &[PathBuf],
+    mode: &CoverageMode,
+    skip_edge_check: bool,
+) -> Result<(), String> {
+    let compiler = DwarfCompiler::new();
+    let options = CompileOptions {
+        test_coverage: mode.clone(),
+        skip_edge_check,
+        ..Default::default()
+    };
+
+    let mut coverage_errors: Vec<String> = Vec::new();
+
+    for file_path in files {
+        let path_str = file_path.to_string_lossy().to_string();
+        let source = match std::fs::read_to_string(file_path) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Cannot read {}: {}", path_str, e)),
+        };
+
+        match compiler.compile(&source, &path_str, options.clone()) {
+            Ok(result) => {
+                for diag in result.diagnostics {
+                    if matches!(diag.severity, Severity::Error) && diag.code.contains("COVER") {
+                        coverage_errors
+                            .push(format!("[{}] {}: {}", diag.code, path_str, diag.message));
+                    }
+                }
+            }
+            Err(errors) => {
+                let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+                return Err(format!(
+                    "Compilation failed for {}: {}",
+                    path_str,
+                    msgs.join("; ")
+                ));
+            }
+        }
+    }
+
+    if coverage_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Test coverage check failed:\n{}",
+            coverage_errors.join("\n")
+        ))
     }
 }
 
