@@ -39,6 +39,7 @@ fn test_function_decl_construction() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Default::default(),
     };
 
@@ -108,6 +109,8 @@ fn test_record_def_decl_construction() {
                 type_: Type::Named("f64".to_string()),
             },
         ],
+        methods: vec![],
+        implements: vec![],
         is_pub: false,
         span: Default::default(),
     };
@@ -164,6 +167,7 @@ fn test_decorator_decl_construction() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Default::default(),
     };
 

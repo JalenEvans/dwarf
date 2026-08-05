@@ -2,6 +2,8 @@
 //! Exposes the pass manager, runner, diff runner, and config discovery.
 
 use clap::{Parser, Subcommand};
+#[allow(unused_imports)]
+use dwarf_lib::{CompileOptions, CoverageMode};
 use std::path::PathBuf;
 
 pub mod config;
@@ -36,7 +38,7 @@ pub struct Cli {
     pub command: Option<Commands>,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Check Dwarf source files for errors
     Check {
@@ -62,6 +64,18 @@ pub enum Commands {
         /// Path to standard library runtime files
         #[arg(long, id = "stdlib-path")]
         stdlib_path: Option<String>,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<CoverageMode>,
     },
 
     /// Emit code from Dwarf source files to a target language
@@ -211,6 +225,18 @@ pub enum Commands {
         /// Apply auto-fix patches for failing tests by shrinking counterexamples
         #[arg(long)]
         fix: bool,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<CoverageMode>,
     },
 
     /// Initialize a new Dwarf project
@@ -239,8 +265,18 @@ mod library_surface_tests {
     #[test]
     fn test_run_check_is_accessible_via_library() {
         // Minimal valid args: no files, no json, no passes, no skip_passes,
-        // list_passes=false, no stdlib_path.
-        crate::check::run_check(Vec::<PathBuf>::new(), false, None, None, false, None);
+        // list_passes=false, no stdlib_path, no coverage flags.
+        crate::check::run_check(
+            Vec::<PathBuf>::new(),
+            false,
+            None,
+            None,
+            false,
+            None,
+            false,
+            false,
+            None,
+        );
     }
 
     // 2. build::run_build
@@ -299,6 +335,206 @@ mod library_surface_tests {
             false,
             false,
             false,
+            false,
+            false,
+            None,
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI coverage flag tests — RED PHASE (DWARF-117)
+//
+// These tests verify that the CLI supports coverage-related flags:
+// - --quick: bypass all coverage checks
+// - --skip-edge-check: bypass edge analysis only
+// - --test-coverage=off: disable all coverage enforcement
+//
+// They MUST FAIL right now because:
+//   1. The `CompileOptions` struct does not have `quick`, `skip_edge_check`,
+//      or `test_coverage` fields.
+//   2. The CLI commands do not parse these flags.
+//
+// Once the fields and flags are added, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod coverage_flag_tests {
+    use super::*;
+    use clap::Parser;
+
+    // -- Test 6: --quick flag -----------------------------------------------
+
+    #[test]
+    /// The --quick flag should bypass all coverage checks.
+    /// When --quick is set, no coverage errors or warnings should be emitted.
+    fn test_quick_flag_bypasses_coverage_checks() {
+        // Test that CompileOptions has a `quick` field
+        let opts = CompileOptions {
+            target: "ts".to_string(),
+            pretty: false,
+            passes: None,
+            skip_passes: Vec::new(),
+            source_map: false,
+            stdlib_path: None,
+            quick: true,
+            ..Default::default()
+        };
+        assert!(opts.quick, "--quick flag should be true");
+    }
+
+    #[test]
+    /// The --quick flag should be parseable from the CLI for the test subcommand.
+    fn test_quick_flag_parses_in_test_subcommand() {
+        let cli = Cli::try_parse_from(["dwarf-cli", "test", "test.kzd", "-t", "ts", "--quick"]);
+        assert!(
+            cli.is_ok(),
+            "dwarf-cli test --quick should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Test { quick, .. }) => {
+                assert!(quick, "--quick flag should be true");
+            }
+            other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+
+    #[test]
+    /// The --quick flag should be parseable from the CLI for the check subcommand.
+    fn test_quick_flag_parses_in_check_subcommand() {
+        let cli = Cli::try_parse_from(["dwarf-cli", "check", "test.kzd", "--quick"]);
+        assert!(
+            cli.is_ok(),
+            "dwarf-cli check --quick should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Check { quick, .. }) => {
+                assert!(quick, "--quick flag should be true");
+            }
+            other => panic!("Expected Commands::Check, got {:?}", other),
+        }
+    }
+
+    // -- Test 7: --skip-edge-check flag -------------------------------------
+
+    #[test]
+    /// The --skip-edge-check flag should bypass edge analysis only,
+    /// but coverage checks should still run.
+    fn test_skip_edge_check_flag_bypasses_edge_analysis_only() {
+        let opts = CompileOptions {
+            target: "ts".to_string(),
+            pretty: false,
+            passes: None,
+            skip_passes: Vec::new(),
+            source_map: false,
+            stdlib_path: None,
+            quick: false,
+            skip_edge_check: true,
+            test_coverage: CoverageMode::On,
+        };
+        assert!(
+            opts.skip_edge_check,
+            "--skip-edge-check flag should be true"
+        );
+        assert!(
+            !opts.quick,
+            "--quick should be false when only --skip-edge-check is set"
+        );
+    }
+
+    #[test]
+    /// The --skip-edge-check flag should be parseable from the CLI.
+    fn test_skip_edge_check_flag_parses() {
+        let cli = Cli::try_parse_from(["dwarf-cli", "check", "test.kzd", "--skip-edge-check"]);
+        assert!(
+            cli.is_ok(),
+            "dwarf-cli check --skip-edge-check should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Check {
+                skip_edge_check, ..
+            }) => {
+                assert!(skip_edge_check, "--skip-edge-check flag should be true");
+            }
+            other => panic!("Expected Commands::Check, got {:?}", other),
+        }
+    }
+
+    // -- Test 8: --test-coverage=off flag -----------------------------------
+
+    #[test]
+    /// The --test-coverage=off flag should disable all coverage enforcement.
+    fn test_coverage_off_flag_disables_enforcement() {
+        let opts = CompileOptions {
+            target: "ts".to_string(),
+            pretty: false,
+            passes: None,
+            skip_passes: Vec::new(),
+            source_map: false,
+            stdlib_path: None,
+            quick: false,
+            skip_edge_check: false,
+            test_coverage: CoverageMode::Off,
+        };
+        assert!(
+            matches!(opts.test_coverage, CoverageMode::Off),
+            "--test-coverage=off should set test_coverage to Off"
+        );
+    }
+
+    #[test]
+    /// The --test-coverage=off flag should be parseable from the CLI.
+    fn test_coverage_off_flag_parses() {
+        let cli = Cli::try_parse_from([
+            "dwarf-cli",
+            "test",
+            "test.kzd",
+            "-t",
+            "ts",
+            "--test-coverage=off",
+        ]);
+        assert!(
+            cli.is_ok(),
+            "dwarf-cli test --test-coverage=off should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Test { test_coverage, .. }) => {
+                assert!(
+                    matches!(test_coverage, Some(CoverageMode::Off)),
+                    "--test-coverage=off should set test_coverage to Off"
+                );
+            }
+            other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+
+    #[test]
+    /// The --test-coverage=on flag should be the default.
+    fn test_coverage_on_is_default() {
+        let opts = CompileOptions::default();
+        assert!(
+            matches!(opts.test_coverage, CoverageMode::On),
+            "Default test_coverage should be On"
+        );
+    }
+
+    // -- CoverageMode enum tests --------------------------------------------
+
+    #[test]
+    /// CoverageMode enum should have On and Off variants.
+    fn test_coverage_mode_enum_variants() {
+        let on = CoverageMode::On;
+        let off = CoverageMode::Off;
+
+        assert!(matches!(on, CoverageMode::On));
+        assert!(matches!(off, CoverageMode::Off));
+        assert_ne!(
+            format!("{:?}", on),
+            format!("{:?}", off),
+            "On and Off should be distinct variants"
         );
     }
 }

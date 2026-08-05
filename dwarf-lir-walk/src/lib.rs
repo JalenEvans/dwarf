@@ -2220,7 +2220,7 @@ mod tests {
                 _b: i32,
                 _g: Option<i32>,
                 h: i32,
-                _h: &TargetHint,
+                _hint: &TargetHint,
                 _s: Span,
             ) -> Result<i32, BackendError> {
                 Ok(body + h)
@@ -3416,7 +3416,7 @@ mod tests {
                 _b: i32,
                 _g: Option<i32>,
                 h: i32,
-                _h: &TargetHint,
+                _hint: &TargetHint,
                 _s: Span,
             ) -> Result<i32, BackendError> {
                 Ok(body + h)

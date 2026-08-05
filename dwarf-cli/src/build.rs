@@ -100,6 +100,7 @@ pub fn run_build(
             .collect(),
         source_map,
         stdlib_path,
+        ..Default::default()
     };
 
     // Merge with config file if present

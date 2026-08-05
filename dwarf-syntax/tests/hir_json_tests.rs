@@ -32,6 +32,7 @@ fn test_json_roundtrip_function_decl() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Span::default(),
     };
     let json = serde_json::to_string_pretty(&decl).unwrap();
@@ -53,6 +54,7 @@ fn test_json_output_is_deterministic() {
             span: Span::default(),
         },
         is_pub: false,
+        decorators: vec![],
         span: Span::default(),
     };
     let json1 = serde_json::to_string_pretty(&decl).unwrap();

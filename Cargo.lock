@@ -661,6 +661,12 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dwarf-cli",
+ "dwarf-lexer",
+ "dwarf-lib",
+ "dwarf-parser",
+ "dwarf-syntax",
+ "serde",
+ "serde_json",
  "tempfile",
  "toml",
 ]

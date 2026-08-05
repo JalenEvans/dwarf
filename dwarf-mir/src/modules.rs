@@ -252,6 +252,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         }];
         let graph = ModuleGraph::build(&decls);

@@ -204,6 +204,7 @@ fn config_merge_with_cli() {
         pretty: false,
         skip_passes: vec![],
         stdlib_path: None,
+        test_coverage: Default::default(),
     };
 
     // CLI overrides: pick one target and enable pretty.
@@ -214,6 +215,7 @@ fn config_merge_with_cli() {
         skip_passes: vec![],
         source_map: false,
         stdlib_path: None,
+        ..Default::default()
     };
 
     let merged = config.merge_with_cli(&cli_options);

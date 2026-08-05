@@ -51,6 +51,7 @@ impl TypeCheckPass {
                 body,
                 is_pub: _,
                 span,
+                ..
             } = decl
             {
                 let mut env = TypeEnv::new();
@@ -234,6 +235,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         }];
         let (_registry, errors) = pass.check(&decls);
@@ -272,6 +274,7 @@ mod tests {
                     span: dummy_span(),
                 },
                 is_pub: false,
+                decorators: vec![],
                 span: dummy_span(),
             }),
             is_pub: false,
@@ -316,6 +319,7 @@ mod tests {
                 return_type: None,
                 body,
                 is_pub: false,
+                decorators: vec![],
                 span: dummy_span(),
             }),
             is_pub: false,
@@ -357,6 +361,7 @@ mod tests {
             return_type: None,
             body,
             is_pub: false,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -416,6 +421,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         }];
         let (_registry, errors) = pass.check(&decls);
@@ -502,6 +508,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -572,6 +579,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -698,6 +706,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -755,6 +764,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -826,6 +836,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -852,6 +863,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -932,6 +944,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         };
 
@@ -1003,6 +1016,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         }];
         let (_registry, errors) = pass.check(&decls);
@@ -1038,6 +1052,7 @@ mod tests {
                 span: dummy_span(),
             },
             is_pub: true,
+            decorators: vec![],
             span: dummy_span(),
         }];
         let (_registry, errors) = pass.check(&decls);

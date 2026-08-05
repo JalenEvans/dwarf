@@ -229,3 +229,249 @@ fn test_forge_build_help() {
         stdout,
     );
 }
+
+// ---------------------------------------------------------------------------
+// 7. forge test --quick — bypasses coverage checks (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_test_quick_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "quick_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&["test", file_path.to_str().unwrap(), "-t", "ts", "--quick"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --quick should be recognized as a valid flag
+    // The test may fail for other reasons (no test runner, etc.) but should not
+    // fail with "unknown flag" or "unexpected argument"
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--quick flag should be recognized by forge test.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. forge check --skip-edge-check — bypasses edge analysis (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_check_skip_edge_check_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "edge_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&["check", file_path.to_str().unwrap(), "--skip-edge-check"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --skip-edge-check should be recognized as a valid flag
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--skip-edge-check flag should be recognized by forge check.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 9. forge test --test-coverage=off — disables coverage enforcement (DWARF-117)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_test_coverage_off_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "coverage_test.kzd", "fn main() { 42 }");
+
+    let output = forge(&[
+        "test",
+        file_path.to_str().unwrap(),
+        "-t",
+        "ts",
+        "--test-coverage=off",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --test-coverage=off should be recognized as a valid flag
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--test-coverage=off flag should be recognized by forge test.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 10. forge test --filter — filters tests by name (DWARF-118)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_test_filter_flag() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(
+        dir.path(),
+        "filter_test.kzd",
+        "fn main() { 42 }\n@test fn test_add() { 1 + 1 }\n@test fn test_sub() { 2 - 1 }",
+    );
+
+    let output = forge(&[
+        "test",
+        file_path.to_str().unwrap(),
+        "-t",
+        "ts",
+        "--filter=test_add",
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --filter should be recognized as a valid flag
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--filter flag should be recognized by forge test.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 11. forge scaffold-tests — generates test scaffolding (DWARF-118)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_scaffold_tests_subcommand_exists() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(
+        dir.path(),
+        "math.kzd",
+        "fn divide(a: Int, b: Int) -> Int { a / b }",
+    );
+
+    let output = forge(&[
+        "scaffold-tests",
+        "divide",
+        "--file",
+        file_path.to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // scaffold-tests should be recognized as a valid subcommand
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("invalid subcommand") && !combined.contains("unrecognized subcommand"),
+        "scaffold-tests should be a recognized subcommand.\nGot:\n{}",
+        combined,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 12. forge coverage — reports coverage information (DWARF-118)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_forge_coverage_subcommand_exists() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "coverage.kzd", "fn main() { 42 }");
+
+    let output = forge(&["coverage", file_path.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // coverage should be recognized as a valid subcommand
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("invalid subcommand") && !combined.contains("unrecognized subcommand"),
+        "coverage should be a recognized subcommand.\nGot:\n{}",
+        combined,
+    );
+}
+
+#[test]
+fn test_forge_coverage_reports_functions_tested() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(
+        dir.path(),
+        "coverage_report.kzd",
+        "fn add(a: Int, b: Int) -> Int { a + b }\nfn sub(a: Int, b: Int) -> Int { a - b }\n@test fn test_add() { add(1, 2) }",
+    );
+
+    let output = forge(&["coverage", file_path.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Coverage output should report functions tested
+    // This test will FAIL until coverage reporting is implemented
+    assert!(
+        stdout.contains("functions") || stdout.contains("tested") || stdout.contains("coverage"),
+        "forge coverage should report functions tested.\nGot:\n{}",
+        stdout,
+    );
+}
+
+#[test]
+fn test_forge_coverage_reports_edges_covered() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(
+        dir.path(),
+        "edge_coverage.kzd",
+        "fn divide(a: Int, b: Int) -> Int { if b == 0 { 0 } else { a / b } }",
+    );
+
+    let output = forge(&["coverage", file_path.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Coverage output should report edges covered
+    // This test will FAIL until coverage reporting is implemented
+    assert!(
+        stdout.contains("edges") || stdout.contains("covered") || stdout.contains("branch"),
+        "forge coverage should report edges covered.\nGot:\n{}",
+        stdout,
+    );
+}
+
+#[test]
+fn test_forge_coverage_reports_gungnir_status() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "gungnir_coverage.kzd", "fn main() { 42 }");
+
+    let output = forge(&["coverage", file_path.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Coverage output should include gungnir verification status
+    // This test will FAIL until coverage reporting is implemented
+    assert!(
+        stdout.contains("gungnir") || stdout.contains("verified") || stdout.contains("status"),
+        "forge coverage should report gungnir verification status.\nGot:\n{}",
+        stdout,
+    );
+}
+
+#[test]
+fn test_forge_coverage_json_output() {
+    let dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = write_kzd(dir.path(), "json_coverage.kzd", "fn main() { 42 }");
+
+    let output = forge(&["coverage", file_path.to_str().unwrap(), "--json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // --json flag should be recognized
+    let combined = format!("{}{}", stdout, stderr).to_lowercase();
+    assert!(
+        !combined.contains("unexpected argument") && !combined.contains("unknown flag"),
+        "--json flag should be recognized by forge coverage.\nGot:\n{}",
+        combined,
+    );
+
+    // If JSON output is produced, it should be valid JSON
+    if !stdout.is_empty() {
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&stdout);
+        assert!(
+            parsed.is_ok(),
+            "forge coverage --json should produce valid JSON.\nGot:\n{}",
+            stdout,
+        );
+    }
+}

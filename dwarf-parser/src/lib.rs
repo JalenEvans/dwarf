@@ -74,12 +74,13 @@ impl Parser {
     }
 
     /// Panic-mode recovery: skip tokens until we reach a declaration
-    /// boundary (fn, type, import, extern, const, @, pub, or eof).
+    /// boundary (fn, type, interface, import, extern, const, @, pub, or eof).
     fn sync_to_declaration_boundary(&mut self) {
         while !self.is_at_end() {
             match &self.peek().kind {
                 TokenKind::Fn
                 | TokenKind::Type
+                | TokenKind::Interface
                 | TokenKind::Import
                 | TokenKind::Extern
                 | TokenKind::Const
@@ -197,6 +198,7 @@ impl Parser {
             TokenKind::Extern => self.parse_extern(is_pub),
             TokenKind::Const => self.parse_const(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
+            TokenKind::Interface => self.parse_interface(is_pub),
             TokenKind::Enum => self.parse_enum(is_pub),
             _ => {
                 // Bare expression at module level — wrap it in a synthetic
@@ -209,6 +211,7 @@ impl Parser {
                     return_type: None,
                     body: expr,
                     is_pub,
+                    decorators: Vec::new(),
                     span,
                 })
             }
@@ -274,6 +277,7 @@ impl Parser {
             return_type,
             body,
             is_pub,
+            decorators: Vec::new(),
             span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
         })
     }
@@ -362,6 +366,25 @@ impl Parser {
     fn parse_type_decl(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
         let start = self.advance().span; // consume `type`
         let name = self.consume_ident("expected type name")?;
+
+        // Optional `implements` clause: `type Name implements Foo, Bar { ... }`
+        let implements = if self.match_token(TokenKind::Implements) {
+            self.parse_implements_list()?
+        } else {
+            vec![]
+        };
+
+        // Check for `type Name { ... }` or `type Name implements ... { ... }` syntax (without `=`)
+        if self.check(TokenKind::LBrace) {
+            // Parse as a type body with fields and methods
+            return self.parse_type_body(name, start, is_pub, implements);
+        }
+
+        // If we parsed implements but there's no `{`, that's an error
+        if !implements.is_empty() {
+            return Err(self.error("expected '{' after implements clause"));
+        }
+
         self.consume(TokenKind::Eq, "expected '=' after type name")?;
 
         if self.check(TokenKind::LBrace) {
@@ -384,6 +407,16 @@ impl Parser {
                 span: Span::new(start.file_id, start.start, self.previous().span.end),
             })
         }
+    }
+
+    /// Parse a comma-separated list of interface names after `implements`.
+    fn parse_implements_list(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut names = Vec::new();
+        names.push(self.consume_ident("expected interface name after 'implements'")?);
+        while self.match_token(TokenKind::Comma) {
+            names.push(self.consume_ident("expected interface name after ','")?);
+        }
+        Ok(names)
     }
 
     /// Returns true when the current position looks like a union definition
@@ -560,7 +593,69 @@ impl Parser {
         })
     }
 
+    /// Parse an interface declaration: `interface Name { fn method(params) -> RetType ... }`.
+    /// Interface methods are signatures only — their body is an empty block.
+    fn parse_interface(&mut self, is_pub: bool) -> Result<Decl, ParseError> {
+        let start = self.advance().span; // consume `interface`
+        let name = self.consume_ident("expected interface name")?;
+        self.consume(TokenKind::LBrace, "expected '{' after interface name")?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let method = self.parse_interface_method()?;
+            methods.push(method);
+            // Allow optional comma/semicolon separator
+            self.match_token(TokenKind::Comma);
+        }
+
+        self.consume(TokenKind::RBrace, "expected '}' after interface body")?;
+
+        Ok(Decl::Interface {
+            name,
+            methods,
+            is_pub,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse an interface method signature: `fn name(params) -> RetType`.
+    /// The body is an empty block (signatures have no implementation).
+    fn parse_interface_method(&mut self) -> Result<Decl, ParseError> {
+        let fn_start = self.advance().span; // consume `fn`
+        let name = self.consume_ident("expected method name")?;
+
+        self.consume(TokenKind::LParen, "expected '(' after method name")?;
+        let params = self.parse_method_params()?;
+        self.consume(TokenKind::RParen, "expected ')' after parameters")?;
+
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Interface methods have no body — use an empty block as placeholder.
+        let body = Expr::Block {
+            stmts: Vec::new(),
+            span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
+        };
+
+        Ok(Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            is_pub: false,
+            decorators: Vec::new(),
+            span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
+        })
+    }
+
     /// Parse a decorator: `@name(args?) decl`.
+    ///
+    /// When the target is a function, the decorator is attached directly to the
+    /// function's `decorators` field. Otherwise, it wraps the target in
+    /// `Decl::Decorator`.
     fn parse_decorator(&mut self) -> Result<Decl, ParseError> {
         let start = self.advance().span; // consume '@'
         let name = self.consume_ident("expected decorator name")?;
@@ -573,18 +668,70 @@ impl Parser {
             Vec::new()
         };
 
+        // Convert Expr args to their string representations for the decorator resolver.
+        let string_args: Vec<String> = args.iter().map(expr_to_source_string).collect();
+
         // Note: `pub` before the decorated decl is consumed by the caller
         // (`parse`).  We peek past any `pub` here.
         let target_is_pub = self.check_and_advance(TokenKind::Pub);
         let target = Box::new(self.parse_declaration(target_is_pub)?);
+        let end = self.previous().span.end;
 
-        Ok(Decl::Decorator {
-            name,
-            args,
-            target,
-            is_pub: false, // decorator itself is not pub; the target has its own is_pub
-            span: Span::new(start.file_id, start.start, self.previous().span.end),
-        })
+        // If the target is a function, attach the decorator directly to it.
+        if let Decl::Function {
+            name: fn_name,
+            params,
+            return_type,
+            body,
+            is_pub,
+            mut decorators,
+            span: fn_span,
+        } = *target
+        {
+            match dwarf_syntax::decorator::parse_decorator_name(&name, &string_args) {
+                Ok(decorator) => {
+                    decorators.push(decorator);
+                    Ok(Decl::Function {
+                        name: fn_name,
+                        params,
+                        return_type,
+                        body,
+                        is_pub,
+                        decorators,
+                        span: fn_span,
+                    })
+                }
+                Err(_) => {
+                    // Unknown decorator — fall back to wrapping in Decl::Decorator
+                    // so downstream code still sees the raw decorator info.
+                    let target = Box::new(Decl::Function {
+                        name: fn_name,
+                        params,
+                        return_type,
+                        body,
+                        is_pub,
+                        decorators,
+                        span: fn_span,
+                    });
+                    Ok(Decl::Decorator {
+                        name,
+                        args,
+                        target,
+                        is_pub: false,
+                        span: Span::new(start.file_id, start.start, end),
+                    })
+                }
+            }
+        } else {
+            // Non-function target: wrap in Decl::Decorator as before.
+            Ok(Decl::Decorator {
+                name,
+                args,
+                target,
+                is_pub: false,
+                span: Span::new(start.file_id, start.start, end),
+            })
+        }
     }
 
     // ========================================================================
@@ -783,6 +930,30 @@ impl Parser {
 
     fn parse_call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
+
+        // Check for record construction: TypeName { field: value, ... }
+        // This must happen before the postfix loop to avoid ambiguity with blocks
+        if let Expr::Variable {
+            name: _,
+            span: var_span,
+        } = &expr
+        {
+            if self.check(TokenKind::LBrace) && self.looks_like_record_construction() {
+                let start = var_span.start;
+                let file_id = var_span.file_id;
+                self.advance(); // consume '{'
+                let fields = self.parse_record_fields()?;
+                self.consume(TokenKind::RBrace, "expected '}' after record fields")?;
+                let end = self.previous().span.end;
+                expr = Expr::Record {
+                    fields,
+                    span: Span::new(file_id, start, end),
+                };
+                // Continue the loop to handle postfix operations on the record
+                // e.g., Point { x: 1 }.get_x()
+            }
+        }
+
         loop {
             if self.match_token(TokenKind::LParen) {
                 let start = expr.span().start;
@@ -832,6 +1003,47 @@ impl Parser {
             }
         }
         Ok(expr)
+    }
+
+    /// Lookahead to determine if `{` starts a record construction vs a block.
+    /// Returns true if we see: `{}` (empty record) or `{ ident : ...` (field pattern).
+    fn looks_like_record_construction(&self) -> bool {
+        // Current token is `{`. Check what follows.
+        let pos = self.position;
+        if pos + 1 >= self.tokens.len() {
+            return false;
+        }
+
+        // Empty record: `{ }`
+        if self.tokens[pos + 1].kind == TokenKind::RBrace {
+            return true;
+        }
+
+        // Record with fields: `{ ident : ...`
+        if pos + 2 < self.tokens.len() {
+            if let TokenKind::Ident(_) = &self.tokens[pos + 1].kind {
+                if self.tokens[pos + 2].kind == TokenKind::Colon {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Parse comma-separated `field: expr` pairs for record construction.
+    fn parse_record_fields(&mut self) -> Result<Vec<(String, Expr)>, ParseError> {
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            let field_name = self.consume_ident("expected field name")?;
+            self.consume(TokenKind::Colon, "expected ':' after field name")?;
+            let value = self.parse_expression()?;
+            fields.push((field_name, value));
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(fields)
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
@@ -923,6 +1135,13 @@ impl Parser {
                 let name = name.clone();
                 let span = self.advance().span;
                 Ok(Expr::Variable { name, span })
+            }
+            TokenKind::Self_ => {
+                let span = self.advance().span;
+                Ok(Expr::Variable {
+                    name: "self".to_string(),
+                    span,
+                })
             }
             TokenKind::Underscore => {
                 let span = self.advance().span;
@@ -1479,6 +1698,107 @@ impl Parser {
         }
         self.consume(TokenKind::RBrace, "expected '}' after record type fields")?;
         Ok(Type::Record(fields))
+    }
+
+    /// Parse a type body with fields and methods: `{ field: Type, fn name(...) { ... }, ... }`.
+    /// Used for `type Name { ... }` syntax (without `=`).
+    fn parse_type_body(
+        &mut self,
+        name: String,
+        start: Span,
+        is_pub: bool,
+        implements: Vec<String>,
+    ) -> Result<Decl, ParseError> {
+        self.advance(); // consume '{'
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+
+        while !self.check(TokenKind::RBrace) && !self.is_at_end() {
+            // Check if this is a method declaration
+            if self.check(TokenKind::Fn) {
+                let method = self.parse_method()?;
+                methods.push(method);
+            } else {
+                // Otherwise, it's a field declaration
+                let field_name = self.consume_ident("expected field name or method")?;
+                self.consume(TokenKind::Colon, "expected ':' after field name")?;
+                let type_ = self.parse_type()?;
+                fields.push(Field {
+                    name: field_name,
+                    type_,
+                });
+            }
+            // Allow optional comma separator
+            self.match_token(TokenKind::Comma);
+        }
+
+        self.consume(TokenKind::RBrace, "expected '}' after type body")?;
+
+        Ok(Decl::RecordDef {
+            name,
+            fields,
+            methods,
+            implements,
+            is_pub,
+            span: Span::new(start.file_id, start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse a method declaration inside a type body: `fn name(params) -> ReturnType { body }`.
+    fn parse_method(&mut self) -> Result<Decl, ParseError> {
+        let fn_start = self.advance().span; // consume `fn`
+        let name = self.consume_ident("expected method name")?;
+
+        self.consume(TokenKind::LParen, "expected '(' after method name")?;
+        let params = self.parse_method_params()?;
+        self.consume(TokenKind::RParen, "expected ')' after parameters")?;
+
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Parse method body (block expression)
+        let body = self.parse_block()?;
+
+        Ok(Decl::Function {
+            name,
+            params,
+            return_type,
+            body,
+            is_pub: false,
+            decorators: Vec::new(),
+            span: Span::new(fn_start.file_id, fn_start.start, self.previous().span.end),
+        })
+    }
+
+    /// Parse method parameters, allowing `self` as a parameter name.
+    fn parse_method_params(&mut self) -> Result<Vec<Param>, ParseError> {
+        let mut params = Vec::new();
+        while !self.check(TokenKind::RParen) && !self.is_at_end() {
+            params.push(self.parse_method_param()?);
+            self.match_token(TokenKind::Comma);
+        }
+        Ok(params)
+    }
+
+    /// Parse a single method parameter, allowing `self` as a parameter name.
+    fn parse_method_param(&mut self) -> Result<Param, ParseError> {
+        // Allow `self` as a parameter name
+        let name = if self.check(TokenKind::Self_) {
+            self.advance();
+            "self".to_string()
+        } else {
+            self.consume_ident("expected parameter name")?
+        };
+
+        let type_ = if self.match_token(TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        Ok(Param { name, type_ })
     }
 
     /// Parse a function type: `(Type, ...) -> Type`.
@@ -2194,6 +2514,138 @@ mod tests {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Type body with method declarations tests (DWARF-102)
+    //
+    // These tests verify that the parser can accept `fn` declarations
+    // inside type bodies, enabling object-oriented style type definitions
+    // with both fields and methods. They will fail until the parser is
+    // extended to handle:
+    // 1. `type Name { ... }` syntax (without `=`)
+    // 2. `fn` declarations inside type bodies
+    // 3. `self` as a method parameter
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_type_body_with_single_method() {
+        // type Counter {
+        //     count: Int
+        //     fn increment(self) -> Int {
+        //         self.count + 1
+        //     }
+        // }
+        //
+        // A type body with one field and one method. The parser should
+        // accept this syntax and produce a declaration with the name "Counter".
+        let tokens = tokenize(
+            r#"
+type Counter {
+    count: Int
+    fn increment(self) -> Int {
+        self.count + 1
+    }
+}
+"#,
+        );
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert_eq!(program.len(), 1, "expected one type declaration");
+        match &program[0] {
+            Decl::TypeDef { name, .. } | Decl::RecordDef { name, .. } => {
+                assert_eq!(name, "Counter");
+            }
+            other => panic!("Expected TypeDef or RecordDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_body_with_multiple_methods() {
+        // type Math {
+        //     fn add(a: Int, b: Int) -> Int { a + b }
+        //     fn sub(a: Int, b: Int) -> Int { a - b }
+        // }
+        //
+        // A type body with only methods (no fields). The parser should
+        // accept multiple method declarations inside the type body.
+        let tokens = tokenize(
+            r#"
+type Math {
+    fn add(a: Int, b: Int) -> Int { a + b }
+    fn sub(a: Int, b: Int) -> Int { a - b }
+}
+"#,
+        );
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert_eq!(program.len(), 1, "expected one type declaration");
+        match &program[0] {
+            Decl::TypeDef { name, .. } | Decl::RecordDef { name, .. } => {
+                assert_eq!(name, "Math");
+            }
+            other => panic!("Expected TypeDef or RecordDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_body_with_method_no_return_type() {
+        // type Logger {
+        //     fn log(msg: Str) {
+        //         print(msg)
+        //     }
+        // }
+        //
+        // A method with no return type annotation. The parser should
+        // accept methods without explicit return types.
+        let tokens = tokenize(
+            r#"
+type Logger {
+    fn log(msg: Str) {
+        print(msg)
+    }
+}
+"#,
+        );
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert_eq!(program.len(), 1, "expected one type declaration");
+        match &program[0] {
+            Decl::TypeDef { name, .. } | Decl::RecordDef { name, .. } => {
+                assert_eq!(name, "Logger");
+            }
+            other => panic!("Expected TypeDef or RecordDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_type_body_with_only_methods() {
+        // type PureCalc {
+        //     fn square(x: Int) -> Int { x * x }
+        // }
+        //
+        // A type body with only a single method and no fields. This tests
+        // the minimal case of a type with methods.
+        let tokens = tokenize(
+            r#"
+type PureCalc {
+    fn square(x: Int) -> Int { x * x }
+}
+"#,
+        );
+        let mut parser = Parser::new(tokens);
+        let (program, errors) = parser.parse();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        assert_eq!(program.len(), 1, "expected one type declaration");
+        match &program[0] {
+            Decl::TypeDef { name, .. } | Decl::RecordDef { name, .. } => {
+                assert_eq!(name, "PureCalc");
+            }
+            other => panic!("Expected TypeDef or RecordDef, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_parse_assert_consistent_in_diff_suite() {
         let tokens = tokenize("@Diff(\"ts\") fn test() { assert.consistent(result) }");
@@ -2364,5 +2816,76 @@ mod error_handling_tests {
         let (program, errors) = parser.parse();
         assert!(!errors.is_empty(), "expected parse error for malformed try");
         assert!(program.is_empty(), "expected no declarations on error");
+    }
+}
+
+/// Render an expression as source-like text for decorator args (contract conditions,
+/// coverage edge values, etc.). Avoids `{:?}` Debug formatting of internal spans.
+fn expr_to_source_string(expr: &Expr) -> String {
+    match expr {
+        Expr::Literal { value, .. } => match value {
+            LiteralValue::Str(s) => format!("\"{}\"", s),
+            LiteralValue::RawStr(s) => s.clone(),
+            LiteralValue::Int(i) => i.to_string(),
+            LiteralValue::Float(f) => f.to_string(),
+            LiteralValue::Bool(b) => b.to_string(),
+            LiteralValue::Null => "null".to_string(),
+        },
+        Expr::Variable { name, .. } => name.clone(),
+        Expr::Binary { op, lhs, rhs, .. } => {
+            let op_str = match op {
+                BinaryOp::Add => "+",
+                BinaryOp::Sub => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                BinaryOp::Eq => "==",
+                BinaryOp::Ne => "!=",
+                BinaryOp::Lt => "<",
+                BinaryOp::Gt => ">",
+                BinaryOp::Le => "<=",
+                BinaryOp::Ge => ">=",
+                BinaryOp::And => "&&",
+                BinaryOp::Or => "||",
+            };
+            format!(
+                "{} {} {}",
+                expr_to_source_string(lhs),
+                op_str,
+                expr_to_source_string(rhs)
+            )
+        }
+        Expr::Unary { op, expr, .. } => {
+            let prefix = match op {
+                UnaryOp::Neg => "-",
+                UnaryOp::Not => "!",
+            };
+            format!("{}{}", prefix, expr_to_source_string(expr))
+        }
+        Expr::Member { obj, field, .. } => {
+            format!("{}.{}", expr_to_source_string(obj), field)
+        }
+        Expr::OptionalAccess { obj, field, .. } => {
+            format!("{}?.{}", expr_to_source_string(obj), field)
+        }
+        Expr::Call { func, args, .. } => {
+            let rendered_args: Vec<String> = args.iter().map(expr_to_source_string).collect();
+            format!(
+                "{}({})",
+                expr_to_source_string(func),
+                rendered_args.join(", ")
+            )
+        }
+        Expr::Record { fields, .. } => {
+            let rendered: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{}: {}", k, expr_to_source_string(v)))
+                .collect();
+            format!("{{ {} }}", rendered.join(", "))
+        }
+        Expr::Array { items, .. } => {
+            let rendered: Vec<String> = items.iter().map(expr_to_source_string).collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        _ => format!("{:?}", expr),
     }
 }

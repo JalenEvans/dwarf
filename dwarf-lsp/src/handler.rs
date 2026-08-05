@@ -272,7 +272,8 @@ impl DwarfLspHandler {
                 Decl::Import { .. }
                 | Decl::Decorator { .. }
                 | Decl::Extern { .. }
-                | Decl::Const { .. } => continue,
+                | Decl::Const { .. }
+                | Decl::Interface { .. } => continue,
             };
             let range = span_to_range(&source, decl_span(decl));
             symbols.push(SymbolInformation {
@@ -712,6 +713,7 @@ fn decl_span(decl: &Decl) -> Span {
         Decl::Decorator { span, .. } => *span,
         Decl::Extern { span, .. } => *span,
         Decl::Const { span, .. } => *span,
+        Decl::Interface { span, .. } => *span,
     }
 }
 

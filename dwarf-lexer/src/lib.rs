@@ -787,6 +787,9 @@ impl<'a> Lexer<'a> {
             "in" => TokenKind::In,
             "keyof" => TokenKind::KeyOf,
             "enum" => TokenKind::Enum,
+            "self" => TokenKind::Self_,
+            "interface" => TokenKind::Interface,
+            "implements" => TokenKind::Implements,
             _ => TokenKind::Ident(word.to_string()),
         };
         Ok(Token::new(
@@ -845,6 +848,95 @@ mod tests {
                 TokenKind::LBrace,
                 TokenKind::Ident("handler".to_string()),
                 TokenKind::RBrace,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    // =======================================================================
+    // SELF, INTERFACE, IMPLEMENTS KEYWORDS (RED Phase — expected to fail)
+    //
+    // TokenKind::Self_, TokenKind::Interface, and TokenKind::Implements do not
+    // exist yet. These tests specify the expected lexing behavior for these
+    // keywords in Phase 1 interface/OOP support.
+    // =======================================================================
+
+    #[test]
+    fn lexer_self_keyword() {
+        // WILL FAIL — RED PHASE
+        // `self` should lex as TokenKind::Self_, not as Ident("self")
+        assert_eq!(
+            tokenize_kinds("self"),
+            vec![TokenKind::Self_, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lexer_interface_keyword() {
+        // WILL FAIL — RED PHASE
+        // `interface` should lex as TokenKind::Interface, not as Ident("interface")
+        assert_eq!(
+            tokenize_kinds("interface"),
+            vec![TokenKind::Interface, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lexer_implements_keyword() {
+        // WILL FAIL — RED PHASE
+        // `implements` should lex as TokenKind::Implements, not as Ident("implements")
+        assert_eq!(
+            tokenize_kinds("implements"),
+            vec![TokenKind::Implements, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lexer_self_in_method() {
+        // WILL FAIL — RED PHASE
+        // `self.method()` should lex as: Self_, Dot, Ident("method"), LParen, RParen
+        assert_eq!(
+            tokenize_kinds("self.method()"),
+            vec![
+                TokenKind::Self_,
+                TokenKind::Dot,
+                TokenKind::Ident("method".to_string()),
+                TokenKind::LParen,
+                TokenKind::RParen,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexer_interface_declaration() {
+        // WILL FAIL — RED PHASE
+        // `interface Serializable { }` should lex as:
+        // Interface, Ident("Serializable"), LBrace, RBrace
+        assert_eq!(
+            tokenize_kinds("interface Serializable { }"),
+            vec![
+                TokenKind::Interface,
+                TokenKind::Ident("Serializable".to_string()),
+                TokenKind::LBrace,
+                TokenKind::RBrace,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexer_implements_clause() {
+        // WILL FAIL — RED PHASE
+        // `class Foo implements Bar` should lex as:
+        // Ident("class"), Ident("Foo"), Implements, Ident("Bar")
+        assert_eq!(
+            tokenize_kinds("class Foo implements Bar"),
+            vec![
+                TokenKind::Ident("class".to_string()),
+                TokenKind::Ident("Foo".to_string()),
+                TokenKind::Implements,
+                TokenKind::Ident("Bar".to_string()),
                 TokenKind::Eof,
             ]
         );

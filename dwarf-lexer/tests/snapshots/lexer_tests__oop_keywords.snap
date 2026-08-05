@@ -1,0 +1,10 @@
+---
+source: dwarf-lexer/tests/lexer_tests.rs
+expression: tokens
+---
+[
+    "Self_",
+    "Interface",
+    "Implements",
+    "Eof",
+]

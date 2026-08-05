@@ -3,6 +3,18 @@ use std::path::PathBuf;
 use std::process;
 
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
+use dwarf_lib::CoverageMode;
+
+// DWARF-118: Wasm test runner module (RED phase — stubs)
+pub mod testing;
+// DWARF-118: Coverage reporter module
+pub mod coverage;
+
+/// Parse a CLI `--test-coverage` string into a typed [`CoverageMode`].
+/// Invalid values fall back to `None` (the compiler default applies).
+fn parse_coverage_mode(opt: Option<String>) -> Option<CoverageMode> {
+    opt.and_then(|s| s.parse().ok())
+}
 
 #[derive(Parser)]
 #[command(
@@ -105,6 +117,18 @@ enum Commands {
         /// Path to standard library runtime files
         #[arg(long, id = "stdlib-path")]
         stdlib_path: Option<String>,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<String>,
     },
 
     /// Build Dwarf source files into target language
@@ -233,14 +257,14 @@ enum Commands {
         stdout: bool,
     },
 
-    /// Compile and run tests with Jest
+    /// Compile and run tests (Wasm runner via wasmtime)
     Test {
         /// Source files to test (.kzd)
         #[arg(required = true)]
         files: Vec<PathBuf>,
 
-        /// Target language (e.g., "ts")
-        #[arg(long, short)]
+        /// Target language (e.g., "ts") — optional for the Wasm runner
+        #[arg(long, short, default_value = "ts")]
         target: String,
 
         /// Output results as JSON
@@ -254,6 +278,55 @@ enum Commands {
         /// Apply auto-fix patches for failing tests by shrinking counterexamples
         #[arg(long)]
         fix: bool,
+
+        /// Only run tests matching this name pattern
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<String>,
+    },
+
+    /// Generate test scaffolding for a function (DWARF-118)
+    ScaffoldTests {
+        /// Name of the function to scaffold tests for
+        fn_name: String,
+
+        /// Source file containing the function (.kzd)
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+
+    /// Report test coverage for source files (DWARF-118)
+    Coverage {
+        /// Source files to analyze (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Bypass all coverage checks
+        #[arg(long)]
+        quick: bool,
+
+        /// Bypass edge-case analysis only
+        #[arg(long = "skip-edge-check")]
+        skip_edge_check: bool,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Coverage enforcement mode (on, off, warning, required)
+        #[arg(long = "test-coverage")]
+        test_coverage: Option<String>,
     },
 
     /// Initialize a new Dwarf project
@@ -290,8 +363,21 @@ fn main() {
             skip_passes,
             list_passes,
             stdlib_path,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
-            check::run_check(files, json, passes, skip_passes, list_passes, stdlib_path);
+            check::run_check(
+                files,
+                json,
+                passes,
+                skip_passes,
+                list_passes,
+                stdlib_path,
+                quick,
+                skip_edge_check,
+                parse_coverage_mode(test_coverage),
+            );
         }
         Some(Commands::Build {
             files,
@@ -357,8 +443,63 @@ fn main() {
             json,
             diff,
             fix,
+            filter: _,
+            quick,
+            skip_edge_check,
+            test_coverage,
         }) => {
-            test::run_test(files, target, json, diff, fix);
+            // DWARF-118: The Wasm runner will use the `filter` field. For now the
+            // Jest passthrough is preserved; `filter` is accepted but unused.
+            eprintln!(
+                "forge: note — DWARF dUnit/wasm executor not yet wired (DWARF-118). \
+                 Results below are from the legacy Jest backend."
+            );
+            test::run_test(
+                files,
+                target,
+                json,
+                diff,
+                fix,
+                quick,
+                skip_edge_check,
+                parse_coverage_mode(test_coverage),
+            );
+        }
+        Some(Commands::ScaffoldTests { fn_name, file }) => {
+            // DWARF-118: Generate a @covers-annotated test stub for a function.
+            let path = file.unwrap_or_else(|| {
+                std::path::PathBuf::from(format!("tests/{}_tests.dwarf", fn_name))
+            });
+            let content = format!(
+                "// Auto-generated test stub for `{fn_name}` (DWARF-118).\n\
+                 // Add edge cases under the existing @tested/@covers annotations.\n\
+                 @test\n\
+                 @covers({fn_name}, _, default)\n\
+                 fn test_{fn_name}() -> Bool {{\n\
+                 \x20   // TODO: assert behavior of `{fn_name}`.\n\
+                 \x20   true\n\
+                 }}\n"
+            );
+            if let Err(e) = std::fs::write(&path, &content) {
+                eprintln!("scaffold-tests: failed to write {}: {}", path.display(), e);
+                process::exit(1);
+            }
+            println!(
+                "scaffold-tests: wrote stub for `{}` to {}",
+                fn_name,
+                path.display()
+            );
+        }
+        Some(Commands::Coverage {
+            files,
+            quick,
+            skip_edge_check,
+            json,
+            test_coverage,
+        }) => {
+            // DWARF-118: Report test coverage — functions tested, edges
+            // covered, and @gungnir verification status.
+            coverage::run_coverage(files, json, quick, skip_edge_check, test_coverage);
         }
         Some(Commands::Init { name }) => match run_init(None, name.as_deref()) {
             Ok(()) => {}
@@ -1169,6 +1310,264 @@ mod cli_passthrough_tests {
                 assert!(fix, "--fix flag should be true");
             }
             other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI test --filter, scaffold-tests, and coverage tests — RED phase
+// (DWARF-118)
+//
+// These tests verify that:
+//   1. `forge test --filter=<name>` parses correctly (filter tests by name).
+//   2. `forge scaffold-tests <fn_name>` exists as a subcommand.
+//   3. `forge coverage <file>` exists as a subcommand with expected flags.
+//
+// They MUST FAIL right now because:
+//   - The `--filter` flag does not exist on the `Test` variant.
+//   - The `ScaffoldTests` variant does not exist in the Commands enum.
+//   - The `Coverage` variant does not exist in the Commands enum.
+//
+// Once these features are implemented, these tests will compile and pass.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cli_dwarf118_tests {
+    use super::*;
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    // ── forge test runs via Wasm runner (target-optional) ──────────────
+
+    #[test]
+    fn test_forge_test_runs_basic() {
+        // forge test should accept source files and run @test functions.
+        // DWARF-118 moves the runner to wasmtime, so --target should no
+        // longer be required.
+        // RED: FAILS now because `target` is still a required argument.
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd"]);
+        assert!(
+            cli.is_ok(),
+            "forge test test.kzd should parse without --target: {:?}",
+            cli.err()
+        );
+    }
+
+    #[test]
+    fn test_forge_test_filter_without_target() {
+        // forge test --filter=my_test should filter tests by name, without
+        // requiring a --target (Wasm runner).
+        // RED: FAILS now because `target` is still a required argument.
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd", "--filter=my_test"]);
+        assert!(
+            cli.is_ok(),
+            "forge test test.kzd --filter=my_test should parse without --target: {:?}",
+            cli.err()
+        );
+    }
+
+    // ── forge test --filter ─────────────────────────────────────────────
+
+    #[test]
+    fn test_forge_test_filter_flag_parses() {
+        // forge test --filter=my_test should filter tests by name
+        let cli =
+            Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts", "--filter=my_test"]);
+        assert!(
+            cli.is_ok(),
+            "forge test --filter=my_test should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Test { filter, .. }) => {
+                assert_eq!(
+                    filter.as_deref(),
+                    Some("my_test"),
+                    "--filter should capture the test name pattern"
+                );
+            }
+            other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_test_filter_flag_optional() {
+        // forge test without --filter should still parse (filter is optional)
+        let cli = Cli::try_parse_from(["forge", "test", "test.kzd", "-t", "ts"]);
+        assert!(cli.is_ok(), "forge test without --filter should parse");
+        match cli.unwrap().command {
+            Some(Commands::Test { filter, .. }) => {
+                assert!(
+                    filter.is_none(),
+                    "--filter should be None when not provided"
+                );
+            }
+            other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_test_filter_with_regex_pattern() {
+        // forge test --filter=test_divide* should accept glob/regex patterns
+        let cli = Cli::try_parse_from([
+            "forge",
+            "test",
+            "test.kzd",
+            "-t",
+            "ts",
+            "--filter=test_divide*",
+        ]);
+        assert!(
+            cli.is_ok(),
+            "forge test --filter=test_divide* should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Test { filter, .. }) => {
+                assert_eq!(filter.as_deref(), Some("test_divide*"));
+            }
+            other => panic!("Expected Commands::Test, got {:?}", other),
+        }
+    }
+
+    // ── forge scaffold-tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_forge_scaffold_tests_parses_basic() {
+        // forge scaffold-tests divide should exist as a subcommand
+        let cli = Cli::try_parse_from(["forge", "scaffold-tests", "divide"]);
+        assert!(
+            cli.is_ok(),
+            "forge scaffold-tests divide should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::ScaffoldTests { fn_name, file }) => {
+                assert_eq!(fn_name, "divide");
+                assert!(file.is_none(), "file should be None when not provided");
+            }
+            other => panic!("Expected Commands::ScaffoldTests, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_scaffold_tests_requires_fn_name() {
+        // forge scaffold-tests without fn_name should fail (required arg)
+        let result = Cli::try_parse_from(["forge", "scaffold-tests"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about missing required argument, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for missing fn_name argument"),
+        }
+    }
+
+    #[test]
+    fn test_forge_scaffold_tests_with_multiple_args() {
+        // forge scaffold-tests should accept a source file too
+        let cli = Cli::try_parse_from(["forge", "scaffold-tests", "divide", "--file", "math.kzd"]);
+        assert!(
+            cli.is_ok(),
+            "forge scaffold-tests divide --file math.kzd should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::ScaffoldTests { fn_name, file }) => {
+                assert_eq!(fn_name, "divide");
+                assert_eq!(file, Some(PathBuf::from("math.kzd")));
+            }
+            other => panic!("Expected Commands::ScaffoldTests, got {:?}", other),
+        }
+    }
+
+    // ── forge coverage ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_forge_coverage_parses_basic() {
+        // forge coverage test.kzd should exist as a subcommand
+        let cli = Cli::try_parse_from(["forge", "coverage", "test.kzd"]);
+        assert!(
+            cli.is_ok(),
+            "forge coverage test.kzd should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Coverage { files, .. }) => {
+                assert_eq!(files, vec![PathBuf::from("test.kzd")]);
+            }
+            other => panic!("Expected Commands::Coverage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_coverage_with_quick_flag() {
+        // forge coverage --quick should bypass coverage checks
+        let cli = Cli::try_parse_from(["forge", "coverage", "test.kzd", "--quick"]);
+        assert!(
+            cli.is_ok(),
+            "forge coverage --quick should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Coverage { quick, .. }) => {
+                assert!(quick, "--quick flag should be true");
+            }
+            other => panic!("Expected Commands::Coverage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_coverage_with_skip_edge_check() {
+        // forge coverage --skip-edge-check should bypass edge analysis
+        let cli = Cli::try_parse_from(["forge", "coverage", "test.kzd", "--skip-edge-check"]);
+        assert!(
+            cli.is_ok(),
+            "forge coverage --skip-edge-check should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Coverage {
+                skip_edge_check, ..
+            }) => {
+                assert!(skip_edge_check, "--skip-edge-check flag should be true");
+            }
+            other => panic!("Expected Commands::Coverage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_coverage_with_json_output() {
+        // forge coverage --json should output in JSON format
+        let cli = Cli::try_parse_from(["forge", "coverage", "test.kzd", "--json"]);
+        assert!(
+            cli.is_ok(),
+            "forge coverage --json should parse: {:?}",
+            cli.err()
+        );
+        match cli.unwrap().command {
+            Some(Commands::Coverage { json, .. }) => {
+                assert!(json, "--json flag should be true");
+            }
+            other => panic!("Expected Commands::Coverage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_forge_coverage_requires_files() {
+        // forge coverage without files should fail (files are required)
+        let result = Cli::try_parse_from(["forge", "coverage"]);
+        match result {
+            Err(e) => {
+                assert_ne!(
+                    e.kind(),
+                    clap::error::ErrorKind::InvalidSubcommand,
+                    "error should be about missing required files, not unknown subcommand"
+                );
+            }
+            Ok(_) => panic!("Expected parse error for missing files argument"),
         }
     }
 }

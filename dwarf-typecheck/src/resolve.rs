@@ -79,6 +79,8 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
             Decl::RecordDef {
                 name,
                 fields,
+                methods: _,
+                implements: _,
                 is_pub: _,
                 span: _,
             } => {
