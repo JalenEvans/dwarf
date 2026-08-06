@@ -8,12 +8,13 @@
 
 use std::collections::HashMap;
 
-use dwarf_syntax::hir::{Decl, Type as HirType};
+use dwarf_syntax::hir::{Decl, Param, Type as HirType};
 
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
 use crate::types::{
-    FieldDef, LiteralType, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID, NEVER_TYPE_ID,
+    FieldDef, LiteralType, MethodSig, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID,
+    NEVER_TYPE_ID,
 };
 
 /// The result of resolving HIR declarations into a TypeRegistry.
@@ -79,7 +80,7 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
             Decl::RecordDef {
                 name,
                 fields,
-                methods: _,
+                methods,
                 implements: _,
                 is_pub: _,
                 span: _,
@@ -95,8 +96,70 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                     .collect();
                 let name_str = name.clone();
                 let id = registry.register(TypeDef::Record(resolved_fields));
+                // Insert into the name map before resolving methods so method
+                // signatures can reference the owning record type itself.
+                name_map.insert(name_str.clone(), id);
+                user_name_map.insert(name_str.clone(), id);
+
+                // Register each method signature as a TypeDef::Func entry whose
+                // param list excludes the implicit `self`, and associate it with
+                // the owning record so `self.method(...)` calls resolve.
+                for method in methods {
+                    if let Decl::Function {
+                        name: method_name,
+                        params,
+                        return_type,
+                        ..
+                    } = method
+                    {
+                        let (resolved_params, resolved_return) =
+                            resolve_method_signature(params, return_type, registry, &mut name_map);
+                        let func_id =
+                            registry.register(TypeDef::Func(resolved_params, resolved_return));
+                        registry.register_method_sig(id, method_name.clone(), func_id);
+                    }
+                }
+            }
+            Decl::Interface {
+                name,
+                methods,
+                is_pub: _,
+                span: _,
+            } => {
+                // Interface methods are signatures only. Register each as a
+                // TypeDef::Func (implicit `self` excluded), then register the
+                // interface itself as TypeDef::Interface for conformance checks.
+                let mut sigs: Vec<MethodSig> = Vec::new();
+                let mut registered_methods: Vec<(String, TypeId)> = Vec::new();
+                for method in methods {
+                    if let Decl::Function {
+                        name: method_name,
+                        params,
+                        return_type,
+                        ..
+                    } = method
+                    {
+                        let (resolved_params, resolved_return) =
+                            resolve_method_signature(params, return_type, registry, &mut name_map);
+                        let func_id = registry.register(TypeDef::Func(
+                            resolved_params.clone(),
+                            resolved_return,
+                        ));
+                        sigs.push(MethodSig {
+                            name: method_name.clone(),
+                            params: resolved_params,
+                            return_type: resolved_return,
+                        });
+                        registered_methods.push((method_name.clone(), func_id));
+                    }
+                }
+                let name_str = name.clone();
+                let id = registry.register(TypeDef::Interface(sigs));
                 name_map.insert(name_str.clone(), id);
                 user_name_map.insert(name_str, id);
+                for (method_name, func_id) in registered_methods {
+                    registry.register_method_sig(id, method_name, func_id);
+                }
             }
             Decl::UnionDef {
                 name,
@@ -208,6 +271,36 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
         extern_map,
         errors,
     }
+}
+
+/// Resolve a method signature (used for both record methods and interface
+/// methods): strip the implicit `self` parameter and resolve the remaining
+/// parameter types and the return type to TypeIds.
+///
+/// The returned parameter list is what a caller supplies explicitly — the
+/// implicit `self` never appears in the registered callable signature.
+fn resolve_method_signature(
+    params: &[Param],
+    return_type: &Option<HirType>,
+    registry: &mut TypeRegistry,
+    name_map: &mut HashMap<String, TypeId>,
+) -> (Vec<TypeId>, TypeId) {
+    let mut resolved_params: Vec<TypeId> = Vec::with_capacity(params.len());
+    for p in params {
+        if p.name == "self" {
+            continue;
+        }
+        let type_id = match p.type_.as_ref() {
+            Some(t) => resolve_hir_type(t, registry, name_map),
+            None => 4, // Null for untyped params
+        };
+        resolved_params.push(type_id);
+    }
+    let resolved_return = match return_type.as_ref() {
+        Some(t) => resolve_hir_type(t, registry, name_map),
+        None => 4, // Null for void return
+    };
+    (resolved_params, resolved_return)
 }
 
 /// Resolve an HIR type expression to a TypeId.

@@ -3,13 +3,14 @@
 //! This pass runs the full type-check pipeline on parsed HIR declarations:
 //! resolution of type declarations, then expression type inference.
 
-use dwarf_syntax::hir::Decl;
+use dwarf_syntax::hir::{Decl, Param};
 
+use crate::compat;
 use crate::error::{TypeCheckError, TYPE_ERROR_CODES};
 use crate::infer::{infer_expr, TypeEnv};
 use crate::registry::TypeRegistry;
 use crate::resolve;
-use crate::types::{TypeDef, ANY_TYPE_ID};
+use crate::types::{TypeDef, TypeId, ANY_TYPE_ID};
 
 /// The type-checking compilation pass.
 ///
@@ -38,9 +39,8 @@ impl TypeCheckPass {
         // Phase 1: Register all type declarations (RecordDef, UnionDef, TypeDef, Extern)
         let result = resolve::register_decls(&mut registry, decls);
         let extern_map = result.extern_map;
+        let name_map = result.name_map;
         errors.extend(result.errors);
-        // TODO: Thread name_map from resolve into Phase 2 so param type
-        // annotations can resolve user-defined types (not just primitives).
 
         // Phase 2: Infer types for function declarations
         for decl in decls {
@@ -193,10 +193,192 @@ impl TypeCheckPass {
                 // into the same top-level loop via check().
                 let (_, inner_errors) = self.check(std::slice::from_ref(target.as_ref()));
                 errors.extend(inner_errors);
+            } else if let Decl::RecordDef {
+                name: record_name,
+                methods,
+                implements,
+                is_pub: _,
+                fields: _,
+                span: record_span,
+            } = decl
+            {
+                let record_id = match name_map.get(record_name).copied() {
+                    Some(id) => id,
+                    None => continue, // Shouldn't happen: register_decls registers every record.
+                };
+                self.check_record_method(record_id, methods, &extern_map, &mut registry, &mut errors);
+                self.check_conformance(
+                    record_id,
+                    record_name,
+                    implements,
+                    &name_map,
+                    &registry,
+                    *record_span,
+                    &mut errors,
+                );
+            } else if let Decl::Interface { .. } = decl {
+                // Interface methods are signatures only — the parser emits an
+                // empty placeholder body, so there is no method body to
+                // type-check. Their signatures were registered in Phase 1.
             }
         }
 
         (registry, errors)
+    }
+
+    /// Type-check every method body of a record with the implicit `self`
+    /// binding. `self` resolves to the owning record's TypeId, so `self.field`
+    /// type-checks against the record's fields and `self.method(...)` resolves
+    /// to the record's registered method signatures.
+    fn check_record_method(
+        &self,
+        record_id: TypeId,
+        methods: &[Decl],
+        extern_map: &std::collections::HashMap<String, TypeId>,
+        registry: &mut TypeRegistry,
+        errors: &mut Vec<TypeCheckError>,
+    ) {
+        for method in methods {
+            if let Decl::Function {
+                name: method_name,
+                params,
+                return_type: _,
+                body,
+                is_pub: _,
+                decorators: _,
+                span: method_span,
+            } = method
+            {
+                let mut env = TypeEnv::new();
+
+                // Bind extern function names so they're available in method bodies.
+                for (extern_name, extern_type_id) in extern_map {
+                    env.bind(extern_name.clone(), *extern_type_id);
+                }
+
+                // Bind `self` to the owning record type.
+                env.bind("self".to_string(), record_id);
+
+                // Bind explicit (non-self) parameters from the method's
+                // registered Func signature, and capture the declared return
+                // type so mismatches in the body are caught.
+                let (func_params, declared_return): (Vec<TypeId>, Option<TypeId>) =
+                    match registry
+                        .lookup_method_sig(record_id, method_name)
+                        .and_then(|func_id| registry.get(func_id))
+                    {
+                        Some(TypeDef::Func(func_params, ret)) => (func_params.clone(), Some(*ret)),
+                        _ => (Vec::new(), None),
+                    };
+                let explicit_params: Vec<&Param> =
+                    params.iter().filter(|p| p.name != "self").collect();
+                for (param, param_type) in explicit_params.iter().zip(func_params.iter()) {
+                    env.bind(param.name.clone(), *param_type);
+                }
+
+                match infer_expr(body, &env, registry) {
+                    Ok(body_type) => {
+                        if let Some(declared) = declared_return {
+                            if !compat::check(registry, declared, body_type).compatible {
+                                errors.push(TypeCheckError::new(
+                                    "DWARF-E-TYPE-0001",
+                                    format!(
+                                        "type error in method '{}': return type mismatch: \
+                                         expected {}, got {}",
+                                        method_name, declared, body_type
+                                    ),
+                                    *method_span,
+                                ));
+                            }
+                        }
+                    }
+                    Err(msg) => {
+                        errors.push(TypeCheckError::new(
+                            "DWARF-E-TYPE-0001",
+                            format!("type error in method '{}': {}", method_name, msg),
+                            *method_span,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check structural interface conformance: every method of each interface
+    /// named in `implements` must exist on the record with an identical
+    /// signature (same name, same explicit parameters, same return type).
+    #[allow(clippy::too_many_arguments)]
+    fn check_conformance(
+        &self,
+        record_id: TypeId,
+        record_name: &str,
+        implements: &[String],
+        name_map: &std::collections::HashMap<String, TypeId>,
+        registry: &TypeRegistry,
+        record_span: dwarf_syntax::span::Span,
+        errors: &mut Vec<TypeCheckError>,
+    ) {
+        for iface_name in implements {
+            let iface_sigs = match name_map
+                .get(iface_name)
+                .and_then(|id| registry.get(*id))
+            {
+                Some(TypeDef::Interface(sigs)) => sigs.clone(),
+                _ => {
+                    errors.push(TypeCheckError::new(
+                        "DWARF-E-TYPE-0002",
+                        format!(
+                            "type '{}' implements unknown interface '{}'",
+                            record_name, iface_name
+                        ),
+                        record_span,
+                    ));
+                    continue;
+                }
+            };
+
+            for sig in &iface_sigs {
+                let record_method = registry
+                    .lookup_method_sig(record_id, &sig.name)
+                    .and_then(|func_id| registry.get(func_id));
+                match record_method {
+                    Some(TypeDef::Func(params, ret)) => {
+                        if params.as_slice() != sig.params.as_slice() || *ret != sig.return_type {
+                            errors.push(TypeCheckError::new(
+                                "DWARF-E-TYPE-0011",
+                                format!(
+                                    "type '{}' method '{}' does not match interface '{}' \
+                                     signature",
+                                    record_name, sig.name, iface_name
+                                ),
+                                record_span,
+                            ));
+                        }
+                    }
+                    None => {
+                        errors.push(TypeCheckError::new(
+                            "DWARF-E-TYPE-0011",
+                            format!(
+                                "type '{}' does not implement method '{}' required by \
+                                 interface '{}'",
+                                record_name, sig.name, iface_name
+                            ),
+                            record_span,
+                        ));
+                    }
+                    Some(_) => {
+                        errors.push(TypeCheckError::new(
+                            "DWARF-E-TYPE-0011",
+                            format!(
+                                "type '{}' method '{}' has an invalid signature for interface '{}'",
+                                record_name, sig.name, iface_name
+                            ),
+                            record_span,
+                        ));
+                    }
+                }
+            }
+        }
     }
 }
 

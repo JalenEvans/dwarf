@@ -56,6 +56,17 @@ pub struct VariantDef {
     pub type_id: Option<TypeId>,
 }
 
+/// A method signature on a record or interface.
+///
+/// The parameter list EXCLUDES the implicit `self` parameter — the callable
+/// signature is what a caller supplies explicitly.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<TypeId>,
+    pub return_type: TypeId,
+}
+
 /// A literal type value (string or integer literal).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LiteralType {
@@ -85,6 +96,9 @@ pub enum TypeDef {
     Union(Vec<VariantDef>),
     /// A function type: (param_types...) -> return_type.
     Func(Vec<TypeId>, TypeId),
+    /// An interface type: a named set of method signatures that record types
+    /// can implement via an `implements` clause.
+    Interface(Vec<MethodSig>),
     /// A concrete instantiation of a generic type.
     /// e.g., `Option<int>` where base is the TypeId of `Option` and args is `[0]` (Int).
     GenericInstance { base: TypeId, args: Vec<TypeId> },

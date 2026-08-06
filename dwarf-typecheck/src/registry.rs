@@ -1,5 +1,7 @@
 //! TypeRegistry — stores and resolves all type definitions.
 
+use std::collections::HashMap;
+
 use crate::types::{PrimitiveType, TypeDef, TypeId};
 
 /// The central store for type definitions.
@@ -15,6 +17,12 @@ use crate::types::{PrimitiveType, TypeDef, TypeId};
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypeRegistry {
     types: Vec<TypeDef>,
+    /// Maps `(owning record/interface TypeId, method name)` to the TypeId of
+    /// the method's `TypeDef::Func` signature (implicit `self` excluded).
+    /// Populated by `resolve::register_decls`; used by inference to resolve
+    /// `self.method(...)` calls and by interface conformance checking.
+    #[serde(default)]
+    method_sigs: HashMap<(TypeId, String), TypeId>,
 }
 
 impl TypeRegistry {
@@ -43,6 +51,7 @@ impl TypeRegistry {
                     name: "Map".to_string(),
                 }, // 8
             ],
+            method_sigs: HashMap::new(),
         }
     }
 
@@ -79,6 +88,20 @@ impl TypeRegistry {
         let id = self.types.len();
         self.types.push(def);
         id
+    }
+
+    /// Register a method signature for an owning record/interface type.
+    ///
+    /// `func_id` must be the TypeId of a `TypeDef::Func` whose parameter list
+    /// excludes the implicit `self`.
+    pub fn register_method_sig(&mut self, owner: TypeId, name: String, func_id: TypeId) {
+        self.method_sigs.insert((owner, name), func_id);
+    }
+
+    /// Look up the `TypeDef::Func` TypeId registered for a method on an
+    /// owning record/interface type, or `None` if the type has no such method.
+    pub fn lookup_method_sig(&self, owner: TypeId, name: &str) -> Option<TypeId> {
+        self.method_sigs.get(&(owner, name.to_string())).copied()
     }
 
     /// Get a type definition by ID. Returns None if ID is out of bounds.

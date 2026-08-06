@@ -10,3 +10,7 @@ serde_json = "1"
 
 [dev-dependencies]
 dwarf-syntax = { path = "../dwarf-syntax" }
+# Parse-from-source helpers for integration tests (DWARF-103 OOP typechecking).
+# Dev-only; enables tests to pin the parser contract end-to-end (source -> HIR -> typecheck).
+dwarf-parser = { path = "../dwarf-parser" }
+dwarf-lexer = { path = "../dwarf-lexer" }

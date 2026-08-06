@@ -14,6 +14,9 @@ pub const TYPE_ERROR_CODES: &[&str] = &[
     "DWARF-E-TYPE-0006", // Refinement constraint violation
     "DWARF-E-TYPE-0007", // Circular type definition
     "DWARF-E-TYPE-0008", // Cannot infer type (annotate explicitly)
+    "DWARF-E-TYPE-0009", // Reserved
+    "DWARF-E-TYPE-0010", // Reserved
+    "DWARF-E-TYPE-0011", // Interface conformance (missing method / signature mismatch)
 ];
 
 /// A type-checking error with structured information.
