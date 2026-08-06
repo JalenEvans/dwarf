@@ -203,11 +203,13 @@ impl WasmBackend {
                 LirStmt::Let { pat, value } => {
                     let val = self.emit_expr_inner(value)?;
                     let idx = match pat {
-                        LirPat::Variable(name) => self.locals.get(name).copied().ok_or_else(|| {
-                            EmitterError::UnsupportedFeature(format!(
-                                "let binding `{name}` missing local index"
-                            ))
-                        })?,
+                        LirPat::Variable(name) => {
+                            self.locals.get(name).copied().ok_or_else(|| {
+                                EmitterError::UnsupportedFeature(format!(
+                                    "let binding `{name}` missing local index"
+                                ))
+                            })?
+                        }
                         other => {
                             return Err(EmitterError::UnsupportedFeature(format!(
                                 "let pattern {other:?} is outside the supported subset"
@@ -334,9 +336,13 @@ impl EmitterBackend for WasmBackend {
                     format!(" {}", type_attrs.join(" "))
                 };
                 let indented = indent_body(&body);
-                // The export is a func *field*, so it precedes the body.
+                // The export is a func *field*, and WAT requires it to appear
+                // BEFORE the `(result ...)` annotation — `(result i32)` followed
+                // by `(export ...)` is rejected by `wat::parse_str`. Emit the
+                // export field ahead of the result/local annotations so both
+                // `-> Bool` and no-return `@test` functions parse cleanly.
                 Ok(format!(
-                    "(func ${fn_name}{params_attr}{type_attr}{export}\n{indented}\n)"
+                    "(func ${fn_name}{params_attr}{export}{type_attr}\n{indented}\n)"
                 ))
             }
             // Non-function declarations are not part of the minimal WAT subset.
@@ -460,7 +466,13 @@ fn indent_body(body: &str) -> String {
 fn sanitize(name: &str) -> String {
     let filtered: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '$' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '$' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if filtered.is_empty() {
         "anon".to_string()
@@ -585,11 +597,7 @@ mod tests {
             hint: hint(),
             span: s(),
         };
-        let decl = test_fn(
-            "test_add",
-            vec![int_param("a"), int_param("b")],
-            body,
-        );
+        let decl = test_fn("test_add", vec![int_param("a"), int_param("b")], body);
         let out = emit(&mut backend, &[decl]);
         assert!(
             out.contains("local.get"),
