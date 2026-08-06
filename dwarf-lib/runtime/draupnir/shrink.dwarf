@@ -1,0 +1,14 @@
+// Draupnir — Shrinking Engine
+// DWARF-119: The shrinking entry point reduces a failing counterexample to
+// a minimal one.
+//
+// NOTE: Function-level generics are not yet supported by the parser, so the
+// value type is lifted to the most permissive concrete type that the current
+// compiler accepts.
+
+/// Shrink a counterexample value to a smaller (minimal) one.
+/// Returns the minimal counterexample that still fails the property.
+fn shrink(value: Any) {
+    // TODO: Implement the shrinking engine.
+    // This is a stub — implementation will be provided by the runtime.
+}

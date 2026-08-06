@@ -24,6 +24,7 @@ fn unquote(s: &str) -> String {
 pub fn parse_decorator_name(name: &str, args: &[String]) -> Result<Decorator, String> {
     match name {
         "test" => Ok(Decorator::Test),
+        "property" => Ok(Decorator::Property),
         "before_each" => Ok(Decorator::BeforeEach),
         "after_each" => Ok(Decorator::AfterEach),
         "skip" => Ok(Decorator::Skip),

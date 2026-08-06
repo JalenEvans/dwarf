@@ -290,6 +290,7 @@ pub enum UnaryOp {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Decorator {
     Test,
+    Property,
     BeforeEach,
     AfterEach,
     Skip,

@@ -93,6 +93,7 @@ pub fn collect_test_manifest(decls: &[Decl]) -> TestManifest {
 fn decorator_name(d: &Decorator) -> String {
     match d {
         Decorator::Test => "test".to_string(),
+        Decorator::Property => "property".to_string(),
         Decorator::BeforeEach => "before_each".to_string(),
         Decorator::AfterEach => "after_each".to_string(),
         Decorator::Skip => "skip".to_string(),

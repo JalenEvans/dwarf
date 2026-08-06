@@ -4,6 +4,7 @@
 //! MIR → LIR → emitter) into a reusable library API. It also handles
 //! project configuration via `dwarf.conf.json`.
 
+pub mod draupnir;
 pub mod dunit;
 mod pipeline;
 pub mod resolver;
