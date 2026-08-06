@@ -1,33 +1,11 @@
 //! Wasm test-runner dispatch — routes `forge test --target wasm` into the
 //! wasmtime executor instead of the legacy Jest passthrough.
 //!
-//! # DWARF-129 (RED phase)
-//!
-//! This module defines the *contract* that the Green-phase implementation must
-//! satisfy so that the CLI slice `forge test --target wasm <file>.kzd` runs
-//! @test functions through the wasmtime runner. Today it is a stub: the
-//! dispatch decision function is correct but [`run_wasm_tests`] does nothing
-//! (returns an empty `Vec`). The tests in [`super::wasm_cli_tests`] fail at the
-//! assert level, which is the intended red.
-//!
-//! # Intended production wiring (NOT yet applied to `main.rs`)
-//!
-//! The `Commands::Test` handler in `forge/src/main.rs` should become:
-//!
-//! ```ignore
-//! Commands::Test { files, target, filter, .. } => {
-//!     if testing::dispatch::is_wasm_target(&target) {
-//!         let results = testing::dispatch::run_wasm_tests(&files, filter.as_deref());
-//!         // print PASS/FAIL per item + summary (mirroring dwarf_cli::test::run_test)
-//!     } else {
-//!         // preserved legacy path (ts / py / java) — unchanged
-//!         test::run_test(files, target, /* ... */);
-//!     }
-//! }
-//! ```
-//!
-//! The wasm path deliberately does NOT print the "not yet wired (DWARF-118)"
-//! note, and never touches the Jest passthrough.
+//! [`run_wasm_tests`] reads each `.kzd` file, compiles it to WAT via
+//! `DwarfCompiler`, parses the WAT with `wat`, discovers the exported `@test`
+//! functions, and runs each through the wasmtime [`WasmTestRunner`]. The
+//! `Commands::Test` handler in `forge/src/main.rs` calls [`run_wasm_tests`]
+//! whenever [`is_wasm_target`] matches the `--target`.
 
 use std::path::PathBuf;
 
@@ -43,8 +21,6 @@ use super::runner::WasmTestRunner;
 /// `java`, ...) falls through to the legacy runner. This is the DISPATCH
 /// DECISION at the heart of DWARF-129.
 pub fn is_wasm_target(target: &str) -> bool {
-    // Trivial and correct — the predicate is not the blocker. The runner below
-    // is what is missing.
     target == "wasm"
 }
 

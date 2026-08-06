@@ -1,33 +1,13 @@
 //! DWARF-129 — CLI-dispatch spec for `forge test --target wasm`.
 //!
-//! These tests pin the behavior of the missing dispatch slice: a `.kzd` file
-//! run with target `"wasm"` must route through the wasmtime test runner
+//! These tests pin the dispatch slice: a `.kzd` file run with target `"wasm"`
+//! routes through the wasmtime test runner
 //! ([`super::runner::WasmTestRunner`]) instead of the legacy Jest passthrough
-//! in `dwarf_cli::test::run_test`, and it must NOT print the "not yet wired"
+//! in `dwarf_cli::test::run_test`, and it does not print the "not yet wired"
 //! note.
 //!
 //! The contract is exercised through [`super::dispatch::run_wasm_tests`] — the
-//! function `main.rs` will call when `is_wasm_target(&target)` is true.
-//!
-//! # RED phase
-//!
-//! `run_wasm_tests` is a stub returning an empty `Vec`, so every test that
-//! expects result items fails at the assert level (assertion `len == 1`,
-//! `passed`, etc.). That is the intended red — the dispatch path does not
-//! exist yet.
-//!
-//! Two GREEN anchor tests (`compile_*`) prove the fixtures are sound: a
-//! no-return-type `@test` compiles to *parseable, runnable* WAT today, so the
-//! red in the dispatch tests is genuinely the missing dispatch, not a broken
-//! fixture.
-//!
-//! # Known upstream finding (also RED)
-//!
-//! A return-typed `@test` (e.g. `-> Bool`) emits `(result i32)` *before*
-//! `(export ...)`, which is invalid WAT — `wat::parse_str` rejects it before
-//! the runner is ever reached. `test_return_typed_test_compiles_to_parseable_wasm`
-//! pins this so the Green phase must fix the emitter field ordering as part of
-//! wiring the dispatch.
+//! function `main.rs` calls when `is_wasm_target(&target)` is true.
 
 #![cfg(test)]
 
@@ -104,7 +84,7 @@ fn test_is_wasm_target_rejects_legacy_targets() {
 // ---------------------------------------------------------------------------
 
 /// A passing @test must produce exactly one result item with `passed: true`
-/// and no failure message. RED: the stub returns zero items.
+/// and no failure message.
 #[test]
 fn test_run_wasm_tests_passing_test_reports_passed() {
     let (file, _dir) = write_kzd(PASSING_SOURCE);
@@ -133,8 +113,7 @@ fn test_run_wasm_tests_passing_test_reports_passed() {
 // ---------------------------------------------------------------------------
 
 /// A trapping @test (`assert.consistent`) must produce one result item with
-/// `passed: false` and an expected-vs-actual style message. RED: stub returns
-/// zero items.
+/// `passed: false` and an expected-vs-actual style message.
 #[test]
 fn test_run_wasm_tests_failing_assert_reports_failed_with_message() {
     let (file, _dir) = write_kzd(FAILING_SOURCE);
@@ -164,7 +143,7 @@ fn test_run_wasm_tests_failing_assert_reports_failed_with_message() {
 
 /// One file with two @test functions must yield one result item per test —
 /// never a single per-file bucket (which is how the legacy Jest passthrough
-/// behaves). RED: stub returns zero items.
+/// behaves).
 #[test]
 fn test_run_wasm_tests_multiple_test_functions_one_item_each() {
     let (file, _dir) = write_kzd(MULTI_SOURCE);
@@ -184,8 +163,7 @@ fn test_run_wasm_tests_multiple_test_functions_one_item_each() {
 }
 
 /// `filter` must restrict execution to matching tests. `TestResultItem` is
-/// per-test, so a filtered run yields fewer items. RED: stub returns zero
-/// items regardless.
+/// per-test, so a filtered run yields fewer items.
 #[test]
 fn test_run_wasm_tests_respects_filter() {
     let (file, _dir) = write_kzd(MULTI_SOURCE);
@@ -205,7 +183,7 @@ fn test_run_wasm_tests_respects_filter() {
 }
 
 // ---------------------------------------------------------------------------
-// GREEN anchor — the fixtures are genuinely runnable today
+// Fixture pipeline — the compiled fixtures run end-to-end
 // ---------------------------------------------------------------------------
 
 /// A no-return-type @test compiles to WAT that `wat::parse_str` accepts and
@@ -237,8 +215,7 @@ fn test_compile_no_return_type_test_is_parseable_and_runs() {
 }
 
 /// A no-return-type `assert.consistent` fixture compiles to WAT that the
-/// runner executes as a trap → `passed: false` with a message. Proves the
-/// failing fixture is sound (the red above is the dispatch, not the fixture).
+/// runner executes as a trap → `passed: false` with a message.
 #[test]
 fn test_compile_assert_consistent_is_runnable_and_fails() {
     let result = compile_wasm(FAILING_SOURCE);
@@ -270,15 +247,13 @@ fn test_compile_assert_consistent_is_runnable_and_fails() {
 }
 
 // ---------------------------------------------------------------------------
-// Upstream finding — return-typed @test produces invalid WAT (RED)
+// Return-typed @test — field ordering in the emitted WAT
 // ---------------------------------------------------------------------------
 
 /// The dispatch must be able to compile the `.kzd` it receives. A return-typed
 /// `@test fn test_passing() -> Bool { true }` (the shape `forge scaffold-tests`
-/// generates) currently emits `(result i32)` BEFORE `(export "test_passing")`,
-/// which `wat::parse_str` rejects. The Green phase must fix the emitter field
-/// ordering (or strip result annotations on test exports) as part of wiring
-/// the dispatch.
+/// generates) must emit WAT that parses — the emitter places the `(export ...)`
+/// field ahead of `(result i32)` so `wat::parse_str` accepts it.
 #[test]
 fn test_return_typed_test_compiles_to_parseable_wasm() {
     let source = "@test fn test_passing() -> Bool { true }";

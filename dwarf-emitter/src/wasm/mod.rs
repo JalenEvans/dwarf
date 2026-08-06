@@ -1,9 +1,10 @@
 //! WebAssembly backend — emits a minimal subset of WebAssembly text (WAT)
 //! format from LIR declarations.
 //!
-//! DWARF-129: This backend is in its RED phase. Only the structural scaffolding
-//! (the [`WasmBackend`](backend::WasmBackend) type and its [`EmitterBackend`]
-//! implementation as an honest stub) exists. The real WAT emission is specified
-//! by the tests in [`backend`](backend) and implemented in the Green phase.
+//! [`WasmBackend`](backend::WasmBackend) is a fully implemented
+//! [`EmitterBackend`](crate::backend::EmitterBackend) that produces WAT text
+//! `wat::parse_str` can compile into module bytes for the wasmtime test
+//! runner. The supported i32-only subset is documented on the backend type in
+//! [`backend`](backend).
 
 pub mod backend;

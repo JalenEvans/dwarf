@@ -22,7 +22,7 @@ pub enum RunnerError {
     TestFailed(String),
     /// A wasmtime runtime error occurred.
     RuntimeError(String),
-    /// The runner is not yet implemented (RED phase placeholder).
+    /// Retained legacy variant; the wasmtime runner no longer returns it.
     NotImplemented,
 }
 
@@ -217,35 +217,11 @@ pub fn is_skipped(decorators: &[String]) -> bool {
     decorators.iter().any(|d| d == "skip" || d == "skip_test")
 }
 
-// ---------------------------------------------------------------------------
-// Tests — RED phase spec for the wasmtime executor (DWARF-127)
-//
-// These are the EXPECTED post-implementation behaviors of a real wasmtime-based
-// test runner. They replace the obsolete honest-stub tests (which asserted
-// `Err(RunnerError::NotImplemented)`).
-//
-// RED, with intent:
-//  * Execution tests (pass/fail/missing/invalid) compile against the EXISTING
-//    API and currently fail at runtime because `run_test` returns
-//    `RunnerError::NotImplemented`.
-//  * The metadata tests (`with_metadata`, and constructing/discerning the new
-//    `TestResult.skipped` field) fail to COMPILE because those APIs do not exist
-//    yet. Compilation failure persists until the implementation adds them —
-//    they are the spec for the new API surface.
-// Both failure modes are the "right" red: the behavior the wasmtime executor
-// must deliver is not implemented yet.
-//
-// The absolute spec the implementation must satisfy (acceptance criteria):
-//   1. Valid compiled module + exported @test function -> Ok(TestResult).
-//   2. Passing test -> passed: true, no message.
-//   3. Failing assert -> passed: false with expected-vs-actual messaging.
-//   4. Missing/renamed function -> Err(RunnerError::FunctionNotFound), NOT a
-//      silent pass.
-//   5. @skip/@skip_test -> skipped (not executed), signaled via the new
-//      `TestResult.skipped` field.
-//   6. @before_each/@after_each hooks run around each test.
-//   7. `RunnerError::NotImplemented` is no longer reachable on the happy path.
-// ---------------------------------------------------------------------------
+// Tests for the wasmtime executor (DWARF-127). These pin the implemented
+// behavior: a valid module + exported @test -> Ok(passed), a trapping test ->
+// failed with message, a missing function -> FunctionNotFound (never a silent
+// pass), and decorator metadata driving @skip/@skip_test and
+// @before_each/@after_each hooks.
 
 #[cfg(test)]
 mod tests {
@@ -295,18 +271,16 @@ mod tests {
         let runner = WasmTestRunner::new();
         let _ = runner;
 
-        // `with_metadata` is the new (not-yet-present) constructor the
-        // production executor must provide. Referencing it here failures the
-        // build until it exists — the intended RED signal.
+        // `with_metadata` carries the decorator metadata the runner consumes
+        // (skip detection, hook dispatch).
         let _configured = WasmTestRunner::with_metadata(HashMap::new());
     }
 
     // ==================================================================
-    // Test 2: TestResult shape now spans run + skipped
+    // Test 2: TestResult shape spans run + skipped
     //
-    // The new `skipped` field is part of the required struct shape; both a
-    // run result and an explicitly-skipped result are constructible. Fails to
-    // compile until `skipped` exists on the production struct.
+    // The `skipped` field distinguishes a run result from an explicitly
+    // skipped one; both shapes must be constructible.
     // ==================================================================
 
     #[test]
@@ -334,9 +308,8 @@ mod tests {
     // ==================================================================
     // Test 3: Valid module + exported @test -> Ok(TestResult)
     //
-    // AC 1 + 2. The runner must compile the module, locate `test_ok`, execute
-    // it, and report a passing result. Currently `run_test` returns
-    // Err(NotImplemented) -> this fails for the right reason.
+    // AC 1 + 2. The runner compiles the module, locates `test_ok`, executes
+    // it, and reports a passing result.
     // ==================================================================
 
     #[test]
@@ -363,9 +336,7 @@ mod tests {
     // Test 4: Failing @test -> passed: false with a message
     //
     // AC 3. The fixture traps (stands in for an `assert` failure). The runner
-    // must surface `passed: false` plus messaging (expected-vs-actual once the
-    // dUnit intrinsics are wired). Currently fails because `run_test` is a
-    // stub.
+    // surfaces `passed: false` plus the trap message.
     // ==================================================================
 
     #[test]
@@ -389,9 +360,8 @@ mod tests {
     // ==================================================================
     // Test 5: Missing/renamed function -> FunctionNotFound
     //
-    // AC 4. The module only exports `test_ok`; requesting `test_renamed` must
-    // error loudly — never a silent pass. Currently fails because the stub
-    // never inspects exports (it returns NotImplemented).
+    // AC 4. The module only exports `test_ok`; requesting `test_renamed`
+    // errors loudly — never a silent pass.
     // ==================================================================
 
     #[test]
@@ -411,8 +381,7 @@ mod tests {
     // Test 6: Invalid Wasm bytes -> WasmCompilationError
     //
     // Pre-existing behavior retained: malformed input must be rejected before
-    // execution. This one is green already; it pins the error path so the
-    // post-implementation runner still rejects bad input.
+    // execution. Pins the error path so the runner always rejects bad input.
     // ==================================================================
 
     #[test]
@@ -430,13 +399,10 @@ mod tests {
     // ==================================================================
     // Test 7: @skip / @skip_test -> skipped: true, NOT executed
     //
-    // AC 5. The caller distinguishes a skipped test via the new
-    // `TestResult.skipped` field. Metadata is supplied through
-    // `WasmTestRunner::with_metadata(...)`; a test whose decorators contain
-    // `"skip"`/`"skip_test"` must be reported but never executed.
-    //
-    // Fails to compile until both `with_metadata` and `TestResult.skipped`
-    // exist (the required new API surface).
+    // AC 5. The caller distinguishes a skipped test via `TestResult.skipped`.
+    // Metadata is supplied through `WasmTestRunner::with_metadata(...)`; a test
+    // whose decorators contain `"skip"`/`"skip_test"` is reported but never
+    // executed.
     // ==================================================================
 
     #[test]
@@ -469,12 +435,10 @@ mod tests {
     // Test 8: @before_each / @after_each hooks run around each test
     //
     // AC 6. With metadata declaring a `before_each` hook function and an
-    // `after_each` hook function around `test_seq`, the executor must invoke
-    // both (in order) and still report the passing test. Hook functions are
-    // located in the module; is_before_each_hook / is_after_each_hook gate
-    // which decorators are hooks.
-    //
-    // Fails to compile until `with_metadata` exists.
+    // `after_each` hook function around `test_seq`, the executor invokes both
+    // (in order) and still reports the passing test. Hook functions are located
+    // in the module; is_before_each_hook / is_after_each_hook gate which
+    // decorators are hooks.
     // ==================================================================
 
     #[test]
@@ -600,10 +564,9 @@ mod tests {
     }
 
     // ==================================================================
-    // Test 11: RunnerError Display — still meaningful after execution lands
+    // Test 11: RunnerError Display — meaningful error strings
     //
-    // Error Display strings must survive the rewrite; verifies the error
-    // contract a caller would surface to a user.
+    // Verifies the error contract a caller would surface to a user.
     // ==================================================================
 
     #[test]

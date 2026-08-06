@@ -1,9 +1,9 @@
 //! A minimal WebAssembly backend that emits WAT (WebAssembly Text) from LIR.
 //!
-//! DWARF-129 — GREEN phase. The [`WasmBackend`] struct implements the full
-//! [`EmitterBackend`](crate::backend::EmitterBackend) trait and produces real
-//! WAT text that `wat::parse_str` can compile and the wasmtime test runner can
-//! execute.
+//! DWARF-129 — implemented backend. The [`WasmBackend`] struct implements the
+//! full [`EmitterBackend`](crate::backend::EmitterBackend) trait and produces
+//! real WAT text that `wat::parse_str` can compile and the wasmtime test
+//! runner can execute.
 //!
 //! # Target subset (the spec the tests pin down)
 //!
@@ -174,6 +174,9 @@ impl WasmBackend {
                 cond, then, else_, ..
             } => {
                 let cond = self.emit_expr_inner(cond)?;
+                // Decide against the LIR before `then` is rendered into text:
+                // a missing else must still match the stack shape of `then`.
+                let then_leaves = leaves_value(then);
                 let then = self.emit_expr_inner(then)?;
                 match else_ {
                     Some(else_expr) => {
@@ -183,7 +186,16 @@ impl WasmBackend {
                              (if (result i32) (then {then}) (else {else_body}))"
                         ))
                     }
-                    None => Ok(format!("{cond}\n(if (then {then}))")),
+                    // Statement-if: `then` leaves nothing, so no result type is
+                    // needed and both arms end with an empty stack.
+                    None if !then_leaves => Ok(format!("{cond}\n(if (then {then}))")),
+                    // `then` leaves a value but there is no else; the if must
+                    // still declare `(result i32)` and supply a default value
+                    // so the module validates with matching stack heights.
+                    None => Ok(format!(
+                        "{cond}\n\
+                         (if (result i32) (then {then}) (else i32.const 0))"
+                    )),
                 }
             }
             LirExpr::Block { stmts, .. } => self.emit_block(stmts),

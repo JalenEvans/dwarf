@@ -1,12 +1,8 @@
 //! DWARF-129 — End-to-end spec for the minimal WAT emitter + wasmtime runner.
 //!
-//! These tests exercise the *contract* the Green-phase `WasmBackend`
-//! implementation must deliver: emitting WAT text that `wat::parse_str` can
-//! turn into module bytes the [`WasmTestRunner`](super::runner) executes.
-//!
-//! RED phase: `WasmBackend` is an honest stub that emits an empty string, so
-//! `wat::parse_str("")` fails and every test here fails at parse time. That is
-//! the intended red — once the backend emits real WAT, these tests pass.
+//! These tests exercise the `WasmBackend` implementation: emitting WAT text
+//! that `wat::parse_str` can turn into module bytes the
+//! [`WasmTestRunner`](super::runner) executes.
 //!
 //! The runner's convention (see [`WasmTestRunner::run_test`]): a function that
 //! completes reports `passed: true`; a function that traps (here, via the

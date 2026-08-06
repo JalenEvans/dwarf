@@ -5,7 +5,7 @@ use std::process;
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 use dwarf_lib::CoverageMode;
 
-// DWARF-118: Wasm test runner module (RED phase — stubs)
+// DWARF-118/DWARF-129: Wasm test runner + `--target wasm` dispatch
 pub mod testing;
 // DWARF-118: Coverage reporter module
 pub mod coverage;
