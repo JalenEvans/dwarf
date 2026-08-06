@@ -937,8 +937,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dwarf-cli",
+ "dwarf-emitter",
  "dwarf-lexer",
  "dwarf-lib",
+ "dwarf-lir",
  "dwarf-parser",
  "dwarf-syntax",
  "serde",

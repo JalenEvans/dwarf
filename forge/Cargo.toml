@@ -27,3 +27,8 @@ serde_json = "1"
 # tests. The production wasmtime dependency belongs in [dependencies] and is
 # added by the DWARF-127 implementation (not wired yet — RED phase).
 wat = "1"
+# DWARF-129: integration tests drive the WAT emitter directly to build modules
+# for the wasmtime runner. These are test-only; production wiring goes through
+# dwarf-lib's backend selection.
+dwarf-emitter = { path = "../dwarf-emitter" }
+dwarf-lir = { path = "../dwarf-lir" }

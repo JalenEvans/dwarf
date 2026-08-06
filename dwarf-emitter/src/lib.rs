@@ -16,3 +16,4 @@ pub mod ts;
 
 pub mod java;
 pub mod py;
+pub mod wasm;

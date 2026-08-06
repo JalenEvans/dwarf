@@ -95,6 +95,7 @@ impl DwarfCompiler {
             "ts" => "ts",
             "py" => "py",
             "java" => "java",
+            "wasm" => "wat",
             "debug" => "txt",
             _ => "txt",
         };
