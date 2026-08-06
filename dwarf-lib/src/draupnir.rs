@@ -4,7 +4,9 @@
 //! It reads the Draupnir Dwarf source files and compiles them through the
 //! standard pipeline.
 //!
-//! DWARF-119: Implementation complete — compiles via the standard pipeline.
+//! DWARF-119: Interface compiles via the standard pipeline; PBT runtime behavior
+//! is stubbed — deep-behavioral implementation is a follow-up (tracked on the
+//! Draupnir deep-behavioral follow-up ticket).
 
 use std::path::PathBuf;
 

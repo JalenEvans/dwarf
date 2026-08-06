@@ -5,7 +5,7 @@
 //! - Pipe operator (`|>`) desugaring
 
 use crate::*;
-use dwarf_syntax::hir::{BinaryOp, Decl, Expr, LiteralValue, MatchArm, Pat, Stmt, UnaryOp};
+use dwarf_syntax::hir::{BinaryOp, Decl, Decorator, Expr, LiteralValue, MatchArm, Pat, Stmt, UnaryOp};
 
 // ---------------------------------------------------------------------------
 // Helper: literal value conversion
@@ -516,6 +516,16 @@ fn convert_param(p: &dwarf_syntax::hir::Param) -> MirParam {
     }
 }
 
+/// Whether a function's decorator list carries the `@property` decorator.
+///
+/// Property-based tests (DWARF-119) are run by the wasm test runner because of
+/// this decorator, not because of a `test_` name prefix. The flag is folded
+/// into `is_pub` during MIR lowering so backends that export public functions
+/// (the wasm backend in particular) expose properties to the runner.
+fn is_property(decorators: &[Decorator]) -> bool {
+    decorators.iter().any(|d| matches!(d, Decorator::Property))
+}
+
 /// Build the parameter list for a desugared method function.
 ///
 /// The parser represents a record/interface method's receiver as an ordinary
@@ -599,21 +609,24 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 })
                 .collect(),
 
-            // Function declarations pass through with desugared bodies.
+            // Function declarations pass through with desugared bodies. A
+            // `@property` decorator marks a property-based test (DWARF-119):
+            // fold it into `is_pub` so the wasm backend exports it and the
+            // test runner discovers it regardless of a `test_` name prefix.
             Decl::Function {
                 name,
                 params,
                 return_type,
                 body,
                 is_pub,
+                decorators,
                 span,
-                ..
             } => vec![MirDecl::Function {
                 name: name.clone(),
                 params: params.iter().map(convert_param).collect(),
                 return_type: return_type.clone(),
                 body: desugar_for_loop(body),
-                is_pub: *is_pub,
+                is_pub: *is_pub || is_property(decorators),
                 is_generator: false,
                 span: *span,
             }],

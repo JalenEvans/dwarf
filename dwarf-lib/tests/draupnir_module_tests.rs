@@ -4,15 +4,16 @@
 //! module in `dwarf-lib`. It deliberately READS a direct reference to
 //! `dwarf_lib::draupnir::compile_draupnir()` so the "module not yet declared"
 //! failure is expressed as a Rust compile error — the exact error a consumer
-//! (`forge --draupnir`, the pipeline) hits until the Green implementer adds
-//! `pub mod draupnir;` to `dwarf-lib/src/lib.rs` and a `src/draupnir.rs` module.
+//! (`forge --draupnir`, the pipeline) would hit without the module. The Green
+//! implementation resolved it by adding `pub mod draupnir;` to
+//! `dwarf-lib/src/lib.rs` and a `src/draupnir.rs` module.
 //!
-//! RED PHASE: this file does NOT compile because `dwarf_lib::draupnir` does
-//! not exist. That is the failure mode this contract intends: the module must
-//! be declared and expose the compile entry point.
+//! Now GREEN: this file compiles because `dwarf_lib::draupnir` exists. The
+//! contract holds: the module is declared and exposes the compile entry
+//! point.
 //!
 //! Kept separate from `draupnir_tests.rs` so the compile-blocking nature of the
-//! call-site does not mask that file's runtime (file-absent) Red reasons.
+//! call-site does not mask that file's runtime (file-absent) failure reasons.
 
 /// AC: `forge test --draupnir` must be able to load the Draupnir runtime. The
 /// dwarf-lib library exposes a `compile_draupnir()` entry point (the analogue

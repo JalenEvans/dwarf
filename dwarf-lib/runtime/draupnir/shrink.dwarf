@@ -9,6 +9,5 @@
 /// Shrink a counterexample value to a smaller (minimal) one.
 /// Returns the minimal counterexample that still fails the property.
 fn shrink(value: Any) {
-    // TODO: Implement the shrinking engine.
-    // This is a stub — implementation will be provided by the runtime.
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
 }

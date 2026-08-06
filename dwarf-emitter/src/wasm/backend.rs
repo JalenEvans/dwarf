@@ -18,8 +18,10 @@
 //! * Calls emit `call $name`; variables emit `local.get`.
 //! * `LirExpr::AssertConsistent` emits `unreachable` (a trap) so the wasmtime
 //!   runner maps trap → `passed: false`.
-//! * `test_*` (or `is_pub`) functions are exported via the WAT func field
-//!   `(export "name")`.
+//! * `test_*` functions, `pub` functions, and `@property`-decorated functions
+//!   are exported via the WAT func field `(export "name")`. `@property`
+//!   functions are marked `is_pub` by MIR desugaring (DWARF-119), so the
+//!   existing `is_pub` criterion exports them regardless of name prefix.
 
 use std::collections::HashMap;
 
@@ -323,6 +325,12 @@ impl EmitterBackend for WasmBackend {
                     _ => body,
                 };
 
+                // Export the function when it is `pub`, when its name has the
+                // `test_` prefix, or when MIR desugaring marked it `is_pub`
+                // because of its `@property` decorator (DWARF-119). The
+                // wasmtime runner discovers every export except the
+                // before_each/after_each hooks, so exporting is what makes a
+                // function runnable as a test.
                 let export = if *is_pub || name.starts_with("test_") {
                     format!(" (export \"{name}\")")
                 } else {

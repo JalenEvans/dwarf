@@ -5,12 +5,10 @@
 //! acceptance criterion: **`forge test --draupnir` runs unit AND property
 //! tests** through the wasmtime runner.
 //!
-//! RED PHASE: the `--draupnir` flag does not exist on `Commands::Test` today
-//! (`forge/src/main.rs`), so clap rejects it with `unexpected argument
-//! '--draupnir' found` and exit code 2. Both tests fail for the right reason:
-//! the flag is missing. On GREEN the flag must parse, route into the wasm
-//! runner, execute every runnable test (unit `@test` functions and property
-//! tests) in the file, and report per-test PASS/FAIL.
+//! Now GREEN: the `--draupnir` flag exists on `Commands::Test`
+//! (`forge/src/main.rs`), parses, and routes into the wasm runner. Both tests
+//! pass and pin that the flag executes every runnable test (unit `@test`
+//! functions and property tests) in the file and reports per-test PASS/FAIL.
 
 use std::fs;
 use std::process::Command;
@@ -33,8 +31,8 @@ fn write_kzd(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pat
 
 /// A fixture with one unit `@test` and one property test. The property is
 /// marked as a `@test` whose body is a Draupnir property (a `for_all` call).
-/// On GREEN, `--draupnir` must execute BOTH the unit test and the property
-/// test and report all pass.
+/// `--draupnir` executes BOTH the unit test and the property test and reports
+/// all pass.
 const UNIT_PLUS_PROPERTY_PASSING: &str = "@test fn test_unit_passing() { true }
 @property fn test_property_commutative() { true }";
 

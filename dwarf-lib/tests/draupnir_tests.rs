@@ -14,14 +14,13 @@
 //! - Part 4 (`dwarf-lib/src/draupnir.rs`): the Rust module declared in `lib.rs`
 //!   exposing `pub fn compile_draupnir() -> String` (mirrors
 //!   `dwarf-lib/src/dunit.rs::compile_dunit`). The call-site contract lives in
-//!   `draupnir_module_tests.rs` so its compile-blocking Red is isolated.
+//!   `draupnir_module_tests.rs` so its compile-blocking failure is isolated.
 //!
-//! RED PHASE: none of these artefacts exist today — the `runtime/draupnir/`
-//! directory is absent and no `draupnir` Rust module is declared in `lib.rs`.
-//! Every test fails for the right reason (absent artefact). These tests pin the
-//! surface the acceptance criteria require: a for_all entry point with arity
-//! 1-6, the full generator/combinator set, a shrinking entry point, and a
-//! forge-loadable compile entry point.
+//! Now GREEN: the artefacts exist — `runtime/draupnir/` ships the library
+//! sources and the `draupnir` Rust module is declared in `lib.rs`. Every test
+//! passes and pins the surface the acceptance criteria require: a for_all entry
+//! point with arity 1-6, the full generator/combinator set, a shrinking entry
+//! point, and a forge-loadable compile entry point.
 
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_parser::Parser;
@@ -206,7 +205,7 @@ fn test_draupnir_combinators_declared() {
 /// AC: "Failing property shrinks to minimal counterexample". The shrinking
 /// source must exist and expose a shrinking entry point. Edge-case ordering
 /// (0/min/max first) is a behavioral guarantee of the generator source, not
-/// of this file's surface — the Green implementation must honor it.
+/// of this file's surface — the deep-behavioral implementation must honor it.
 #[test]
 fn test_draupnir_shrink_source_exists_and_exposes_shrink() {
     let path = runtime_source_path("shrink.dwarf");
@@ -259,5 +258,5 @@ fn test_draupnir_module_declared_in_lib() {
 // ===========================================================================
 // Part 5: dwarf-lib/src/draupnir.rs — call-site contract
 // ===========================================================================
-// Pinned in `draupnir_module_tests.rs` (compile-blocking Red). Kept separate so
+// Pinned in `draupnir_module_tests.rs` (compile-blocking failure). Kept separate so
 // the runtime-source tests above run and fail individually on file absence.
