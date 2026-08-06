@@ -516,28 +516,88 @@ fn convert_param(p: &dwarf_syntax::hir::Param) -> MirParam {
     }
 }
 
+/// Build the parameter list for a desugared method function.
+///
+/// The parser represents a record/interface method's receiver as an ordinary
+/// untyped first parameter named `self`. During desugaring that untyped param
+/// is replaced by a typed `self` param whose type is the owning record/
+/// interface, followed by the method's remaining declared params.
+fn method_params(owner: &str, params: &[dwarf_syntax::hir::Param]) -> Vec<MirParam> {
+    std::iter::once(MirParam {
+        name: "self".into(),
+        type_: Some(Type::Named(owner.to_string())),
+    })
+    .chain(
+        params
+            .iter()
+            .filter(|p| p.name != "self")
+            .map(convert_param),
+    )
+    .collect()
+}
+
 /// Filter type aliases from declarations — MIR doesn't carry type aliases
-/// (they're resolved in the TypeRegistry). Returns only function, record, and union declarations.
+/// (they're resolved in the TypeRegistry). Returns function, record, union,
+/// extern, and interface-method-skeleton declarations.
+///
+/// Each input declaration may expand to zero, one, or many `MirDecl`s:
+/// - type aliases / imports / decorators / consts are excluded entirely
+/// - a record expands to its `RecordDef` plus one `Function` per method
+/// - an interface expands to one bodyless `Function` skeleton per method
 pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
     decls
         .iter()
-        .filter_map(|decl| match decl {
+        .flat_map(|decl| match decl {
             // Type aliases are resolved in the TypeRegistry — exclude from MIR.
-            Decl::TypeDef { .. } => None,
+            Decl::TypeDef { .. } => Vec::new(),
 
             // Imports are resolved during name resolution — exclude from MIR.
-            Decl::Import { .. } => None,
+            Decl::Import { .. } => Vec::new(),
 
             // Decorators are handled by a separate decorator pass.
-            Decl::Decorator { .. } => None,
+            Decl::Decorator { .. } => Vec::new(),
 
             // Const declarations are value bindings — exclude from MIR for now.
             // (Future work: lower to a synthetic getter function or global.)
-            Decl::Const { .. } => None,
+            Decl::Const { .. } => Vec::new(),
 
-            // Interface declarations are type-level — exclude from MIR for now.
-            // (Future work: lower to vtable/trait representation.)
-            Decl::Interface { .. } => None,
+            // Interface declarations stay type-level — there is no dedicated
+            // MIR node for the interface itself — but each method signature
+            // desugars to a bodyless function skeleton named `{Interface}::{method}`
+            // so that interface method call sites can be resolved to a direct
+            // dispatch target in LIR.
+            Decl::Interface {
+                name,
+                methods,
+                is_pub: _,
+                span: _,
+            } => methods
+                .iter()
+                .filter_map(|method| match method {
+                    Decl::Function {
+                        name: method_name,
+                        params,
+                        return_type,
+                        is_pub,
+                        span,
+                        ..
+                    } => Some(MirDecl::Function {
+                        name: format!("{name}::{method_name}"),
+                        params: method_params(name, params),
+                        return_type: return_type.clone(),
+                        // Interface method bodies are rendered by the parser as
+                        // an empty block; keep that shape as the skeleton body.
+                        body: MirExpr::Block {
+                            stmts: Vec::new(),
+                            span: *span,
+                        },
+                        is_pub: *is_pub,
+                        is_generator: false,
+                        span: *span,
+                    }),
+                    _ => None,
+                })
+                .collect(),
 
             // Function declarations pass through with desugared bodies.
             Decl::Function {
@@ -548,7 +608,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 is_pub,
                 span,
                 ..
-            } => Some(MirDecl::Function {
+            } => vec![MirDecl::Function {
                 name: name.clone(),
                 params: params.iter().map(convert_param).collect(),
                 return_type: return_type.clone(),
@@ -556,28 +616,54 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 is_pub: *is_pub,
                 is_generator: false,
                 span: *span,
-            }),
+            }],
 
-            // Record type definitions pass through with converted fields.
+            // Record type definitions pass through with converted fields, and
+            // each method desugars to a free function named `{Record}::{method}`
+            // with a typed `self` first parameter, the method's own params, the
+            // method's return type, and the desugared method body.
             Decl::RecordDef {
                 name,
                 fields,
-                methods: _,
+                methods,
                 implements: _,
                 is_pub,
                 span,
-            } => Some(MirDecl::RecordDef {
-                name: name.clone(),
-                fields: fields
-                    .iter()
-                    .map(|f| MirField {
-                        name: f.name.clone(),
-                        type_: f.type_.clone(),
-                    })
-                    .collect(),
-                is_pub: *is_pub,
-                span: *span,
-            }),
+            } => {
+                let mut result = vec![MirDecl::RecordDef {
+                    name: name.clone(),
+                    fields: fields
+                        .iter()
+                        .map(|f| MirField {
+                            name: f.name.clone(),
+                            type_: f.type_.clone(),
+                        })
+                        .collect(),
+                    is_pub: *is_pub,
+                    span: *span,
+                }];
+                result.extend(methods.iter().filter_map(|method| match method {
+                    Decl::Function {
+                        name: method_name,
+                        params,
+                        return_type,
+                        body,
+                        is_pub,
+                        span,
+                        ..
+                    } => Some(MirDecl::Function {
+                        name: format!("{name}::{method_name}"),
+                        params: method_params(name, params),
+                        return_type: return_type.clone(),
+                        body: desugar_for_loop(body),
+                        is_pub: *is_pub,
+                        is_generator: false,
+                        span: *span,
+                    }),
+                    _ => None,
+                }));
+                result
+            }
 
             // Union type definitions pass through with converted variants.
             Decl::UnionDef {
@@ -586,7 +672,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 type_params: _,
                 is_pub,
                 span,
-            } => Some(MirDecl::UnionDef {
+            } => vec![MirDecl::UnionDef {
                 name: name.clone(),
                 variants: variants
                     .iter()
@@ -597,7 +683,7 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                     .collect(),
                 is_pub: *is_pub,
                 span: *span,
-            }),
+            }],
 
             // Extern declarations pass through with converted params.
             Decl::Extern {
@@ -607,13 +693,13 @@ pub fn expand_type_aliases(decls: &[Decl]) -> Vec<MirDecl> {
                 return_type,
                 is_pub,
                 span: _,
-            } => Some(MirDecl::Extern {
+            } => vec![MirDecl::Extern {
                 source: source.clone(),
                 name: name.clone(),
                 params: params.iter().map(convert_param).collect(),
                 return_type: return_type.clone(),
                 is_pub: *is_pub,
-            }),
+            }],
         })
         .collect()
 }
