@@ -18,8 +18,8 @@
 //!   whenever `field` names a known method. Non-method member calls (e.g. the
 //!   `__iter.next()` produced by for-loop desugaring) are left untouched.
 //!
-//! Currently RED: `lower_expr` maps `MirExpr::Call`/`MirExpr::Member` 1:1, so
-//! the LIR keeps the member-call form instead of dispatching.
+//! Now GREEN: `lower_to_lir` implements the dispatch rewrite above, scanning
+//! for `::`-scoped method names and rewriting member calls accordingly.
 
 use dwarf_lir::lower::lower_to_lir;
 use dwarf_lir::{Effect, LirDecl, LirExpr, LirLiteral, LirParam, TargetHint};
@@ -119,8 +119,8 @@ fn lowered_body(decls: &[LirDecl], name: &str) -> LirExpr {
 /// LIR call of the desugared `Point::area` function with `p` passed in the
 /// self position: `Call(Variable("Point::area"), [p])`.
 ///
-/// Currently RED: LIR preserves the member-call form
-/// `Call(Member(p, "area"), [])`.
+/// Now GREEN: dispatch is resolved — LIR emits
+/// `Call(Variable("Point::area"), [p])`.
 #[test]
 fn method_call_dispatch_lowers_to_desugared_function_call() {
     // Mirrors the MIR output of the DWARF-104 MIR phase: the desugared method
@@ -154,8 +154,8 @@ fn method_call_dispatch_lowers_to_desugared_function_call() {
 /// by the method's own arguments: `p.translate(1, 2)` →
 /// `Call(Variable("Point::translate"), [p, 1, 2])`.
 ///
-/// Currently RED: LIR emits `Call(Member(p, "translate"), [1, 2])` with no
-/// receiver hoisting.
+/// Now GREEN: the receiver is hoisted into the first argument position —
+/// LIR emits `Call(Variable("Point::translate"), [p, 1, 2])`.
 #[test]
 fn method_call_with_args_prepends_receiver_to_args() {
     let mir = vec![
@@ -204,7 +204,9 @@ fn method_call_with_args_prepends_receiver_to_args() {
 /// `self.scale(2)` inside a method lowers to a direct call with `self` hoisted
 /// into the receiver position: `Call(Variable("Point::scale"), [self, 2])`.
 ///
-/// Currently RED: LIR keeps `Call(Member(self, "scale"), [2])`.
+/// Now GREEN: dispatch is resolved — LIR emits
+/// `Call(Variable("Point::scale"), [self, 2])`, hoisting `self` into the
+/// receiver position.
 #[test]
 fn self_referential_method_call_lowers_to_desugared_function_call() {
     let mir = vec![
@@ -253,7 +255,8 @@ fn self_referential_method_call_lowers_to_desugared_function_call() {
 /// a `Shape::area` skeleton function in the MIR list, `shape.area()` becomes
 /// `Call(Variable("Shape::area"), [shape])`.
 ///
-/// Currently RED: LIR keeps the member-call form.
+/// Now GREEN: dispatch is resolved — LIR emits
+/// `Call(Variable("Shape::area"), [shape])`.
 #[test]
 fn interface_method_call_lowers_to_desugared_function_call() {
     let mir = vec![

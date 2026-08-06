@@ -165,9 +165,8 @@ fn lower_to_mir(decls: Vec<Decl>) -> Vec<MirDecl> {
 /// `MirDecl::Function` for the method, named `Point::area`, with `self` as the
 /// first parameter typed as the record.
 ///
-/// Currently RED: the production desugarer's `RecordDef` arm binds
-/// `methods: _` and drops methods, so the output contains only the
-/// `MirDecl::RecordDef`.
+/// Now GREEN: the desugarer emits both the `MirDecl::RecordDef` and the
+/// desugared `Point::area` function, with `self` as the first parameter.
 #[test]
 fn record_method_desugars_to_function_with_self_param() {
     let result = lower_to_mir(vec![point_record_with_area_method()]);
@@ -200,7 +199,8 @@ fn record_def_still_passes_through_alongside_methods() {
 /// The desugared method function must have `self` as its FIRST parameter,
 /// typed with the record type (`Type::Named("Point")`).
 ///
-/// Currently RED: no `Point::area` function is emitted, so no `self` param.
+/// Now GREEN: the desugared `Point::area` function is emitted with `self` as
+/// its first parameter, typed as the record (`Type::Named("Point")`).
 #[test]
 fn desugared_method_self_param_is_first_and_typed_as_record() {
     let result = lower_to_mir(vec![point_record_with_area_method()]);
@@ -231,7 +231,8 @@ fn desugared_method_self_param_is_first_and_typed_as_record() {
 /// `self.x * self.y` inside a method body lowers to `MirExpr::Binary` of two
 /// `MirExpr::Member` expressions whose object is `Variable { name: "self" }`.
 ///
-/// Currently RED: the method is dropped, so its body is never produced.
+/// Now GREEN: the desugared method body is produced, lowering `self.x * self.y`
+/// to member accesses on the `self` local.
 #[test]
 fn self_field_access_lowers_to_member_on_self_local() {
     let result = lower_to_mir(vec![point_record_with_area_method()]);
@@ -276,7 +277,8 @@ fn self_field_access_lowers_to_member_on_self_local() {
 /// A record with several methods emits one `MirDecl::Function` per method, in
 /// declaration order, after its `MirDecl::RecordDef`.
 ///
-/// Currently RED: no method functions are emitted at all.
+/// Now GREEN: each method desugars to a `MirDecl::Function` in declaration
+/// order after the record's `MirDecl::RecordDef`.
 #[test]
 fn record_with_multiple_methods_desugars_each_to_function() {
     let area = Decl::Function {
@@ -352,8 +354,8 @@ fn record_with_multiple_methods_desugars_each_to_function() {
 /// `"{Interface}::{method}"` so that interface method call sites can be
 /// resolved to a direct dispatch target in LIR.
 ///
-/// Currently RED: `Decl::Interface` is filtered out via `=> None`, so the
-/// interface's methods never reach MIR.
+/// Now GREEN: interface method signatures desugar to bodyless `Shape::area`
+/// function skeletons (named `"{Interface}::{method}"`) that reach MIR.
 #[test]
 fn interface_methods_desugar_to_function_skeletons() {
     let interface = Decl::Interface {
