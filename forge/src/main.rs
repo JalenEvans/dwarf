@@ -271,6 +271,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Enable Draupnir property-based testing (DWARF-119).
+        /// Runs unit `@test` AND `@property` tests through the wasmtime
+        /// runner. Requires `--target wasm`.
+        #[arg(long)]
+        draupnir: bool,
+
         /// Diff mode: compile to all targets and compare against oracle
         #[arg(long)]
         diff: bool,
@@ -441,6 +447,7 @@ fn main() {
             files,
             target,
             json,
+            draupnir,
             diff,
             fix,
             filter,
@@ -448,9 +455,12 @@ fn main() {
             skip_edge_check,
             test_coverage,
         }) => {
-            // DWARF-129: `--target wasm` routes through the wasmtime test
-            // runner instead of the legacy Jest passthrough, and does NOT
-            // print the "not yet wired (DWARF-118)" note.
+            // DWARF-129 + DWARF-119: `--target wasm` routes through the
+            // wasmtime test runner instead of the legacy Jest passthrough, and
+            // does NOT print the "not yet wired (DWARF-118)" note. The wasm
+            // runner discovers EVERY exported function (except
+            // before_each/after_each hooks), so it picks up both unit `@test`
+            // functions and `@property` tests in the file and reports each one.
             if testing::dispatch::is_wasm_target(&target) {
                 let results = testing::dispatch::run_wasm_tests(&files, filter.as_deref());
                 let passed = results.iter().filter(|r| r.passed).count();
@@ -465,8 +475,19 @@ fn main() {
                     "FAIL"
                 };
                 println!("forge: {status} — {passed}/{total} tests passed");
+                // DWARF-119: a run with any failing test (unit or property)
+                // must exit non-zero so CI can react to regressions.
+                if status == "FAIL" {
+                    process::exit(1);
+                }
             } else {
                 // Legacy path (ts / py / java) — unchanged.
+                if draupnir {
+                    eprintln!(
+                        "forge: note — --draupnir currently requires --target wasm; \
+                         falling through to the legacy runner."
+                    );
+                }
                 eprintln!(
                     "forge: note — DWARF dUnit/wasm executor not yet wired (DWARF-118). \
                      Results below are from the legacy Jest backend."

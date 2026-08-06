@@ -131,15 +131,24 @@ pub fn run_wasm_tests(files: &[PathBuf], filter: Option<&str>) -> Vec<TestResult
                 }
             }
             match runner.run_test(&wasm, &name) {
-                Ok(result) => results.push(TestResultItem {
-                    file: file_str.clone(),
-                    passed: result.passed,
-                    message: result.message.unwrap_or_else(|| "passed".to_string()),
-                }),
+                Ok(result) => {
+                    // Carry the test function name in the message so the CLI
+                    // can report WHICH test ran (the `TestResultItem` shape
+                    // has no dedicated name field).
+                    let message = match result.message {
+                        Some(m) => format!("{name}: {m}"),
+                        None => format!("{name}: passed"),
+                    };
+                    results.push(TestResultItem {
+                        file: file_str.clone(),
+                        passed: result.passed,
+                        message,
+                    })
+                }
                 Err(e) => results.push(TestResultItem {
                     file: file_str.clone(),
                     passed: false,
-                    message: e.to_string(),
+                    message: format!("{name}: {e}"),
                 }),
             }
         }
