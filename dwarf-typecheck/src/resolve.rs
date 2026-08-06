@@ -13,8 +13,8 @@ use dwarf_syntax::hir::{Decl, Param, Type as HirType};
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
 use crate::types::{
-    FieldDef, LiteralType, MethodSig, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID,
-    NEVER_TYPE_ID,
+    FieldDef, LiteralType, MethodSig, NULL_TYPE_ID, RefConstraint, TypeDef, TypeId, VariantDef,
+    ANY_TYPE_ID, NEVER_TYPE_ID,
 };
 
 /// The result of resolving HIR declarations into a TypeRegistry.
@@ -112,10 +112,8 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                         ..
                     } = method
                     {
-                        let (resolved_params, resolved_return) =
-                            resolve_method_signature(params, return_type, registry, &mut name_map);
-                        let func_id =
-                            registry.register(TypeDef::Func(resolved_params, resolved_return));
+                        let (func_id, _, _) =
+                            register_method_signature(params, return_type, registry, &mut name_map);
                         registry.register_method_sig(id, method_name.clone(), func_id);
                     }
                 }
@@ -139,12 +137,8 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
                         ..
                     } = method
                     {
-                        let (resolved_params, resolved_return) =
-                            resolve_method_signature(params, return_type, registry, &mut name_map);
-                        let func_id = registry.register(TypeDef::Func(
-                            resolved_params.clone(),
-                            resolved_return,
-                        ));
+                        let (func_id, resolved_params, resolved_return) =
+                            register_method_signature(params, return_type, registry, &mut name_map);
                         sigs.push(MethodSig {
                             name: method_name.clone(),
                             params: resolved_params,
@@ -278,13 +272,17 @@ pub fn register_decls(registry: &mut TypeRegistry, decls: &[Decl]) -> Resolution
 /// parameter types and the return type to TypeIds.
 ///
 /// The returned parameter list is what a caller supplies explicitly — the
-/// implicit `self` never appears in the registered callable signature.
+/// implicit `self` never appears in the registered callable signature. The
+/// return type is returned as an `Option`: `None` when the method declares no
+/// return type (so the caller only enforces a return contract when one is
+/// actually declared), rather than defaulting to Null which spuriously
+/// rejected `fn get(self) { self.count }`.
 fn resolve_method_signature(
     params: &[Param],
     return_type: &Option<HirType>,
     registry: &mut TypeRegistry,
     name_map: &mut HashMap<String, TypeId>,
-) -> (Vec<TypeId>, TypeId) {
+) -> (Vec<TypeId>, Option<TypeId>) {
     let mut resolved_params: Vec<TypeId> = Vec::with_capacity(params.len());
     for p in params {
         if p.name == "self" {
@@ -292,15 +290,37 @@ fn resolve_method_signature(
         }
         let type_id = match p.type_.as_ref() {
             Some(t) => resolve_hir_type(t, registry, name_map),
-            None => 4, // Null for untyped params
+            None => NULL_TYPE_ID, // Null for untyped params
         };
         resolved_params.push(type_id);
     }
-    let resolved_return = match return_type.as_ref() {
-        Some(t) => resolve_hir_type(t, registry, name_map),
-        None => 4, // Null for void return
-    };
+    let resolved_return = return_type
+        .as_ref()
+        .map(|t| resolve_hir_type(t, registry, name_map));
     (resolved_params, resolved_return)
+}
+
+/// Resolve a method signature and register its callable `TypeDef::Func`
+/// entry. Shared by the `RecordDef` and `Interface` registration loops.
+///
+/// Returns `(func_id, resolved_params, resolved_return)`. The registered
+/// `Func` uses `Null` as the return placeholder when no return type is
+/// declared (a callable signature needs a concrete return type for call/return
+/// inference); the source-level "no return annotation" fact is preserved via
+/// the returned `Option<TypeId>` and stored in [`MethodSig::return_type`].
+fn register_method_signature(
+    params: &[Param],
+    return_type: &Option<HirType>,
+    registry: &mut TypeRegistry,
+    name_map: &mut HashMap<String, TypeId>,
+) -> (TypeId, Vec<TypeId>, Option<TypeId>) {
+    let (resolved_params, resolved_return) =
+        resolve_method_signature(params, return_type, registry, name_map);
+    let func_id = registry.register(TypeDef::Func(
+        resolved_params.clone(),
+        resolved_return.unwrap_or(NULL_TYPE_ID),
+    ));
+    (func_id, resolved_params, resolved_return)
 }
 
 /// Resolve an HIR type expression to a TypeId.

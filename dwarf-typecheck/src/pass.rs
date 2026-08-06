@@ -242,7 +242,7 @@ impl TypeCheckPass {
             if let Decl::Function {
                 name: method_name,
                 params,
-                return_type: _,
+                return_type,
                 body,
                 is_pub: _,
                 decorators: _,
@@ -260,16 +260,21 @@ impl TypeCheckPass {
                 env.bind("self".to_string(), record_id);
 
                 // Bind explicit (non-self) parameters from the method's
-                // registered Func signature, and capture the declared return
-                // type so mismatches in the body are caught.
-                let (func_params, declared_return): (Vec<TypeId>, Option<TypeId>) =
-                    match registry
+                // registered Func signature. The declared return type is only
+                // captured when the source actually declares one — an
+                // unannotated method (e.g. `fn get(self)` or `fn reset(self) { }`)
+                // has no return contract to enforce, mirroring how top-level
+                // functions treat a missing return annotation.
+                let (func_params, declared_return): (Vec<TypeId>, Option<TypeId>) = {
+                    let sig = registry
                         .lookup_method_sig(record_id, method_name)
-                        .and_then(|func_id| registry.get(func_id))
-                    {
-                        Some(TypeDef::Func(func_params, ret)) => (func_params.clone(), Some(*ret)),
+                        .and_then(|func_id| registry.get(func_id));
+                    match (return_type.is_some(), sig) {
+                        (true, Some(TypeDef::Func(params, ret))) => (params.clone(), Some(*ret)),
+                        (false, Some(TypeDef::Func(params, _))) => (params.clone(), None),
                         _ => (Vec::new(), None),
-                    };
+                    }
+                };
                 let explicit_params: Vec<&Param> =
                     params.iter().filter(|p| p.name != "self").collect();
                 for (param, param_type) in explicit_params.iter().zip(func_params.iter()) {
@@ -285,7 +290,9 @@ impl TypeCheckPass {
                                     format!(
                                         "type error in method '{}': return type mismatch: \
                                          expected {}, got {}",
-                                        method_name, declared, body_type
+                                        method_name,
+                                        registry.type_name(declared),
+                                        registry.type_name(body_type),
                                     ),
                                     *method_span,
                                 ));
@@ -343,13 +350,38 @@ impl TypeCheckPass {
                     .and_then(|func_id| registry.get(func_id));
                 match record_method {
                     Some(TypeDef::Func(params, ret)) => {
-                        if params.as_slice() != sig.params.as_slice() || *ret != sig.return_type {
+                        // Compare each parameter type and the return type with
+                        // structural compatibility (which resolves aliases via
+                        // `registry.resolve`) rather than raw TypeId equality,
+                        // so `type MyInt = Int` still conforms to `-> Int`.
+                        let params_ok = params.len() == sig.params.len()
+                            && params
+                                .iter()
+                                .zip(sig.params.iter())
+                                .all(|(actual, expected)| {
+                                    compat::check(registry, *expected, *actual).compatible
+                                });
+                        // The return type is only enforced when the interface
+                        // declares one.
+                        let return_ok = sig.return_type.is_none_or(|expected| {
+                            compat::check(registry, expected, *ret).compatible
+                        });
+                        if !params_ok || !return_ok {
                             errors.push(TypeCheckError::new(
                                 "DWARF-E-TYPE-0011",
                                 format!(
                                     "type '{}' method '{}' does not match interface '{}' \
-                                     signature",
-                                    record_name, sig.name, iface_name
+                                     signature: expected {}, got {}",
+                                    record_name,
+                                    sig.name,
+                                    iface_name,
+                                    render_method_sig(
+                                        registry,
+                                        &sig.name,
+                                        &sig.params,
+                                        sig.return_type,
+                                    ),
+                                    render_method_sig(registry, &sig.name, params, Some(*ret)),
                                 ),
                                 record_span,
                             ));
@@ -385,6 +417,28 @@ impl TypeCheckPass {
 /// Ensure error codes are available from this crate.
 pub fn type_error_codes() -> &'static [&'static str] {
     TYPE_ERROR_CODES
+}
+
+/// Render a method signature as `fn name(param1, param2) -> Ret` for error
+/// messages, using human-readable type names instead of raw TypeIds.
+///
+/// A `None` return type renders without an arrow (the method declares no
+/// return type).
+fn render_method_sig(
+    registry: &TypeRegistry,
+    name: &str,
+    params: &[TypeId],
+    return_type: Option<TypeId>,
+) -> String {
+    let params_str = params
+        .iter()
+        .map(|p| registry.type_name(*p))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match return_type {
+        Some(ret) => format!("fn {name}({params_str}) -> {}", registry.type_name(ret)),
+        None => format!("fn {name}({params_str})"),
+    }
 }
 
 #[cfg(test)]

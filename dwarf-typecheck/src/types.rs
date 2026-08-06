@@ -64,7 +64,10 @@ pub struct VariantDef {
 pub struct MethodSig {
     pub name: String,
     pub params: Vec<TypeId>,
-    pub return_type: TypeId,
+    /// The declared return type, if any. `None` when the method declares no
+    /// return type (e.g. `fn reset(self) { }`) — the return-compat check is
+    /// only enforced when a return type is actually declared.
+    pub return_type: Option<TypeId>,
 }
 
 /// A literal type value (string or integer literal).
