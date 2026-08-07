@@ -12,6 +12,14 @@ use std::path::PathBuf;
 
 use crate::{CompileOptions, DwarfCompiler};
 
+/// Draupnir deep-behavioral PBT engine (DWARF-130).
+///
+/// This module provides the Rust-native generator/shrinking engine exposed as
+/// `dwarf_lib::draupnir::engine`. It ships with the compile-level surface above
+/// (`compile_draupnir`) but implements real property-based testing behavior in
+/// `engine`.
+pub mod engine;
+
 /// The Draupnir runtime source files, in load order.
 const DRAUPNIR_SOURCES: [&str; 3] = ["draupnir.dwarf", "combinators.dwarf", "shrink.dwarf"];
 
