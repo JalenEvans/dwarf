@@ -3,14 +3,15 @@
 //! This pass runs the full type-check pipeline on parsed HIR declarations:
 //! resolution of type declarations, then expression type inference.
 
-use dwarf_syntax::hir::{Decl, Param};
+use dwarf_syntax::hir::{Decl, Expr, Param};
+use dwarf_syntax::span::Span;
 
 use crate::compat;
 use crate::error::{TypeCheckError, TYPE_ERROR_CODES};
 use crate::infer::{infer_expr, TypeEnv};
 use crate::registry::TypeRegistry;
 use crate::resolve;
-use crate::types::{TypeDef, TypeId, ANY_TYPE_ID};
+use crate::types::{TypeDef, TypeId, ANY_TYPE_ID, NULL_TYPE_ID};
 
 /// The type-checking compilation pass.
 ///
@@ -21,6 +22,94 @@ pub struct TypeCheckPass;
 impl Default for TypeCheckPass {
     fn default() -> Self {
         Self
+    }
+}
+
+/// Resolve a type annotation to a `TypeId`, defaulting unsupported/unknown
+/// annotations to `Null` (ID 4) rather than failing.
+///
+/// This is the permissive resolver used when building callable signatures
+/// (`Func` types) for function parameters and top-level function declarations.
+/// It understands the primitive names, `Any`, the built-in generic
+/// constructors, refined annotations, and nested `Func` types — enough to
+/// model the Draupnir runtime's `for_all(gen: Any, property: (Any) -> Bool)`.
+fn func_arg_type(hir_type: &dwarf_syntax::hir::Type, registry: &mut TypeRegistry) -> TypeId {
+    match hir_type {
+        dwarf_syntax::hir::Type::Named(n) => match n.to_lowercase().as_str() {
+            "int" => 0,
+            "float" => 1,
+            "str" | "string" => 2,
+            "bool" => 3,
+            "null" => 4,
+            "any" => ANY_TYPE_ID,
+            _ => 4,
+        },
+        dwarf_syntax::hir::Type::Generic { base, .. } => match base.to_lowercase().as_str() {
+            "option" => 5,
+            "result" => 6,
+            "list" => 7,
+            "map" => 8,
+            _ => 4,
+        },
+        dwarf_syntax::hir::Type::Refined { base, .. } => func_arg_type(base, registry),
+        dwarf_syntax::hir::Type::Func { params, return_ } => {
+            let func_params: Vec<TypeId> = params
+                .iter()
+                .map(|p| func_arg_type(p, registry))
+                .collect();
+            let func_return = func_arg_type(return_, registry);
+            registry.register(TypeDef::Func(func_params, func_return))
+        }
+        _ => 4,
+    }
+}
+
+/// Resolve a type annotation for a *sibling-function signature* without the
+/// ambiguous fallbacks of [`func_arg_type`]. Returns `Some(id)` only when the
+/// annotation resolves to a genuinely usable signature type — a primitive,
+/// `Any`, a (nested) `Func`, or a refined type over one of those — and `None`
+/// when [`func_arg_type`] would have silently coerced it to `Null` or a bare
+/// generic-constructor id.
+///
+/// DWARF-130: sibling bindings must NOT mis-type general calls. E.g. a
+/// `fn total(items: List<Int>)` collapses `List<Int>` to the bare `List`
+/// constructor id, so a call from `main` would produce the misleading
+/// `expected List, got List<Int>`. Returning `None` lets the caller skip
+/// binding that sibling so the call reports a clean `unknown variable`
+/// instead of a silently-wrong signature.
+fn func_arg_clean(
+    hir_type: &dwarf_syntax::hir::Type,
+    registry: &mut TypeRegistry,
+) -> Option<TypeId> {
+    match hir_type {
+        dwarf_syntax::hir::Type::Named(n) => match n.to_lowercase().as_str() {
+            "int" => Some(0),
+            "float" => Some(1),
+            "str" | "string" => Some(2),
+            "bool" => Some(3),
+            "null" => Some(4),
+            "any" => Some(ANY_TYPE_ID),
+            // Unknown named type (user record/union/alias) — `func_arg_type`
+            // would fall back to Null. Ambiguous, so unresolvable for a
+            // sibling signature.
+            _ => None,
+        },
+        // Generic instantiations (`List<Any>`, `Option<Int>`, ...) drop their
+        // type arguments under `func_arg_type`, collapsing to a bare
+        // constructor id that mis-types a parameter as something else.
+        // Unresolvable for a sibling signature.
+        dwarf_syntax::hir::Type::Generic { .. } => None,
+        dwarf_syntax::hir::Type::Refined { base, .. } => func_arg_clean(base, registry),
+        dwarf_syntax::hir::Type::Func { params, return_ } => {
+            let mut func_params: Vec<TypeId> = Vec::with_capacity(params.len());
+            for p in params {
+                func_params.push(func_arg_clean(p, registry)?);
+            }
+            let func_return = func_arg_clean(return_, registry)?;
+            Some(registry.register(TypeDef::Func(func_params, func_return)))
+        }
+        // Inline records, unions, keyof/access types, etc. — unresolvable.
+        _ => None,
     }
 }
 
@@ -43,6 +132,57 @@ impl TypeCheckPass {
         errors.extend(result.errors);
 
         // Phase 2: Infer types for function declarations
+
+        // Phase 2a: Register every top-level function signature so that a body
+        // may call a sibling function defined in the same module (DWARF-130:
+        // the Draupnir runtime's `for_all` called from a property body). The
+        // `Func` signature is built from the declaration's annotated params and
+        // return type; unannotated params default to `Null` (mirroring the
+        // parameter-binding path below).
+        //
+        // GATED (DWARF-130 hardening): a sibling is only bound when EVERY one
+        // of its annotated params resolves cleanly through `func_arg_clean`
+        // (primitive/`Any`/`Func`). If any param is unresolvable — an unknown
+        // named type, or a generic instantiation like `List<Int>` that
+        // `func_arg_type` would collapse to a bare `List` — the whole sibling
+        // signature is skipped, so calls to it surface a clean `unknown
+        // variable` instead of a silently-wrong signature.
+        let mut fn_signatures: std::collections::HashMap<String, TypeId> =
+            std::collections::HashMap::new();
+        for decl in decls {
+            if let Decl::Function {
+                name,
+                params,
+                return_type,
+                ..
+            } = decl
+            {
+                let mut resolvable = true;
+                let mut resolved_params: Vec<TypeId> = Vec::with_capacity(params.len());
+                for p in params {
+                    match &p.type_ {
+                        Some(ty) => match func_arg_clean(ty, &mut registry) {
+                            Some(id) => resolved_params.push(id),
+                            None => {
+                                resolvable = false;
+                                break;
+                            }
+                        },
+                        None => resolved_params.push(NULL_TYPE_ID),
+                    }
+                }
+                if !resolvable {
+                    continue;
+                }
+                let resolved_return = return_type
+                    .as_ref()
+                    .map(|ty| func_arg_type(ty, &mut registry))
+                    .unwrap_or(NULL_TYPE_ID);
+                let func_id = registry.register(TypeDef::Func(resolved_params, resolved_return));
+                fn_signatures.insert(name.clone(), func_id);
+            }
+        }
+
         for decl in decls {
             if let Decl::Function {
                 name,
@@ -54,145 +194,51 @@ impl TypeCheckPass {
                 ..
             } = decl
             {
-                let mut env = TypeEnv::new();
-
-                // Bind extern function names so they're available in function bodies
-                for (extern_name, extern_type_id) in &extern_map {
-                    env.bind(extern_name.clone(), *extern_type_id);
-                }
-
-                // Bind parameter types from type annotations
-                for param in params {
-                    if let Some(ref hir_type) = param.type_ {
-                        // Resolve named types using simple name lookup
-                        let type_id = match hir_type {
-                            dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
-                                "int" | "Int" => 0,
-                                "float" | "Float" => 1,
-                                "str" | "Str" | "string" | "String" => 2,
-                                "bool" | "Bool" => 3,
-                                "null" | "Null" => 4,
-                                "any" | "Any" => ANY_TYPE_ID,
-                                unknown => {
-                                    errors.push(TypeCheckError::new(
-                                        "DWARF-E-TYPE-0002",
-                                        format!("unknown type: {}", unknown),
-                                        *span,
-                                    ));
-                                    continue;
-                                }
-                            },
-                            dwarf_syntax::hir::Type::Generic { base, args: _ } => {
-                                // Simple base name resolution for generic annotations
-                                match base.as_str() {
-                                    "int" | "Int" | "float" | "Float" | "str" | "Str"
-                                    | "string" | "String" | "bool" | "Bool" | "null" | "Null" => {
-                                        // Use the concrete registration for generic types
-                                        errors.push(TypeCheckError::new(
-                                            "DWARF-E-TYPE-0008",
-                                            format!(
-                                                "cannot fully infer generic type parameter in '{}'",
-                                                base
-                                            ),
-                                            *span,
-                                        ));
-                                        continue;
-                                    }
-                                    // Built-in generic type constructors are valid annotations
-                                    "Option" | "Result" | "List" | "Map" => {
-                                        let builtin_id = match base.as_str() {
-                                            "Option" => 5,
-                                            "Result" => 6,
-                                            "List" => 7,
-                                            "Map" => 8,
-                                            _ => unreachable!(),
-                                        };
-                                        builtin_id
-                                    }
-                                    _ => {
-                                        errors.push(TypeCheckError::new(
-                                            "DWARF-E-TYPE-0002",
-                                            format!("unknown generic type: {}", base),
-                                            *span,
-                                        ));
-                                        continue;
-                                    }
-                                }
-                            }
-                            dwarf_syntax::hir::Type::Refined { base, constraint } => {
-                                // Register the refined type in the registry so
-                                // infer_call can validate literal arguments against
-                                // Range and NonEmpty constraints.
-                                let base_type_id = match base.as_ref() {
-                                    dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
-                                        "int" | "Int" => 0,
-                                        "float" | "Float" => 1,
-                                        "str" | "Str" | "string" | "String" => 2,
-                                        "bool" | "Bool" => 3,
-                                        "null" | "Null" => 4,
-                                        "any" | "Any" => ANY_TYPE_ID,
-                                        unknown => {
-                                            errors.push(TypeCheckError::new(
-                                                "DWARF-E-TYPE-0002",
-                                                format!("unknown type: {}", unknown),
-                                                *span,
-                                            ));
-                                            continue;
-                                        }
-                                    },
-                                    _ => {
-                                        errors.push(TypeCheckError::new(
-                                            "DWARF-E-TYPE-0008",
-                                            format!(
-                                                "unsupported base type in refined annotation for parameter '{}'",
-                                                param.name
-                                            ),
-                                            *span,
-                                        ));
-                                        continue;
-                                    }
-                                };
-                                let tc_constraint = resolve::convert_ref_constraint(constraint);
-                                registry.register(TypeDef::Refined {
-                                    base: base_type_id,
-                                    constraint: tc_constraint,
-                                })
-                            }
-                            _ => {
-                                errors.push(TypeCheckError::new(
-                                    "DWARF-E-TYPE-0008",
-                                    format!(
-                                        "unsupported type annotation for parameter '{}'",
-                                        param.name
-                                    ),
-                                    *span,
-                                ));
-                                continue;
-                            }
-                        };
-                        env.bind(param.name.clone(), type_id);
-                    }
-                    // Parameters without type annotations get inferred from usage
-                }
-
-                // Infer the body type
-                match infer_expr(body, &env, &mut registry) {
-                    Ok(_) => {} // body type inferred successfully
-                    Err(msg) => {
-                        errors.push(TypeCheckError::new(
-                            "DWARF-E-TYPE-0001",
-                            format!("type error in function '{}': {}", name, msg),
-                            *span,
-                        ));
-                    }
-                }
+                self.infer_function_body(
+                    name,
+                    params,
+                    body,
+                    &extern_map,
+                    &fn_signatures,
+                    &mut registry,
+                    &mut errors,
+                    span,
+                );
             } else if let Decl::Decorator { target, .. } = decl {
-                // Recursively typecheck the decorator's target.
-                // This handles nested decorators (e.g. @A @B fn foo() { ... })
-                // since each Decorator's target is unwrapped and fed back
-                // into the same top-level loop via check().
-                let (_, inner_errors) = self.check(std::slice::from_ref(target.as_ref()));
-                errors.extend(inner_errors);
+                // Unwrap nested decorators and type-check the innermost target
+                // with the SAME sibling set (`fn_signatures`) as the enclosing
+                // pass, so a decorator-wrapped function still resolves its
+                // sibling top-level functions. The previous recursion through
+                // `self.check(&[target])` rebuilt a fresh single-decl set and
+                // dropped sibling resolution entirely (DWARF-130). The wasm
+                // production path pushes known decorators onto
+                // `Function.decorators` and never reaches these raw
+                // `Decl::Decorator` nodes, so the wasm path is unaffected.
+                let mut unwrapped = target.as_ref();
+                while let Decl::Decorator { target: inner, .. } = unwrapped {
+                    unwrapped = inner.as_ref();
+                }
+                if let Decl::Function {
+                    name,
+                    params,
+                    return_type: _,
+                    body,
+                    is_pub: _,
+                    span,
+                    ..
+                } = unwrapped
+                {
+                    self.infer_function_body(
+                        name,
+                        params,
+                        body,
+                        &extern_map,
+                        &fn_signatures,
+                        &mut registry,
+                        &mut errors,
+                        span,
+                    );
+                }
             } else if let Decl::RecordDef {
                 name: record_name,
                 methods,
@@ -224,6 +270,183 @@ impl TypeCheckPass {
         }
 
         (registry, errors)
+    }
+
+    /// Infer a single top-level function body.
+    ///
+    /// The environment is bound in order: extern functions, sibling
+    /// top-level function signatures (DWARF-130), then the function's own
+    /// parameter annotations. Binding params AFTER the sibling map preserves
+    /// the existing shadowing rule — a local/parameter that shares a sibling
+    /// function's name still shadows it.
+    ///
+    /// The sibling map is only consulted here (never exposed as general module
+    /// resolution): sibling calls only resolve when the name is already bound
+    /// and `infer_call` type-checks the arguments against the sibling's Func
+    /// signature, so wrong-arity/wrong-type sibling calls still error instead
+    /// of being silently accepted.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_function_body(
+        &self,
+        name: &str,
+        params: &[Param],
+        body: &Expr,
+        extern_map: &std::collections::HashMap<String, TypeId>,
+        fn_signatures: &std::collections::HashMap<String, TypeId>,
+        registry: &mut TypeRegistry,
+        errors: &mut Vec<TypeCheckError>,
+        span: &Span,
+    ) {
+        let mut env = TypeEnv::new();
+
+        // Bind extern function names so they're available in function bodies
+        for (extern_name, extern_type_id) in extern_map {
+            env.bind(extern_name.clone(), *extern_type_id);
+        }
+
+        // Bind sibling top-level function names so calls to them resolve
+        // instead of surfacing as `unknown variable: <fn>`.
+        for (fn_name, fn_type_id) in fn_signatures {
+            env.bind(fn_name.clone(), *fn_type_id);
+        }
+
+        // Bind parameter types from type annotations
+        for param in params {
+            if let Some(ref hir_type) = param.type_ {
+                // Resolve named types using simple name lookup
+                let type_id = match hir_type {
+                    dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
+                        "int" | "Int" => 0,
+                        "float" | "Float" => 1,
+                        "str" | "Str" | "string" | "String" => 2,
+                        "bool" | "Bool" => 3,
+                        "null" | "Null" => 4,
+                        "any" | "Any" => ANY_TYPE_ID,
+                        unknown => {
+                            errors.push(TypeCheckError::new(
+                                "DWARF-E-TYPE-0002",
+                                format!("unknown type: {}", unknown),
+                                *span,
+                            ));
+                            continue;
+                        }
+                    },
+                    dwarf_syntax::hir::Type::Generic { base, args: _ } => {
+                        // Simple base name resolution for generic annotations
+                        match base.as_str() {
+                            "int" | "Int" | "float" | "Float" | "str" | "Str"
+                            | "string" | "String" | "bool" | "Bool" | "null" | "Null" => {
+                                // Use the concrete registration for generic types
+                                errors.push(TypeCheckError::new(
+                                    "DWARF-E-TYPE-0008",
+                                    format!(
+                                        "cannot fully infer generic type parameter in '{}'",
+                                        base
+                                    ),
+                                    *span,
+                                ));
+                                continue;
+                            }
+                            // Built-in generic type constructors are valid annotations
+                            "Option" | "Result" | "List" | "Map" => {
+                                let builtin_id = match base.as_str() {
+                                    "Option" => 5,
+                                    "Result" => 6,
+                                    "List" => 7,
+                                    "Map" => 8,
+                                    _ => unreachable!(),
+                                };
+                                builtin_id
+                            }
+                            _ => {
+                                errors.push(TypeCheckError::new(
+                                    "DWARF-E-TYPE-0002",
+                                    format!("unknown generic type: {}", base),
+                                    *span,
+                                ));
+                                continue;
+                            }
+                        }
+                    }
+                    dwarf_syntax::hir::Type::Refined { base, constraint } => {
+                        // Register the refined type in the registry so
+                        // infer_call can validate literal arguments against
+                        // Range and NonEmpty constraints.
+                        let base_type_id = match base.as_ref() {
+                            dwarf_syntax::hir::Type::Named(n) => match n.as_str() {
+                                "int" | "Int" => 0,
+                                "float" | "Float" => 1,
+                                "str" | "Str" | "string" | "String" => 2,
+                                "bool" | "Bool" => 3,
+                                "null" | "Null" => 4,
+                                "any" | "Any" => ANY_TYPE_ID,
+                                unknown => {
+                                    errors.push(TypeCheckError::new(
+                                        "DWARF-E-TYPE-0002",
+                                        format!("unknown type: {}", unknown),
+                                        *span,
+                                    ));
+                                    continue;
+                                }
+                            },
+                            _ => {
+                                errors.push(TypeCheckError::new(
+                                    "DWARF-E-TYPE-0008",
+                                    format!(
+                                        "unsupported base type in refined annotation for parameter '{}'",
+                                        param.name
+                                    ),
+                                    *span,
+                                ));
+                                continue;
+                            }
+                        };
+                        let tc_constraint = resolve::convert_ref_constraint(constraint);
+                        registry.register(TypeDef::Refined {
+                            base: base_type_id,
+                            constraint: tc_constraint,
+                        })
+                    }
+                    dwarf_syntax::hir::Type::Func { params, return_ } => {
+                        // Function-typed parameters (e.g. the Draupnir
+                        // runtime's `property: (Any) -> Bool`) are a supported
+                        // annotation: resolve each param and the return type
+                        // into a registered `Func` type.
+                        let func_params: Vec<TypeId> = params
+                            .iter()
+                            .map(|p| func_arg_type(p, registry))
+                            .collect();
+                        let func_return = func_arg_type(return_, registry);
+                        registry.register(TypeDef::Func(func_params, func_return))
+                    }
+                    _ => {
+                        errors.push(TypeCheckError::new(
+                            "DWARF-E-TYPE-0008",
+                            format!(
+                                "unsupported type annotation for parameter '{}'",
+                                param.name
+                            ),
+                            *span,
+                        ));
+                        continue;
+                    }
+                };
+                env.bind(param.name.clone(), type_id);
+            }
+            // Parameters without type annotations get inferred from usage
+        }
+
+        // Infer the body type
+        match infer_expr(body, &env, registry) {
+            Ok(_) => {} // body type inferred successfully
+            Err(msg) => {
+                errors.push(TypeCheckError::new(
+                    "DWARF-E-TYPE-0001",
+                    format!("type error in function '{}': {}", name, msg),
+                    *span,
+                ));
+            }
+        }
     }
 
     /// Type-check every method body of a record with the implicit `self`
@@ -1301,6 +1524,362 @@ mod tests {
             !has_unsupported_error,
             "Refined type annotation should NOT produce 'unsupported type annotation' \
              error, but got: {:?}",
+            errors
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // DWARF-130 sibling top-level function binding — regression coverage.
+    //
+    // These pin the sibling-signature behavior: a function body may call a
+    // top-level sibling function (its signature resolves from the sibling's
+    // declared params), the call is type-checked for arity and argument types
+    // (not silently accepted), and function-typed parameters are a supported
+    // annotation.
+    // ------------------------------------------------------------------
+
+    /// A function body calling a sibling top-level function with a resolvable
+    /// signature (`g(x: Any) -> Bool`) must resolve and type-check with NO
+    /// `unknown variable` diagnostic.
+    #[test]
+    fn test_property_sibling_function_resolves_in_pass() {
+        let pass = TypeCheckPass::new();
+
+        let g = Decl::Function {
+            name: "g".to_string(),
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Named("Any".to_string())),
+            }],
+            return_type: Some(Type::Named("Bool".to_string())),
+            // `g(1)` must evaluate to Bool because `x: Any` — the sibling
+            // signature must carry the `Any` param so the Int literal is valid.
+            body: Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let main = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: Some(Type::Named("Bool".to_string())),
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "g".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Int(1),
+                    span: dummy_span(),
+                }],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let (_registry, errors) = pass.check(&[g, main]);
+        assert!(
+            errors.is_empty(),
+            "a sibling call with a resolvable signature should type-check cleanly, \
+             but got: {:?}",
+            errors
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("unknown variable")),
+            "the sibling function must resolve (no 'unknown variable' diagnostic): {:?}",
+            errors
+        );
+    }
+
+    /// A sibling call with the wrong number of arguments must produce an
+    /// `argument count mismatch` (not be silently accepted).
+    #[test]
+    fn test_sibling_arity_mismatch_errors() {
+        let pass = TypeCheckPass::new();
+
+        let g = Decl::Function {
+            name: "g".to_string(),
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Named("Any".to_string())),
+            }],
+            return_type: Some(Type::Named("Bool".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        // `fn main() { g() }` — calls `g` with zero args but it takes one.
+        let main = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "g".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let (_registry, errors) = pass.check(&[g, main]);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("argument count mismatch")),
+            "a sibling call with the wrong arity must surface an 'argument count \
+             mismatch', but got: {:?}",
+            errors
+        );
+    }
+
+    /// A sibling call with the wrong argument type must produce a type-mismatch
+    /// error (not be silently accepted).
+    #[test]
+    fn test_sibling_wrong_arg_type_errors() {
+        let pass = TypeCheckPass::new();
+
+        // `g(x: Int) -> Bool` — only Int is accepted.
+        let g = Decl::Function {
+            name: "g".to_string(),
+            params: vec![Param {
+                name: "x".to_string(),
+                type_: Some(Type::Named("Int".to_string())),
+            }],
+            return_type: Some(Type::Named("Bool".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        // `fn main() { g("hello") }` — Str is incompatible with Int.
+        let main = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "g".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![Expr::Literal {
+                    value: LiteralValue::Str("hello".to_string()),
+                    span: dummy_span(),
+                }],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let (_registry, errors) = pass.check(&[g, main]);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("mismatch") || e.message.contains("expected")),
+            "a sibling call with a wrong argument type must produce a type-mismatch \
+             error, but got: {:?}",
+            errors
+        );
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("unknown variable")),
+            "the sibling must be resolved (no 'unknown variable'), the error must be a \
+             genuine type mismatch: {:?}",
+            errors
+        );
+    }
+
+    /// A function with a `(Any) -> Bool` parameter annotation must type-check
+    /// WITHOUT the DWARF-E-TYPE-0008 error that previously fired for
+    /// function-typed parameters.
+    #[test]
+    fn test_func_typed_param_annotation_accepted() {
+        let pass = TypeCheckPass::new();
+        let decls = vec![Decl::Function {
+            name: "f".to_string(),
+            params: vec![Param {
+                name: "pred".to_string(),
+                type_: Some(Type::Func {
+                    params: vec![Type::Named("Any".to_string())],
+                    return_: Box::new(Type::Named("Bool".to_string())),
+                }),
+            }],
+            return_type: None,
+            body: Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        }];
+
+        let (_registry, errors) = pass.check(&decls);
+        assert!(
+            errors.is_empty(),
+            "a `(Any) -> Bool` parameter annotation must type-check without errors: {:?}",
+            errors
+        );
+        assert!(
+            !errors.iter().any(|e| e.code == "DWARF-E-TYPE-0008"),
+            "function-typed parameters must NOT produce the DWARF-E-TYPE-0008 \
+             'unsupported type annotation' error: {:?}",
+            errors
+        );
+    }
+
+    /// A parameter annotated with a generic instantiation (`List<Int>`) makes the
+    /// whole sibling unresolvable, so the sibling is NOT bound — a call to it
+    /// surfaces a clean `unknown variable` instead of a misleading `List`.
+    #[test]
+    fn test_sibling_unresolvable_param_not_bound() {
+        let pass = TypeCheckPass::new();
+
+        // `fn total(items: List<Int>) -> Int { 1 }`. `List<Int>` would collapse to a
+        // bare `List` under `func_arg_type`, which is not a faithful signature, so
+        // `total` must NOT be bound as a sibling.
+        let total = Decl::Function {
+            name: "total".to_string(),
+            params: vec![Param {
+                name: "items".to_string(),
+                type_: Some(Type::Generic {
+                    base: "List".to_string(),
+                    args: vec![Type::Named("Int".to_string())],
+                }),
+            }],
+            return_type: Some(Type::Named("Int".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Int(1),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        // `fn run() { total }` — referencing the unresolvable sibling must NOT
+        // produce a misleading arity/type-checkable signature. A clean
+        // `unknown variable: total` is preferable.
+        let run = Decl::Function {
+            name: "run".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Variable {
+                name: "total".to_string(),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let (_registry, errors) = pass.check(&[total, run]);
+        // Because `total` was deliberately not bound, `run` cannot resolve it.
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("unknown variable: total")),
+            "an unresolvable-generic sibling must not be bound — 'run' should see a \
+             clean 'unknown variable: total' (not a silently-wrong List signature), \
+             but got: {:?}",
+            errors
+        );
+    }
+
+    /// Calling a function whose parameter is `(Any) -> Bool` with a lambda of the
+    /// wrong arity must be rejected with a type mismatch.
+    #[test]
+    fn test_func_typed_param_wrong_arity_caught() {
+        let pass = TypeCheckPass::new();
+
+        // `fn f(p: (Any) -> Bool) -> Bool { true }` — `p` takes exactly one arg.
+        let f = Decl::Function {
+            name: "f".to_string(),
+            params: vec![Param {
+                name: "p".to_string(),
+                type_: Some(Type::Func {
+                    params: vec![Type::Named("Any".to_string())],
+                    return_: Box::new(Type::Named("Bool".to_string())),
+                }),
+            }],
+            return_type: Some(Type::Named("Bool".to_string())),
+            body: Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        // `fn main() { f((a: Any, b: Any) -> Bool { true }) }` — a two-argument
+        // lambda is passed to a one-argument `(Any) -> Bool` parameter.
+        let wrong_arity_lambda = Expr::Lambda {
+            params: vec![
+                Param {
+                    name: "a".to_string(),
+                    type_: Some(Type::Named("Any".to_string())),
+                },
+                Param {
+                    name: "b".to_string(),
+                    type_: Some(Type::Named("Any".to_string())),
+                },
+            ],
+            body: Box::new(Expr::Literal {
+                value: LiteralValue::Bool(true),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
+        };
+
+        let main = Decl::Function {
+            name: "main".to_string(),
+            params: vec![],
+            return_type: None,
+            body: Expr::Call {
+                func: Box::new(Expr::Variable {
+                    name: "f".to_string(),
+                    span: dummy_span(),
+                }),
+                args: vec![wrong_arity_lambda],
+                span: dummy_span(),
+            },
+            is_pub: true,
+            decorators: vec![],
+            span: dummy_span(),
+        };
+
+        let (_registry, errors) = pass.check(&[f, main]);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("mismatch") || e.message.contains("expected")),
+            "a lambda with the wrong arity passed to a `(Any) -> Bool` parameter must \
+             be rejected, but got: {:?}",
             errors
         );
     }
