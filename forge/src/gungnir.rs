@@ -45,13 +45,19 @@ pub struct GungnirResult {
     pub function: String,
     /// The solver verdict for this function.
     pub verdict: Verdict,
+    /// Whether the function's contract carries an `@invariant`.
+    ///
+    /// Drives the honest AC-1 disclosure: `@invariant` is verified as an ENTRY
+    /// (data-consistency) invariant, not as an inductive check across all
+    /// reachable states, and the human report says so.
+    pub has_invariant: bool,
 }
 
 impl GungnirResult {
     /// Human-readable report line, e.g.
     /// `gungnir: abs — proved` or `gungnir: identity — counterexample (a = 5)`.
     fn report_line(&self) -> String {
-        match &self.verdict {
+        let base = match &self.verdict {
             Verdict::Counterexample { model } => {
                 let bindings = format_model(model);
                 if bindings.is_empty() {
@@ -63,7 +69,20 @@ impl GungnirResult {
                     )
                 }
             }
-            _ => format!("gungnir: {} — {}", self.function, self.verdict.label()),
+            Verdict::Proved => format!("gungnir: {} — proved", self.function),
+            Verdict::Unproven { reason } => {
+                format!("gungnir: {} — unproven ({})", self.function, reason)
+            }
+            Verdict::Error { reason } => {
+                format!("gungnir: {} — error ({})", self.function, reason)
+            }
+        };
+        // AC-1: disclose that @invariant is verified as an ENTRY invariant so
+        // `proved` is not oversold as an inductive check across all states.
+        if self.has_invariant {
+            format!("{} (entry-invariant)", base)
+        } else {
+            base
         }
     }
 
@@ -232,55 +251,60 @@ fn verify_file(
 
     let functions = discover_gungnir(&decls);
 
-    let mut results = Vec::new();
-    for f in &functions {
-        // Soundness gate: reject functions outside the verifiable v1 subset
-        // BEFORE building/running a query so we never report a false verdict.
-        if let Some(reason) = unsupported_reason(f) {
+let mut results = Vec::new();
+        for f in &functions {
+            let has_invariant = f.contract.invariant.is_some();
+
+            // Soundness gate: reject functions outside the verifiable v1 subset
+            // BEFORE building/running a query so we never report a false verdict.
+            if let Some(reason) = unsupported_reason(f) {
+                results.push(GungnirResult {
+                    file: file_str.clone(),
+                    function: f.name.clone(),
+                    verdict: Verdict::Unproven {
+                        reason: format!("unsupported: {}", reason),
+                    },
+                    has_invariant,
+                });
+                continue;
+            }
+
+            // A function with NO post-condition has nothing to disprove; reporting
+            // it as `counterexample` would conflate "no contract" with "violated".
+            // Report `unproven` instead.
+            if f.contract.post.is_none() {
+                results.push(GungnirResult {
+                    file: file_str.clone(),
+                    function: f.name.clone(),
+                    verdict: Verdict::Unproven {
+                        reason: "no post-condition".to_string(),
+                    },
+                    has_invariant,
+                });
+                continue;
+            }
+
+            let query = build_verification_query(f);
+            let verdict = match run_solver(z3, &query, timeout_ms) {
+                Ok(stdout) => parse_smt_output(&stdout),
+                Err(SolverError::Timeout) => Verdict::Unproven {
+                    reason: format!("solver exceeded {}ms budget", timeout_ms),
+                },
+                Err(SolverError::Spawn(e)) => {
+                    return Err(format!("failed to start z3: {}", e));
+                }
+                Err(SolverError::Io(e)) => {
+                    return Err(format!("z3 I/O error: {}", e));
+                }
+            };
             results.push(GungnirResult {
                 file: file_str.clone(),
                 function: f.name.clone(),
-                verdict: Verdict::Unproven {
-                    reason: format!("unsupported: {}", reason),
-                },
+                verdict,
+                has_invariant,
             });
-            continue;
         }
-
-        // A function with NO post-condition has nothing to disprove; reporting
-        // it as `counterexample` would conflate "no contract" with "violated".
-        // Report `unproven` instead.
-        if f.contract.post.is_none() {
-            results.push(GungnirResult {
-                file: file_str.clone(),
-                function: f.name.clone(),
-                verdict: Verdict::Unproven {
-                    reason: "no post-condition".to_string(),
-                },
-            });
-            continue;
-        }
-
-        let query = build_verification_query(f);
-        let verdict = match run_solver(z3, &query, timeout_ms) {
-            Ok(stdout) => parse_smt_output(&stdout),
-            Err(SolverError::Timeout) => Verdict::Unproven {
-                reason: format!("solver exceeded {}ms budget", timeout_ms),
-            },
-            Err(SolverError::Spawn(e)) => {
-                return Err(format!("failed to start z3: {}", e));
-            }
-            Err(SolverError::Io(e)) => {
-                return Err(format!("z3 I/O error: {}", e));
-            }
-        };
-        results.push(GungnirResult {
-            file: file_str.clone(),
-            function: f.name.clone(),
-            verdict,
-        });
-    }
-    Ok(results)
+        Ok(results)
 }
 
 // ---------------------------------------------------------------------------

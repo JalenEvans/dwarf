@@ -339,9 +339,10 @@ pub fn build_verification_query(f: &GungnirFunction) -> String {
     // 1. declare-const each param / hoisted record field
     lines.extend(declares);
 
-    // 2. declare-const <param>@pre for old-referenced params
-    for param in &old_bindings {
-        lines.push(format!("(declare-const {}@pre Int)", param));
+    // 2. declare-const the pre-state symbol for every symbol referenced under
+    //    old() (bare params and record fields of record-typed params)
+    for (_, pre) in &old_bindings {
+        lines.push(format!("(declare-const {} Int)", pre));
     }
 
     // 3. declare-const result in the function's actual return sort
@@ -352,9 +353,10 @@ pub fn build_verification_query(f: &GungnirFunction) -> String {
         .unwrap_or("Int");
     lines.push(format!("(declare-const result {})", result_sort));
 
-    // 4. assert (= <param> <param>@pre) for old-referenced params
-    for param in &old_bindings {
-        lines.push(format!("(assert (= {} {}@pre))", param, param));
+    // 4. assert (= <current> <pre>) tying each pre-state symbol to its current
+    //    state (params are immutable inputs, so the equality is sound)
+    for (current, pre) in &old_bindings {
+        lines.push(format!("(assert (= {} {}))", current, pre));
     }
 
     // 4b. honor refined-type domains on parameters
@@ -395,13 +397,22 @@ lines.join("\n")
 ///   declared parameter. `old()` is only meaningful in *contract conditions*,
 ///   so `old()` in a body is rejected. A body like `result + 1` would otherwise
 ///   build `(= result (+ result 1))` which is trivially unsat → a **vacuous
-///   `Proved`**
-///   (nothing — see the DWARF-120 soundness hardening).
+///   `Proved`** (see the DWARF-120 soundness hardening).
+/// - A body containing multiple statements, or a body node outside the v1
+///   subset (e.g. `match`), which would otherwise be translated into an invalid
+///   SMT script that surfaces as a bare `error` (DWARF-131 AC-5).
 /// - A return (or param) type that does not map to a supported SMT sort
 ///   (`Int`/`Bool`/`String`/`Float`) — e.g. a record-return or unknown name;
 ///   without this the engine emits a wrong-sort `result` declaration.
-/// - `old(...)` taking a non-param argument (member/compound), which would emit
-///   an undeclared `@pre` symbol and make z3 fail with `unknown constant`.
+///
+/// `old(member)` / `old(compound)` arguments in *contract conditions* are
+/// first-class (DWARF-131 AC-2); they are supported here, materialised by the
+/// query builder, and NOT rejected. Only `old(...)` inside a *body* is
+/// rejected via the body free-ref check. A contract-side `old(...)` argument
+/// that references a *true free symbol* — a bare non-parameter, or a function
+/// head (e.g. `old(max(a, b))`) — is rejected here so the CLI reports a clean
+/// `unproven (unsupported: ...)` rather than letting the free symbol slide
+/// through to a z3 `unknown constant` `error`.
 ///
 /// Returns `Some(reason)` to reject, or `None` if soundly verifiable.
 pub fn unsupported_reason(f: &GungnirFunction) -> Option<String> {
@@ -443,91 +454,105 @@ pub fn unsupported_reason(f: &GungnirFunction) -> Option<String> {
         ));
     }
 
-    // 4. `old(...)` must take a bare parameter argument. `old(w.balance)` /
-    //    `old(a + b)` would emit an undeclared `@pre` symbol (`w@pre.balance`,
-    //    `a@pre`) and make z3 fail with `unknown constant`.
-    for cond in [&f.contract.pre, &f.contract.post, &f.contract.invariant]
-        .into_iter()
-        .flatten()
-    {
-        if let Some(bad) = old_unsupported_arg(cond, &param_names) {
-            return Some(format!(
-                "unsupported `old(...)` argument `{}` in a contract condition \
-                 (v1 supports only `old(param)`)",
-                bad
-            ));
-        }
+    // 3b. The body must be a supported v1 shape: a single expression (or a
+    //     block with exactly one expression statement) whose nodes are all in
+    //     the v1 subset. A multi-statement body or an unsupported body node
+    //     (e.g. `match`) would otherwise be translated into an invalid SMT
+    //     script that surfaces as a bare `error`.
+    if let Some(reason) = unsupported_body_reason(f) {
+        return Some(reason);
+    }
+
+    // 3c. Contract-side `old(...)`: every argument must only reference
+    //     parameter-rooted symbols (bare params, or member chains rooted at a
+    //     record param). A true free symbol or function head inside `old(...)`
+    //     (e.g. `@ensures(old(max(a, b)) > 0)` or `old(free_var)`) would
+    //     otherwise fall through to a z3 `unknown constant` `error`; reject it
+    //     cleanly as `unsupported` instead. First-class `old(w.balance)` and
+    //     `old(a + b)` (param/record-field-rooted compounds) are unaffected.
+    if let Some(bad) = contract_old_unsupported(f) {
+        return Some(format!(
+            "old() references unsupported symbol `{bad}` in a contract (only \
+             parameters or record fields of parameters may appear inside old())"
+        ));
     }
 
     None
 }
 
-/// Detect an `old(...)` call whose argument is not a bare parameter reference.
-fn old_unsupported_arg(
-    expr: &Expr,
-    params: &std::collections::HashSet<&str>,
-) -> Option<String> {
-    match expr {
-        Expr::Call { func, args, .. } => {
-            if let Expr::Variable { name, .. } = func.as_ref() {
-                if name == "old" {
-                    match args.as_slice() {
-                        [Expr::Variable { name, .. }] if params.contains(name.as_str()) => {
-                            // Bare parameter reference — supported.
-                        }
-                        [arg] => {
-                            return Some(format!("{:?}", arg));
-                        }
-                        _ => {
-                            return Some("old()".to_string());
-                        }
-                    }
-                }
-            }
-            for a in args {
-                if let Some(bad) = old_unsupported_arg(a, params) {
-                    return Some(bad);
-                }
-            }
-            None
+/// Reject bodies that are outside the v1 subset: multi-statement blocks and
+/// unsupported body nodes (e.g. `match`). Returns `Some(reason)` to reject.
+fn unsupported_body_reason(f: &GungnirFunction) -> Option<String> {
+    if let Expr::Block { stmts, .. } = &f.body {
+        if stmts.len() > 1 {
+            return Some(
+                "unsupported body: multiple statements (v1 verifies a single-expression body)"
+                    .to_string(),
+            );
         }
+    }
+    unsupported_body_node(&f.body).map(|node| {
+        format!(
+            "unsupported body node `{node}` (v1 subset covers expressions, \
+             calls, member access, if/else, literals)"
+        )
+    })
+}
+
+/// Find the first body node outside the v1 subset, if any.
+fn unsupported_body_node(expr: &Expr) -> Option<&'static str> {
+    match expr {
         Expr::Block { stmts, .. } => {
             for st in stmts {
                 match st {
                     Stmt::Expr(e) => {
-                        if let Some(bad) = old_unsupported_arg(e, params) {
-                            return Some(bad);
+                        if let Some(k) = unsupported_body_node(e) {
+                            return Some(k);
                         }
                     }
-                    Stmt::Let(_, e) => {
-                        if let Some(bad) = old_unsupported_arg(e, params) {
-                            return Some(bad);
-                        }
-                    }
+                    Stmt::Let(..) => return Some("let"),
                 }
             }
             None
         }
-        Expr::Member { obj, .. } => old_unsupported_arg(obj, params),
-        Expr::Binary { lhs, rhs, .. } => {
-            if let Some(bad) = old_unsupported_arg(lhs, params) {
-                return Some(bad);
+        Expr::Literal { .. } | Expr::Variable { .. } => None,
+        Expr::Call { func, args, .. } => {
+            if let Some(k) = unsupported_body_node(func) {
+                return Some(k);
             }
-            old_unsupported_arg(rhs, params)
+            for a in args {
+                if let Some(k) = unsupported_body_node(a) {
+                    return Some(k);
+                }
+            }
+            None
         }
-        Expr::Unary { expr, .. } => old_unsupported_arg(expr, params),
+        Expr::Member { obj, .. } => unsupported_body_node(obj),
         Expr::If {
             cond, then, else_, ..
         } => {
-            if let Some(bad) = old_unsupported_arg(cond, params) {
-                return Some(bad);
+            if let Some(k) = unsupported_body_node(cond) {
+                return Some(k);
             }
-            if let Some(bad) = old_unsupported_arg(then, params) {
-                return Some(bad);
+            if let Some(k) = unsupported_body_node(then) {
+                return Some(k);
             }
-            else_.as_ref().and_then(|e| old_unsupported_arg(e, params))
+            if let Some(e) = else_ {
+                if let Some(k) = unsupported_body_node(e) {
+                    return Some(k);
+                }
+            }
+            None
         }
-        _ => None,
+        Expr::Binary { lhs, rhs, .. } => {
+            if let Some(k) = unsupported_body_node(lhs) {
+                return Some(k);
+            }
+            unsupported_body_node(rhs)
+        }
+        Expr::Unary { expr, .. } => unsupported_body_node(expr),
+        Expr::Match { .. } => Some("match"),
+        _ => Some("unsupported expression"),
     }
 }
 
@@ -612,12 +637,139 @@ fn body_free_ref(expr: &Expr, params: &std::collections::HashSet<&str>) -> Optio
     }
 }
 
-/// Compute the param declaration lines, the list of `old()`-referenced params
-/// that need `name@pre` declares + equality asserts, and the refined-type domain
-/// assertions.
-fn build_param_decls(f: &GungnirFunction) -> (Vec<String>, Vec<String>, Vec<String>) {
+/// Find the first `old(...)` argument across the @requires/@ensures/@invariant
+/// conditions that is not param-rooted (a bare non-param, a function head, or a
+/// nested call). Returns the offending symbol as a reason, or `None` when every
+/// `old(...)` argument only references bare params or their record fields.
+fn contract_old_unsupported(f: &GungnirFunction) -> Option<String> {
+    for cond in [&f.contract.pre, &f.contract.post, &f.contract.invariant]
+        .into_iter()
+        .flatten()
+    {
+        if let Some(bad) = scan_old_args(cond, &f.params) {
+            return Some(bad);
+        }
+    }
+    None
+}
+
+/// Scan an expression tree for `old(...)` call sites and validate each argument
+/// is param-rooted. Returns the first offending symbol, if any.
+fn scan_old_args(expr: &Expr, params: &[Param]) -> Option<String> {
+    match expr {
+        Expr::Call { func, args, .. } => {
+            if let Expr::Variable { name, .. } = func.as_ref() {
+                if name == "old" {
+                    for arg in args {
+                        if let Some(bad) = old_arg_bad_root(arg, params) {
+                            return Some(bad);
+                        }
+                    }
+                }
+            }
+            for a in args {
+                if let Some(bad) = scan_old_args(a, params) {
+                    return Some(bad);
+                }
+            }
+            None
+        }
+        Expr::Block { stmts, .. } => {
+            for st in stmts {
+                let e = match st {
+                    Stmt::Expr(e) => e,
+                    Stmt::Let(_, e) => e,
+                };
+                if let Some(bad) = scan_old_args(e, params) {
+                    return Some(bad);
+                }
+            }
+            None
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            scan_old_args(lhs, params).or_else(|| scan_old_args(rhs, params))
+        }
+        Expr::Unary { expr: e, .. } => scan_old_args(e, params),
+        Expr::If {
+            cond, then, else_, ..
+        } => {
+            if let Some(bad) = scan_old_args(cond, params) {
+                return Some(bad);
+            }
+            if let Some(bad) = scan_old_args(then, params) {
+                return Some(bad);
+            }
+            else_.as_ref().and_then(|e| scan_old_args(e, params))
+        }
+        Expr::Member { obj, .. } | Expr::OptionalAccess { obj, .. } => scan_old_args(obj, params),
+        _ => None,
+    }
+}
+
+/// Whether a single `old(...)` argument references only param-rooted symbols:
+/// bare parameter names, or member-access chains rooted at a record param
+/// (e.g. `w.balance`). Anything else — a bare free variable, `result`/`old`,
+/// or a function-call head (e.g. `max(a, b)`) — returns the offending symbol.
+fn old_arg_bad_root(expr: &Expr, params: &[Param]) -> Option<String> {
+    match expr {
+        Expr::Variable { name, .. } => {
+            if params.iter().any(|p| &p.name == name) && name != "result" && name != "old" {
+                None
+            } else {
+                Some(name.clone())
+            }
+        }
+        Expr::Member { obj, .. } | Expr::OptionalAccess { obj, .. } => old_arg_bad_root(obj, params),
+        Expr::Call { func, args, .. } => {
+            // A call head inside `old(...)` is a function (v1 has no first-class
+            // function params), so the head itself is the offending symbol.
+            if let Some(bad) = old_arg_bad_root(func, params) {
+                return Some(bad);
+            }
+            for a in args {
+                if let Some(bad) = old_arg_bad_root(a, params) {
+                    return Some(bad);
+                }
+            }
+            None
+        }
+        Expr::Block { stmts, .. } => {
+            for st in stmts {
+                let e = match st {
+                    Stmt::Expr(e) => e,
+                    Stmt::Let(_, e) => e,
+                };
+                if let Some(bad) = old_arg_bad_root(e, params) {
+                    return Some(bad);
+                }
+            }
+            None
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            old_arg_bad_root(lhs, params).or_else(|| old_arg_bad_root(rhs, params))
+        }
+        Expr::Unary { expr: e, .. } => old_arg_bad_root(e, params),
+        Expr::If {
+            cond, then, else_, ..
+        } => {
+            if let Some(bad) = old_arg_bad_root(cond, params) {
+                return Some(bad);
+            }
+            if let Some(bad) = old_arg_bad_root(then, params) {
+                return Some(bad);
+            }
+            else_.as_ref().and_then(|e| old_arg_bad_root(e, params))
+        }
+        _ => None,
+    }
+}
+
+/// Compute the param declaration lines, the list of pre-state symbols
+/// referenced under `old(...)` that need `@pre` declares + equality asserts
+/// (as `(current, prestate)` pairs), and the refined-type domain assertions.
+fn build_param_decls(f: &GungnirFunction) -> (Vec<String>, Vec<(String, String)>, Vec<String>) {
     let mut declares = Vec::new();
-    let mut old_bindings = Vec::new();
+    let mut old_bindings: Vec<(String, String)> = Vec::new();
     let mut refined = Vec::new();
 
     for param in &f.params {
@@ -647,8 +799,14 @@ fn build_param_decls(f: &GungnirFunction) -> (Vec<String>, Vec<String>, Vec<Stri
         }
     }
 
-    if let Some(post) = &f.contract.post {
-        collect_old_refs(post, &f.params, &mut old_bindings);
+    // Generalised old-ref collection: any symbol referenced under `old(...)` in
+    // a contract condition — bare parameter names AND record fields of
+    // record-typed params — gets a `(current, prestate)` pre-state binding.
+    for cond in [&f.contract.pre, &f.contract.post, &f.contract.invariant]
+        .into_iter()
+        .flatten()
+    {
+        collect_old_refs(cond, &f.params, &mut old_bindings);
     }
 
     (declares, old_bindings, refined)
@@ -714,18 +872,21 @@ fn refined_assertions(param: &str, t: &Type) -> Vec<String> {
     out
 }
 
-/// Collect every parameter referenced under `old(...)` in an expression.
-fn collect_old_refs(expr: &Expr, params: &[Param], acc: &mut Vec<String>) {
+/// Collect a `(current, prestate)` binding for every symbol referenced under
+/// `old(...)` in an expression — bare parameter names AND record fields of
+/// record-typed params. The prestate term uses the same `@pre` namespace that
+/// [`prestate`] emits (e.g. `old(w.balance)` → `(w.balance, w@pre.balance)`).
+fn collect_old_refs(expr: &Expr, params: &[Param], acc: &mut Vec<(String, String)>) {
     collect_old_refs_inner(expr, params, acc);
 }
 
-fn collect_old_refs_inner(expr: &Expr, params: &[Param], acc: &mut Vec<String>) {
+fn collect_old_refs_inner(expr: &Expr, params: &[Param], acc: &mut Vec<(String, String)>) {
     match expr {
         Expr::Call { func, args, .. } => {
             if let Expr::Variable { name, .. } = func.as_ref() {
                 if name == "old" {
                     for arg in args {
-                        old_arg_refs(arg, params, acc);
+                        collect_prestate_syms(arg, params, acc);
                     }
                 }
             }
@@ -733,23 +894,98 @@ fn collect_old_refs_inner(expr: &Expr, params: &[Param], acc: &mut Vec<String>) 
                 collect_old_refs_inner(arg, params, acc);
             }
         }
+        Expr::Block { stmts, .. } => {
+            for st in stmts {
+                match st {
+                    Stmt::Expr(e) => collect_old_refs_inner(e, params, acc),
+                    Stmt::Let(_, e) => collect_old_refs_inner(e, params, acc),
+                }
+            }
+        }
         Expr::Binary { lhs, rhs, .. } => {
             collect_old_refs_inner(lhs, params, acc);
             collect_old_refs_inner(rhs, params, acc);
+        }
+        Expr::Unary { expr, .. } => collect_old_refs_inner(expr, params, acc),
+        Expr::If {
+            cond, then, else_, ..
+        } => {
+            collect_old_refs_inner(cond, params, acc);
+            collect_old_refs_inner(then, params, acc);
+            if let Some(e) = else_ {
+                collect_old_refs_inner(e, params, acc);
+            }
+        }
+        Expr::Member { obj, .. } => collect_old_refs_inner(obj, params, acc),
+        _ => {}
+    }
+}
+
+/// Record the `(current, prestate)` binding for every symbol inside a single
+/// `old(...)` argument that is a parameter reference or a record-field of a
+/// parameter.
+fn collect_prestate_syms(expr: &Expr, params: &[Param], acc: &mut Vec<(String, String)>) {
+    match expr {
+        Expr::Member { obj, .. } => {
+            // A member chain rooted at a record param binds the whole dotted
+            // symbol (e.g. `w.balance` → `w@pre.balance`).
+            if params.iter().any(|p| chain_root_var(expr) == Some(p.name.as_str())) {
+                let current = translate(expr);
+                let pre = prestate(expr);
+                if !acc.iter().any(|(c, _)| c == &current) {
+                    acc.push((current, pre));
+                }
+                return;
+            }
+            collect_prestate_syms(obj, params, acc);
+        }
+        Expr::Variable { name, .. } => {
+            if params.iter().any(|p| &p.name == name) {
+                let current = name.clone();
+                let pre = format!("{name}@pre");
+                if !acc.iter().any(|(c, _)| c == &current) {
+                    acc.push((current, pre));
+                }
+            }
+        }
+        Expr::Call { args, .. } => {
+            for a in args {
+                collect_prestate_syms(a, params, acc);
+            }
+        }
+        Expr::Block { stmts, .. } => {
+            for st in stmts {
+                match st {
+                    Stmt::Expr(e) => collect_prestate_syms(e, params, acc),
+                    Stmt::Let(_, e) => collect_prestate_syms(e, params, acc),
+                }
+            }
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_prestate_syms(lhs, params, acc);
+            collect_prestate_syms(rhs, params, acc);
+        }
+        Expr::Unary { expr, .. } => collect_prestate_syms(expr, params, acc),
+        Expr::If {
+            cond, then, else_, ..
+        } => {
+            collect_prestate_syms(cond, params, acc);
+            collect_prestate_syms(then, params, acc);
+            if let Some(e) = else_ {
+                collect_prestate_syms(e, params, acc);
+            }
         }
         _ => {}
     }
 }
 
-/// Record which parameter a bare `old(x)` argument refers to.
-///
-/// Only bare parameter references are tracked; compound/tagged `old()`
-/// arguments are out of scope for v1.
-fn old_arg_refs(arg: &Expr, params: &[Param], acc: &mut Vec<String>) {
-    if let Expr::Variable { name, .. } = arg {
-        if params.iter().any(|p| &p.name == name) && !acc.contains(name) {
-            acc.push(name.to_string());
-        }
+/// The root variable name of a member-access chain, if the chain is rooted at a
+/// bare variable (`a.b.c` → `Some("a")`).
+fn chain_root_var(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Variable { name, .. } => Some(name),
+        Expr::Member { obj, .. } => chain_root_var(obj),
+        _ => None,
     }
 }
 
@@ -917,8 +1153,20 @@ pub fn parse_smt_output(stdout: &str) -> Verdict {
         return Verdict::Proved;
     }
     if first == "sat" {
-        return Verdict::Counterexample {
-            model: extract_model(trimmed),
+        // A `sat` verdict is only a genuine counterexample when a real model
+        // follows it. A bare `sat`, or `sat` followed by z3's
+        // `(error "model is not available")`, gives no witness — reporting it
+        // as an empty/misleading counterexample would hide that. Map those to
+        // `Unproven` whose reason names the missing model (AC-3).
+        let model = extract_model(trimmed);
+        let has_model = !model.is_empty() && !model.contains("model is not available");
+        if has_model {
+            return Verdict::Counterexample { model };
+        }
+        return Verdict::Unproven {
+            reason: "z3 answered `sat` but produced no model (model is not \
+                     available) — cannot show a counterexample"
+                .to_string(),
         };
     }
     if first == "unknown" {
