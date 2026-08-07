@@ -10,6 +10,10 @@
 //! and the forge Z3 subprocess bridge (the "Z3 subprocess bridge in forge"
 //! requirement) must be implemented for these tests to pass.
 //!
+//! Now GREEN (DWARF-120): `Commands::Gungnir` exists and the forge Z3 bridge is
+//! implemented. These tests now pin the CLI contract: discovery, per-function
+//! status reporting, the missing-z3 path, and `--timeout-ms` handling.
+//!
 //! These tests invoke the compiled forge binary. They require `z3` only when a
 //! test actually exercises the solver; the missing-z3 test overrides the
 //! solver path (via the `DWARF_Z3` env hook) so the install-instructions path
@@ -219,8 +223,8 @@ fn test_forge_gungnir_timeout_flag_recognized() {
     let output = forge(&["gungnir", file_path.to_str().unwrap(), "--timeout-ms", "5000"]);
     let out = combined(&output);
 
-    // The subcommand itself must be recognized (currently clap rejects it), and
-    // --timeout-ms must be an accepted flag of the subcommand.
+    // The subcommand itself must be recognized, and --timeout-ms must be an
+    // accepted flag of the subcommand.
     assert!(
         !out.to_lowercase().contains("unrecognized subcommand")
             && !out.to_lowercase().contains("invalid subcommand"),
@@ -251,6 +255,67 @@ fn test_forge_gungnir_accepts_unproven_status() {
     assert!(
         out.to_lowercase().contains("opaque"),
         "the report should name the @gungnir function; got:\n{}",
+        out
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. Soundness hardening — no post-condition → unproven, not counterexample
+// ---------------------------------------------------------------------------
+
+/// A function with NO @ensures has nothing to disprove. It must be reported as
+/// `unproven` (with a "no post-condition" reason), NOT as a false
+/// `counterexample` that conflates "no contract" with "violated" (Fix #4).
+#[test]
+fn test_forge_gungnir_no_contract_is_unproven_not_counterexample() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = write_kzd(
+        dir.path(),
+        "nopost.kzd",
+        "@gungnir\nfn opaque(x: Int) -> Int { x }",
+    );
+
+    let output = forge(&["gungnir", file_path.to_str().unwrap()]);
+    let out = combined(&output);
+    assert!(
+        out.to_lowercase().contains("opaque — unproven"),
+        "a function without a post-condition must be reported as unproven; got:\n{}",
+        out
+    );
+    assert!(
+        !out.to_lowercase().contains("opaque — counterexample"),
+        "a function without a post-condition must NOT be reported as a counterexample; got:\n{}",
+        out
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. Soundness hardening — a body referencing `result` must not be proved
+// ---------------------------------------------------------------------------
+
+/// `fn f(a: Int) -> Int { result + 1 }` would build `(= result (+ result 1))`,
+/// trivially unsat → a vacuous `Proved`. The engine must now reject it (Fix #2).
+#[test]
+fn test_forge_gungnir_result_in_body_is_not_proved() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = write_kzd(
+        dir.path(),
+        "vacuous.kzd",
+        "@gungnir\n\
+         @ensures(result < 0)\n\
+         fn vacuous(a: Int) -> Int { result + 1 }",
+    );
+
+    let output = forge(&["gungnir", file_path.to_str().unwrap()]);
+    let out = combined(&output);
+    assert!(
+        out.to_lowercase().contains("vacuous — unproven"),
+        "a vacuous result-in-body function must be reported as unproven; got:\n{}",
+        out
+    );
+    assert!(
+        !out.to_lowercase().contains("vacuous — proved"),
+        "a vacuous result-in-body function must NOT be reported as proved; got:\n{}",
         out
     );
 }

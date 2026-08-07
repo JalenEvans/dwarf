@@ -4,12 +4,10 @@
 //! the verification-query builder, following the same structure as
 //! `resolver_tests.rs` and `draupnir_module_tests.rs`.
 //!
-//! RED PHASE (DWARF-120): the `dwarf_lib::gungnir` module does not exist yet,
-//! so this whole file fails to compile with "could not find `gungnir` in
-//! `dwarf_lib`". That compile failure IS the Red: it pins the exact public API
-//! the GREEN implementer must provide. The Z3 subprocess bridge intentionally
-//! lives in `forge` (see `forge/tests/gungnir_cli_tests.rs`), so no test in
-//! this file spawns a subprocess.
+//! Now GREEN (DWARF-120): the `dwarf_lib::gungnir` module exists and these
+//! tests pin the public API and SMT-LIB2 output shape. The Z3 subprocess bridge
+//! intentionally lives in `forge` (see `forge/tests/gungnir_cli_tests.rs`), so
+//! no test in this file spawns a subprocess.
 //!
 //! # Pinned API (the Green contract)
 //!
@@ -77,13 +75,16 @@
 //! (declare-const <param>@pre <sort>)...      // ONLY for params referenced by old()
 //! (declare-const result <sort>)
 //! (assert (= <param> <param>@pre))...        // ONLY for params referenced by old()
-//! (assert <PRE>)                             // when @requires present
 //! (assert <INV resolved to record param>)    // when @invariant present (entry invariant)
+//! (assert <PRE>)                             // when @requires present
 //! (assert (= result <body>))
 //! (assert (not <POST>))
 //! (check-sat)
 //! (get-model)
 //! ```
+//!
+//! NOTE: the emitted assertion order is INV **before** PRE. The goldens below
+//! and the builder in `dwarf_lib/src/gungnir.rs` both use this order.
 //!
 //! `result` in `@ensures` is the magic return-value variable (the decorator
 //! grammar in `dwarf-syntax/src/hir.rs` already documents `@ensures(result > 0)`
@@ -510,6 +511,146 @@ fn test_build_verification_query_invariant_disproved_shape() {
     assert!(
         norm_ws(&query).contains("(assert (not (>= result 0)))"),
         "ensures negation must be asserted; got query:\n{query}"
+    );
+}
+
+// ===========================================================================
+// Part 4b: soundness hardening (DWARF-120) — unsupported_reason and holes
+// ===========================================================================
+
+/// A refined param (`a: Int(0..100)`) must have its range emitted as domain
+/// assertions so z3 cannot produce a counterexample outside the type's domain
+/// (a false counterexample). This pins Fix #1.
+#[test]
+fn test_build_verification_query_refined_domain_asserted() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result >= 0)\n\
+         fn bounded(a: Int(0..100)) -> Int { a }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+
+    // The refined param is declared with its base sort AND constrained.
+    let query = dwarf_lib::gungnir::build_verification_query(f);
+    let norm = norm_ws(&query);
+    assert!(
+        norm.contains("(declare-const a Int)"),
+        "refined a Int(0..100) must declare with its base Int sort; got:\n{query}"
+    );
+    assert!(
+        norm.contains("(assert (>= a 0))") && norm.contains("(assert (<= a 100))"),
+        "refined range 0..100 must be asserted as the domain; got:\n{query}"
+    );
+}
+
+/// A refined param must be SOUNDLY verifiable — `unsupported_reason` returns
+/// None for it because the range is honored, not dropped.
+#[test]
+fn test_refined_type_is_supported_and_not_rejected() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result >= 0)\n\
+         fn bounded(a: Int(0..100)) -> Int { a }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert_eq!(
+        dwarf_lib::gungnir::unsupported_reason(f),
+        None,
+        "a refined Int param must not be rejected"
+    );
+}
+
+/// A body that references the magic `result` would build `(= result (+ result 1))`
+/// — trivially unsat → a **vacuous Proved**. The engine must now reject it (Fix #2).
+#[test]
+fn test_body_referencing_result_is_rejected() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result < 0)\n\
+         fn broken(a: Int) -> Int { result + 1 }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert!(
+        dwarf_lib::gungnir::unsupported_reason(f).is_some(),
+        "a body using `result` must be rejected, not vacuously proved"
+    );
+}
+
+/// A body referencing `old(...)` is invalid in a body (old() is only for
+/// contract conditions) — it must be rejected (Fix #2).
+#[test]
+fn test_body_referencing_old_is_rejected() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result >= 0)\n\
+         fn broken(a: Int) -> Int { old(a) + 1 }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert!(
+        dwarf_lib::gungnir::unsupported_reason(f).is_some(),
+        "a body using old(..) must be rejected"
+    );
+}
+
+/// A body referencing a free variable that isn't a parameter is rejected (Fix #2).
+#[test]
+fn test_body_free_variable_is_rejected() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result >= 0)\n\
+         fn bob(a: Int) -> Int { a + b }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert!(
+        dwarf_lib::gungnir::unsupported_reason(f).is_some(),
+        "a free variable in the body must be rejected"
+    );
+}
+
+/// A Bool-returning function must declare `result` as Bool (not Int), so the
+/// query does NOT emit `(= Int Bool)` — a sort error (Fix #3).
+#[test]
+fn test_build_verification_query_bool_return_declares_result_bool() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result == true)\n\
+         fn pos(a: Int) -> Bool { a > 0 }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert_eq!(dwarf_lib::gungnir::unsupported_reason(f), None);
+
+    let query = dwarf_lib::gungnir::build_verification_query(f);
+    assert!(
+        norm_ws(&query).contains("(declare-const result Bool)"),
+        "Bool-returning fn must declare result as Bool; got:\n{query}"
+    );
+    assert!(
+        norm_ws(&query).contains("(assert (= result (> a 0)))"),
+        "Bool body must equal the Bool translation of a > 0; got:\n{query}"
+    );
+}
+
+/// A Float-returning function must map the bare Z3 `Float` to `Real` (Z3 has no
+/// `Float` sort) (Fix #3).
+#[test]
+fn test_build_verification_query_float_param_maps_to_real() {
+    let decls = parse_decls(
+        "@gungnir\n\
+         @ensures(result >= 0.0)\n\
+         fn half(x: Float) -> Float { x / 2.0 }",
+    );
+    let f = &dwarf_lib::gungnir::discover_gungnir(&decls)[0];
+    assert_eq!(dwarf_lib::gungnir::unsupported_reason(f), None);
+
+    let query = dwarf_lib::gungnir::build_verification_query(f);
+    let norm = norm_ws(&query);
+    assert!(
+        norm.contains("(declare-const x Real)"),
+        "Float param must map to Real; got:\n{query}"
+    );
+    assert!(
+        norm.contains("(declare-const result Real)"),
+        "Float return must map to Real; got:\n{query}"
     );
 }
 

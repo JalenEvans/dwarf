@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use dwarf_lexer::pass::TokenizePass;
 use dwarf_lib::gungnir::{
-    build_verification_query, discover_gungnir, parse_smt_output, Verdict,
+    build_verification_query, discover_gungnir, parse_smt_output, unsupported_reason, Verdict,
 };
 use dwarf_parser::Parser;
 
@@ -234,6 +234,33 @@ fn verify_file(
 
     let mut results = Vec::new();
     for f in &functions {
+        // Soundness gate: reject functions outside the verifiable v1 subset
+        // BEFORE building/running a query so we never report a false verdict.
+        if let Some(reason) = unsupported_reason(f) {
+            results.push(GungnirResult {
+                file: file_str.clone(),
+                function: f.name.clone(),
+                verdict: Verdict::Unproven {
+                    reason: format!("unsupported: {}", reason),
+                },
+            });
+            continue;
+        }
+
+        // A function with NO post-condition has nothing to disprove; reporting
+        // it as `counterexample` would conflate "no contract" with "violated".
+        // Report `unproven` instead.
+        if f.contract.post.is_none() {
+            results.push(GungnirResult {
+                file: file_str.clone(),
+                function: f.name.clone(),
+                verdict: Verdict::Unproven {
+                    reason: "no post-condition".to_string(),
+                },
+            });
+            continue;
+        }
+
         let query = build_verification_query(f);
         let verdict = match run_solver(z3, &query, timeout_ms) {
             Ok(stdout) => parse_smt_output(&stdout),
