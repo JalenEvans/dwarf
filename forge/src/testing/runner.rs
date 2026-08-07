@@ -320,7 +320,11 @@ mod tests {
         let res = result.expect(
             "a valid, exported @test must execute and return Ok — got NotImplemented instead",
         );
-        assert!(res.passed, "passing test must have passed: true, got {:?}", res);
+        assert!(
+            res.passed,
+            "passing test must have passed: true, got {:?}",
+            res
+        );
         assert_eq!(
             res.function_name, "test_ok",
             "result must echo the executed function name"
@@ -455,14 +459,8 @@ mod tests {
         };
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "before_alpha".to_string(),
-            vec!["before_each".to_string()],
-        );
-        metadata.insert(
-            "after_alpha".to_string(),
-            vec!["after_each".to_string()],
-        );
+        metadata.insert("before_alpha".to_string(), vec!["before_each".to_string()]);
+        metadata.insert("after_alpha".to_string(), vec!["after_each".to_string()]);
 
         let runner = WasmTestRunner::with_metadata(metadata);
 

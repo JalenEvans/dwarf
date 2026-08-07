@@ -167,15 +167,7 @@ fn test_draupnir_generators_declared() {
     assert_functions_present(
         &source,
         &[
-            "int",
-            "nat",
-            "float",
-            "string",
-            "bool",
-            "list",
-            "option",
-            "result",
-            "one_of",
+            "int", "nat", "float", "string", "bool", "list", "option", "result", "one_of",
         ],
     );
 }

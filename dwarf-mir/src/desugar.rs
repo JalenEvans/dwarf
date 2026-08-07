@@ -5,7 +5,9 @@
 //! - Pipe operator (`|>`) desugaring
 
 use crate::*;
-use dwarf_syntax::hir::{BinaryOp, Decl, Decorator, Expr, LiteralValue, MatchArm, Pat, Stmt, UnaryOp};
+use dwarf_syntax::hir::{
+    BinaryOp, Decl, Decorator, Expr, LiteralValue, MatchArm, Pat, Stmt, UnaryOp,
+};
 
 // ---------------------------------------------------------------------------
 // Helper: literal value conversion

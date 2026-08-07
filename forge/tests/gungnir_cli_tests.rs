@@ -220,7 +220,12 @@ fn test_forge_gungnir_timeout_flag_recognized() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file_path = write_kzd(dir.path(), "abs.kzd", ABS_SRC);
 
-    let output = forge(&["gungnir", file_path.to_str().unwrap(), "--timeout-ms", "5000"]);
+    let output = forge(&[
+        "gungnir",
+        file_path.to_str().unwrap(),
+        "--timeout-ms",
+        "5000",
+    ]);
     let out = combined(&output);
 
     // The subcommand itself must be recognized, and --timeout-ms must be an
@@ -247,7 +252,11 @@ fn test_forge_gungnir_timeout_flag_recognized() {
 fn test_forge_gungnir_accepts_unproven_status() {
     let dir = tempfile::tempdir().expect("tempdir");
     // No verifiable contract — the function is discovered but cannot be proven.
-    let file_path = write_kzd(dir.path(), "opaque.kzd", "@gungnir\nfn opaque(x: Int) -> Int { x }");
+    let file_path = write_kzd(
+        dir.path(),
+        "opaque.kzd",
+        "@gungnir\nfn opaque(x: Int) -> Int { x }",
+    );
 
     let output = forge(&["gungnir", file_path.to_str().unwrap()]);
     // The command must not crash, and must emit a report naming the function.

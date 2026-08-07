@@ -13,8 +13,8 @@ use dwarf_syntax::hir::{Decl, Param, Type as HirType};
 use crate::error::TypeCheckError;
 use crate::registry::TypeRegistry;
 use crate::types::{
-    FieldDef, LiteralType, MethodSig, NULL_TYPE_ID, RefConstraint, TypeDef, TypeId, VariantDef,
-    ANY_TYPE_ID, NEVER_TYPE_ID,
+    FieldDef, LiteralType, MethodSig, RefConstraint, TypeDef, TypeId, VariantDef, ANY_TYPE_ID,
+    NEVER_TYPE_ID, NULL_TYPE_ID,
 };
 
 /// The result of resolving HIR declarations into a TypeRegistry.

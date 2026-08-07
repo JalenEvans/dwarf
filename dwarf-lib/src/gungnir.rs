@@ -184,10 +184,7 @@ fn translate(expr: &Expr) -> String {
         Expr::Call { func, args, .. } => translate_call(func, args),
         Expr::Member { obj, field, .. } => format!("{}.{}", translate(obj), field),
         Expr::If {
-            cond,
-            then,
-            else_,
-            ..
+            cond, then, else_, ..
         } => {
             if let Some(else_expr) = else_ {
                 format!(
@@ -200,9 +197,7 @@ fn translate(expr: &Expr) -> String {
                 format!("(ite {} {} false)", translate(cond), translate(then))
             }
         }
-        Expr::Binary {
-            op, lhs, rhs, ..
-        } => translate_binary(op, &translate(lhs), &translate(rhs)),
+        Expr::Binary { op, lhs, rhs, .. } => translate_binary(op, &translate(lhs), &translate(rhs)),
         Expr::Unary { op, expr, .. } => {
             let inner = translate(expr);
             match op {
@@ -272,9 +267,7 @@ fn prestate(expr: &Expr) -> String {
             format!("({} {})", func_str, arg_strs.join(" "))
         }
         Expr::Member { obj, field, .. } => format!("{}.{}", prestate(obj), field),
-        Expr::Binary {
-            op, lhs, rhs, ..
-        } => translate_binary(op, &prestate(lhs), &prestate(rhs)),
+        Expr::Binary { op, lhs, rhs, .. } => translate_binary(op, &prestate(lhs), &prestate(rhs)),
         Expr::Unary { op, expr, .. } => {
             let inner = prestate(expr);
             match op {
@@ -283,10 +276,7 @@ fn prestate(expr: &Expr) -> String {
             }
         }
         Expr::If {
-            cond,
-            then,
-            else_,
-            ..
+            cond, then, else_, ..
         } => {
             if let Some(else_expr) = else_ {
                 format!(
@@ -346,11 +336,7 @@ pub fn build_verification_query(f: &GungnirFunction) -> String {
     }
 
     // 3. declare-const result in the function's actual return sort
-    let result_sort = f
-        .return_type
-        .as_ref()
-        .and_then(type_sort)
-        .unwrap_or("Int");
+    let result_sort = f.return_type.as_ref().and_then(type_sort).unwrap_or("Int");
     lines.push(format!("(declare-const result {})", result_sort));
 
     // 4. assert (= <current> <pre>) tying each pre-state symbol to its current
@@ -364,7 +350,10 @@ pub fn build_verification_query(f: &GungnirFunction) -> String {
 
     // 5. entry invariant (resolved to the record param)
     if let Some(inv) = &f.contract.invariant {
-        lines.push(format!("(assert {})", translate(&resolve_invariant(inv, f))));
+        lines.push(format!(
+            "(assert {})",
+            translate(&resolve_invariant(inv, f))
+        ));
     }
 
     // 6. pre-condition
@@ -385,7 +374,7 @@ pub fn build_verification_query(f: &GungnirFunction) -> String {
     // 10. request a counterexample model when a witness exists
     lines.push("(get-model)".to_string());
 
-lines.join("\n")
+    lines.join("\n")
 }
 
 /// A reason the function is outside the soundly-verifiable v1 subset, if any.
@@ -719,7 +708,9 @@ fn old_arg_bad_root(expr: &Expr, params: &[Param]) -> Option<String> {
                 Some(name.clone())
             }
         }
-        Expr::Member { obj, .. } | Expr::OptionalAccess { obj, .. } => old_arg_bad_root(obj, params),
+        Expr::Member { obj, .. } | Expr::OptionalAccess { obj, .. } => {
+            old_arg_bad_root(obj, params)
+        }
         Expr::Call { func, args, .. } => {
             // A call head inside `old(...)` is a function (v1 has no first-class
             // function params), so the head itself is the offending symbol.
@@ -929,7 +920,10 @@ fn collect_prestate_syms(expr: &Expr, params: &[Param], acc: &mut Vec<(String, S
         Expr::Member { obj, .. } => {
             // A member chain rooted at a record param binds the whole dotted
             // symbol (e.g. `w.balance` → `w@pre.balance`).
-            if params.iter().any(|p| chain_root_var(expr) == Some(p.name.as_str())) {
+            if params
+                .iter()
+                .any(|p| chain_root_var(expr) == Some(p.name.as_str()))
+            {
                 let current = translate(expr);
                 let pre = prestate(expr);
                 if !acc.iter().any(|(c, _)| c == &current) {
@@ -1036,10 +1030,7 @@ fn collect_member_fields(expr: &Expr, param: &str, acc: &mut Vec<String>) {
             collect_member_fields(rhs, param, acc);
         }
         Expr::If {
-            cond,
-            then,
-            else_,
-            ..
+            cond, then, else_, ..
         } => {
             collect_member_fields(cond, param, acc);
             collect_member_fields(then, param, acc);
@@ -1188,7 +1179,10 @@ pub fn parse_smt_output(stdout: &str) -> Verdict {
 
 /// The first non-empty line.
 fn first_line(s: &str) -> &str {
-    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("")
+    s.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
 }
 
 /// Extract the counterexample model from `sat` output: everything after the

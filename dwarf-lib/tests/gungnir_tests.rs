@@ -157,7 +157,9 @@ fn norm_ws(s: &str) -> String {
 #[test]
 fn test_gungnir_module_declared_in_lib() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let lib_rs_path = std::path::PathBuf::from(manifest_dir).join("src").join("lib.rs");
+    let lib_rs_path = std::path::PathBuf::from(manifest_dir)
+        .join("src")
+        .join("lib.rs");
 
     assert!(
         lib_rs_path.exists(),
@@ -171,7 +173,9 @@ fn test_gungnir_module_declared_in_lib() {
         lib_content
     );
 
-    let module_path = std::path::PathBuf::from(manifest_dir).join("src").join("gungnir.rs");
+    let module_path = std::path::PathBuf::from(manifest_dir)
+        .join("src")
+        .join("gungnir.rs");
     assert!(
         module_path.exists(),
         "dwarf-lib/src/gungnir.rs should exist at {:?}, but file not found",
@@ -200,7 +204,10 @@ fn test_discover_gungnir_finds_annotated_function() {
         "exactly one @gungnir function should be discovered"
     );
     let f = &functions[0];
-    assert_eq!(f.name, "abs", "discovered function name should match the source");
+    assert_eq!(
+        f.name, "abs",
+        "discovered function name should match the source"
+    );
     assert_eq!(f.params.len(), 1, "abs takes one parameter");
     assert_eq!(f.params[0].name, "a");
 
@@ -228,7 +235,11 @@ fn test_discover_gungnir_ignores_plain_functions() {
     );
 
     let functions = dwarf_lib::gungnir::discover_gungnir(&decls);
-    assert_eq!(functions.len(), 1, "only the @gungnir function is discovered");
+    assert_eq!(
+        functions.len(),
+        1,
+        "only the @gungnir function is discovered"
+    );
     assert_eq!(functions[0].name, "inc");
 }
 
@@ -239,7 +250,11 @@ fn test_discover_gungnir_function_without_contract() {
     let decls = parse_decls("@gungnir\nfn mystery(a: Int) -> Int { a }");
 
     let functions = dwarf_lib::gungnir::discover_gungnir(&decls);
-    assert_eq!(functions.len(), 1, "@gungnir without contract is still discovered");
+    assert_eq!(
+        functions.len(),
+        1,
+        "@gungnir without contract is still discovered"
+    );
     assert!(functions[0].contract.pre.is_none());
     assert!(functions[0].contract.post.is_none());
     assert!(functions[0].contract.invariant.is_none());
@@ -691,10 +706,7 @@ fn test_parse_smt_output_sat_is_counterexample_with_model() {
 fn test_parse_smt_output_unknown_is_unproven() {
     let verdict = dwarf_lib::gungnir::parse_smt_output("unknown");
     assert!(
-        matches!(
-            verdict,
-            dwarf_lib::gungnir::Verdict::Unproven { .. }
-        ),
+        matches!(verdict, dwarf_lib::gungnir::Verdict::Unproven { .. }),
         "unknown must map to Unproven (timeout handled), got {verdict:?}"
     );
     assert_eq!(verdict.label(), "unproven");

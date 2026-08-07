@@ -302,8 +302,8 @@ fn test_forge_gungnir_json_contract_stable() {
 
     // The forge binary writes `{"gungnir": [...]}` to stdout with no extra
     // human text, so the whole stdout must parse as one JSON document.
-    let root: Value =
-        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("stdout is not valid JSON: {e}\n{stdout}"));
+    let root: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("stdout is not valid JSON: {e}\n{stdout}"));
 
     // has_invariant must never leak — even at a substring level (defensive,
     // independent of how the object is structured).
@@ -365,7 +365,9 @@ fn test_forge_gungnir_json_contract_stable() {
         "a function with no post-condition must be reported unproven; got:\n{stdout}"
     );
     let unproven_keys: Vec<&str> = {
-        let obj = unproven_obj.as_object().expect("unproven result is an object");
+        let obj = unproven_obj
+            .as_object()
+            .expect("unproven result is an object");
         let mut k: Vec<&str> = obj.keys().map(String::as_str).collect();
         k.sort_unstable();
         k

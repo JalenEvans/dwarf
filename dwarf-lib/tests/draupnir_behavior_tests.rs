@@ -118,8 +118,8 @@
 //! ```
 
 use dwarf_lib::draupnir::engine::{
-    BoolGen, DEFAULT_ITERATIONS, FloatGen, Generator, IntGen, ListGen, MapGen, NatGen,
-    OptionGen, PropertyResult, RefineGen, ResultGen, StringGen, check, for_all,
+    check, for_all, BoolGen, FloatGen, Generator, IntGen, ListGen, MapGen, NatGen, OptionGen,
+    PropertyResult, RefineGen, ResultGen, StringGen, DEFAULT_ITERATIONS,
 };
 
 // ===========================================================================
@@ -159,7 +159,10 @@ fn test_for_all_passes_commutative_property() {
 fn test_for_all_failing_property_returns_counterexample() {
     let result = for_all(IntGen::full(), 100, |n: &i64| *n < 100);
 
-    assert!(!result.passed(), "n < 100 cannot hold for the full-range generator");
+    assert!(
+        !result.passed(),
+        "n < 100 cannot hold for the full-range generator"
+    );
     assert_eq!(
         result.counterexample(),
         Some(&i64::MAX),
@@ -264,7 +267,11 @@ fn test_refine_filters_values() {
 #[test]
 fn test_refine_preserves_edge_case_ordering() {
     let mut gen = RefineGen::new(IntGen::new(0, 100), |n: &i64| n % 2 == 0);
-    assert_eq!(gen.draw(), 0, "first refined draw must be the zero edge case");
+    assert_eq!(
+        gen.draw(),
+        0,
+        "first refined draw must be the zero edge case"
+    );
 }
 
 // ===========================================================================
@@ -309,7 +316,10 @@ fn test_option_generator_produces_valid_options() {
     }
 
     assert!(saw_some, "option generator never produced Some");
-    assert!(saw_none, "option generator never produced None (edge case missing)");
+    assert!(
+        saw_none,
+        "option generator never produced None (edge case missing)"
+    );
 }
 
 /// AC (e): result generator yields Ok(in-range) and Err(bounded string), and
@@ -334,7 +344,10 @@ fn test_result_generator_produces_valid_results() {
     }
 
     assert!(saw_ok, "result generator never produced Ok");
-    assert!(saw_err, "result generator never produced Err (edge case missing)");
+    assert!(
+        saw_err,
+        "result generator never produced Err (edge case missing)"
+    );
 }
 
 // ===========================================================================

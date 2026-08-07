@@ -46,16 +46,14 @@ fn write_kzd(dir: &std::path::Path, name: &str, content: &str) -> std::path::Pat
 /// absent from the wasm compile path, `for_all` is an undeclared variable and
 /// typechecking fails with `unknown variable: for_all`. Runtime injection must
 /// make that error disappear and see the run proceed past it.
-const PROPERTY_CALLS_FOR_ALL: &str =
-    "@property fn test_property_commutative() { for_all(0, 0) }";
+const PROPERTY_CALLS_FOR_ALL: &str = "@property fn test_property_commutative() { for_all(0, 0) }";
 
 /// Fixture B — a property whose body holds a string literal. The wasm backend
 /// supports only the i32 subset (`Int`/`Bool` literals, no strings), so it
 /// raises `EmitterError::UnsupportedFeature`. The run must surface that as a
 /// clean `unsupported feature` diagnostic instead of an empty-module
 /// `WAT parse error` or a silent PASS.
-const PROPERTY_UNSUPPORTED: &str =
-    "@property fn test_property_with_str() { \"x\" }";
+const PROPERTY_UNSUPPORTED: &str = "@property fn test_property_with_str() { \"x\" }";
 
 // ---------------------------------------------------------------------------
 // AC 1 — runtime injection: `for_all` in a property body must not be an
@@ -70,7 +68,13 @@ fn test_wasm_property_for_all_not_unknown_variable() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "injects_runtime.kzd", PROPERTY_CALLS_FOR_ALL);
 
-    let output = forge(&["test", "--target", "wasm", "--draupnir", file_path.to_str().unwrap()]);
+    let output = forge(&[
+        "test",
+        "--target",
+        "wasm",
+        "--draupnir",
+        file_path.to_str().unwrap(),
+    ]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -103,7 +107,13 @@ fn test_wasm_property_unsupported_feature_surfaces_diagnostic() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "unsupported_property.kzd", PROPERTY_UNSUPPORTED);
 
-    let output = forge(&["test", "--target", "wasm", "--draupnir", file_path.to_str().unwrap()]);
+    let output = forge(&[
+        "test",
+        "--target",
+        "wasm",
+        "--draupnir",
+        file_path.to_str().unwrap(),
+    ]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);

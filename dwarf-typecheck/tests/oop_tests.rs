@@ -180,7 +180,10 @@ type Counter {
         errors.iter().any(|e| e.message.contains("nonexistent")),
         "expected the error to name the missing field 'nonexistent': {errors:?}"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 /// A method body containing a plain type error (Int + Str) must be reported.
@@ -204,7 +207,10 @@ type Counter {
          error, but the checker reported none — method bodies are not being \
          type-checked"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 /// A method whose body type does not match its declared return type must be
@@ -228,7 +234,10 @@ type Greeter {
         "method declared '-> Str' but returning Int should be a type error, \
          but the checker reported none"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 // ===========================================================================
@@ -299,7 +308,10 @@ type Circle implements Shape {
         "expected the conformance error to name the interface or the missing \
          method: {errors:?}"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 /// A type that implements an interface method with the WRONG signature (same
@@ -335,7 +347,10 @@ type Circle implements Shape {
             .any(|e| e.message.contains("area") || e.message.contains("Shape")),
         "expected the conformance error to name the interface or the method: {errors:?}"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 /// A type that correctly implements every interface method must type-check
@@ -494,7 +509,9 @@ type Greeter {
 }
 "#;
     let (_registry, errors) = check_source(src);
-    let mismatch = errors.iter().find(|e| e.message.contains("return type mismatch"));
+    let mismatch = errors
+        .iter()
+        .find(|e| e.message.contains("return type mismatch"));
     assert!(
         mismatch.is_some(),
         "expected a return type mismatch error for '-> Str' body 42: {errors:?}"
@@ -504,7 +521,10 @@ type Greeter {
         msg.contains("expected Str") && msg.contains("got Int"),
         "mismatch message should name both types: {msg}"
     );
-    assert!(has_type_code(&errors), "expected a DWARF-E-TYPE- error: {errors:?}");
+    assert!(
+        has_type_code(&errors),
+        "expected a DWARF-E-TYPE- error: {errors:?}"
+    );
 }
 
 /// Alias-based interface conformance: `type MyInt = Int` with a record method
@@ -629,7 +649,9 @@ type Shape2D implements MissingShape {
         "expected a DWARF-E-TYPE-0002 unknown-type error: {errors:?}"
     );
     assert!(
-        unknown.map(|e| e.message.contains("MissingShape")).unwrap_or(false),
+        unknown
+            .map(|e| e.message.contains("MissingShape"))
+            .unwrap_or(false),
         "error should name the unknown interface: {errors:?}"
     );
 }
@@ -660,7 +682,10 @@ type Counter {
         .expect("registry with a populated method_sigs table must serialize");
     let back: TypeRegistry = serde_json::from_str(&json)
         .expect("serialized registry must deserialize back to a TypeRegistry");
-    assert_eq!(back, registry, "registry must survive a serde JSON round-trip");
+    assert_eq!(
+        back, registry,
+        "registry must survive a serde JSON round-trip"
+    );
 }
 
 // ===========================================================================

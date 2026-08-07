@@ -103,7 +103,9 @@ fn test_invariant_entry_semantics_preserved() {
         "the invariant must be asserted exactly once (entry semantics), got:\n{query}"
     );
     // Order: invariant before pre-condition.
-    let inv_idx = norm.find("(assert (>= w.balance 0))").expect("invariant assert");
+    let inv_idx = norm
+        .find("(assert (>= w.balance 0))")
+        .expect("invariant assert");
     let pre_idx = norm.find("(assert (>= amount 0))").expect("pre assert");
     assert!(
         inv_idx < pre_idx,

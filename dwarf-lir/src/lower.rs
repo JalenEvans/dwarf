@@ -173,7 +173,10 @@ fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirE
             // Non-method member calls (and variable calls) pass through.
             LirExpr::Call {
                 func: Box::new(lower_expr_methods(func, methods)),
-                args: args.iter().map(|a| lower_expr_methods(a, methods)).collect(),
+                args: args
+                    .iter()
+                    .map(|a| lower_expr_methods(a, methods))
+                    .collect(),
                 hint: TargetHint::None,
                 span: *span,
             }
@@ -198,7 +201,9 @@ fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirE
         } => LirExpr::If {
             cond: Box::new(lower_expr_methods(cond, methods)),
             then: Box::new(lower_expr_methods(then, methods)),
-            else_: else_.as_ref().map(|e| Box::new(lower_expr_methods(e, methods))),
+            else_: else_
+                .as_ref()
+                .map(|e| Box::new(lower_expr_methods(e, methods))),
             hint: TargetHint::None,
             span: *span,
         },
@@ -215,7 +220,10 @@ fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirE
             span: *span,
         },
         MirExpr::Block { stmts, span } => LirExpr::Block {
-            stmts: stmts.iter().map(|s| lower_stmt_methods(s, methods)).collect(),
+            stmts: stmts
+                .iter()
+                .map(|s| lower_stmt_methods(s, methods))
+                .collect(),
             hint: TargetHint::None,
             span: *span,
         },
@@ -245,12 +253,17 @@ fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirE
         },
         MirExpr::Variant { name, arg, span } => LirExpr::Variant {
             name: name.clone(),
-            arg: arg.as_ref().map(|a| Box::new(lower_expr_methods(a, methods))),
+            arg: arg
+                .as_ref()
+                .map(|a| Box::new(lower_expr_methods(a, methods))),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Array { items, span } => LirExpr::Array {
-            items: items.iter().map(|i| lower_expr_methods(i, methods)).collect(),
+            items: items
+                .iter()
+                .map(|i| lower_expr_methods(i, methods))
+                .collect(),
             hint: TargetHint::None,
             span: *span,
         },
@@ -301,7 +314,9 @@ fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirE
         } => LirExpr::Try {
             body: Box::new(lower_expr_methods(body, methods)),
             binding: lower_pat(binding),
-            guard: guard.as_ref().map(|g| Box::new(lower_expr_methods(g, methods))),
+            guard: guard
+                .as_ref()
+                .map(|g| Box::new(lower_expr_methods(g, methods))),
             handler: Box::new(lower_expr_methods(handler, methods)),
             hint: TargetHint::None,
             span: *span,

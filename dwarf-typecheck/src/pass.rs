@@ -53,10 +53,8 @@ fn func_arg_type(hir_type: &dwarf_syntax::hir::Type, registry: &mut TypeRegistry
         },
         dwarf_syntax::hir::Type::Refined { base, .. } => func_arg_type(base, registry),
         dwarf_syntax::hir::Type::Func { params, return_ } => {
-            let func_params: Vec<TypeId> = params
-                .iter()
-                .map(|p| func_arg_type(p, registry))
-                .collect();
+            let func_params: Vec<TypeId> =
+                params.iter().map(|p| func_arg_type(p, registry)).collect();
             let func_return = func_arg_type(return_, registry);
             registry.register(TypeDef::Func(func_params, func_return))
         }
@@ -252,7 +250,13 @@ impl TypeCheckPass {
                     Some(id) => id,
                     None => continue, // Shouldn't happen: register_decls registers every record.
                 };
-                self.check_record_method(record_id, methods, &extern_map, &mut registry, &mut errors);
+                self.check_record_method(
+                    record_id,
+                    methods,
+                    &extern_map,
+                    &mut registry,
+                    &mut errors,
+                );
                 self.check_conformance(
                     record_id,
                     record_name,
@@ -334,8 +338,8 @@ impl TypeCheckPass {
                     dwarf_syntax::hir::Type::Generic { base, args: _ } => {
                         // Simple base name resolution for generic annotations
                         match base.as_str() {
-                            "int" | "Int" | "float" | "Float" | "str" | "Str"
-                            | "string" | "String" | "bool" | "Bool" | "null" | "Null" => {
+                            "int" | "Int" | "float" | "Float" | "str" | "Str" | "string"
+                            | "String" | "bool" | "Bool" | "null" | "Null" => {
                                 // Use the concrete registration for generic types
                                 errors.push(TypeCheckError::new(
                                     "DWARF-E-TYPE-0008",
@@ -412,20 +416,15 @@ impl TypeCheckPass {
                         // runtime's `property: (Any) -> Bool`) are a supported
                         // annotation: resolve each param and the return type
                         // into a registered `Func` type.
-                        let func_params: Vec<TypeId> = params
-                            .iter()
-                            .map(|p| func_arg_type(p, registry))
-                            .collect();
+                        let func_params: Vec<TypeId> =
+                            params.iter().map(|p| func_arg_type(p, registry)).collect();
                         let func_return = func_arg_type(return_, registry);
                         registry.register(TypeDef::Func(func_params, func_return))
                     }
                     _ => {
                         errors.push(TypeCheckError::new(
                             "DWARF-E-TYPE-0008",
-                            format!(
-                                "unsupported type annotation for parameter '{}'",
-                                param.name
-                            ),
+                            format!("unsupported type annotation for parameter '{}'", param.name),
                             *span,
                         ));
                         continue;
@@ -549,10 +548,7 @@ impl TypeCheckPass {
         errors: &mut Vec<TypeCheckError>,
     ) {
         for iface_name in implements {
-            let iface_sigs = match name_map
-                .get(iface_name)
-                .and_then(|id| registry.get(*id))
-            {
+            let iface_sigs = match name_map.get(iface_name).and_then(|id| registry.get(*id)) {
                 Some(TypeDef::Interface(sigs)) => sigs.clone(),
                 _ => {
                     errors.push(TypeCheckError::new(

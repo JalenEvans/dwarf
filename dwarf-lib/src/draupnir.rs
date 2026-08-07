@@ -117,10 +117,7 @@ pub fn runtime_sources() -> String {
                 .join("draupnir")
                 .join(name);
             std::fs::read_to_string(&source_path).unwrap_or_else(|e| {
-                panic!(
-                    "draupnir source file {:?} should exist: {}",
-                    source_path, e
-                )
+                panic!("draupnir source file {:?} should exist: {}", source_path, e)
             })
         })
         .collect::<Vec<_>>()

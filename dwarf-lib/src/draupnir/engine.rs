@@ -102,7 +102,10 @@ impl IntGen {
     ///
     /// Panics if `max < min`.
     pub fn new(min: i64, max: i64) -> Self {
-        assert!(max >= min, "IntGen range must satisfy max >= min, got [{min}, {max}]");
+        assert!(
+            max >= min,
+            "IntGen range must satisfy max >= min, got [{min}, {max}]"
+        );
         Self {
             min,
             max,
@@ -163,7 +166,9 @@ pub struct NatGen {
 impl NatGen {
     /// A generator over `0..=max`.
     pub fn new(max: i64) -> Self {
-        Self { inner: IntGen::new(0, max) }
+        Self {
+            inner: IntGen::new(0, max),
+        }
     }
 }
 
@@ -201,8 +206,7 @@ impl Generator<f64> for FloatGen {
 // ---------------------------------------------------------------------------
 
 /// Characters drawn by `StringGen` (printable ASCII, no escapes).
-const STRING_ALPHABET: &[u8] =
-    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-";
+const STRING_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-";
 
 /// `String` generator yielding strings of length `<= max_len`.
 pub struct StringGen {
@@ -213,7 +217,10 @@ pub struct StringGen {
 impl StringGen {
     /// A generator over strings of length `<= max_len`.
     pub fn new(max_len: usize) -> Self {
-        Self { max_len, rng: Rng::new(DEFAULT_SEED) }
+        Self {
+            max_len,
+            rng: Rng::new(DEFAULT_SEED),
+        }
     }
 }
 
@@ -268,7 +275,12 @@ impl<G, T> ListGen<G, T> {
     /// A generator over `Vec<T>` of length `<= max_len`, drawing elements from
     /// `elem`.
     pub fn new(elem: G, max_len: usize) -> Self {
-        Self { elem, max_len, rng: Rng::new(DEFAULT_SEED), _marker: PhantomData }
+        Self {
+            elem,
+            max_len,
+            rng: Rng::new(DEFAULT_SEED),
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -293,7 +305,11 @@ pub struct OptionGen<G, T> {
 impl<G, T> OptionGen<G, T> {
     /// A generator over `Option<T>` drawing from `inner` when `Some`.
     pub fn new(inner: G) -> Self {
-        Self { inner, rng: Rng::new(DEFAULT_SEED), _marker: PhantomData }
+        Self {
+            inner,
+            rng: Rng::new(DEFAULT_SEED),
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -321,7 +337,11 @@ pub struct ResultGen<G, E> {
 impl<G, E> ResultGen<G, E> {
     /// A generator over `Result<T, U>` drawing from `ok` / `err`.
     pub fn new(ok: G, err: E) -> Self {
-        Self { ok, err, rng: Rng::new(DEFAULT_SEED) }
+        Self {
+            ok,
+            err,
+            rng: Rng::new(DEFAULT_SEED),
+        }
     }
 }
 
@@ -361,7 +381,10 @@ pub struct RefineGen<G, T> {
 impl<G, T> RefineGen<G, T> {
     /// A generator over values of `inner` that satisfy `pred`.
     pub fn new(inner: G, pred: impl Fn(&T) -> bool + 'static) -> Self {
-        Self { inner, pred: Box::new(pred) }
+        Self {
+            inner,
+            pred: Box::new(pred),
+        }
     }
 }
 
@@ -395,7 +418,10 @@ pub struct MapGen<G, S, T> {
 impl<G, S, T> MapGen<G, S, T> {
     /// A generator over `f(inner.draw())`.
     pub fn new(inner: G, f: impl Fn(S) -> T + 'static) -> Self {
-        Self { inner, f: Box::new(f) }
+        Self {
+            inner,
+            f: Box::new(f),
+        }
     }
 }
 
@@ -479,7 +505,11 @@ pub enum PropertyResult<T> {
     Passed { iterations: usize },
     /// The property failed; `value` is the raw counterexample, `shrunk` is the
     /// minimal value that still fails.
-    Failed { value: T, shrunk: T, iterations: usize },
+    Failed {
+        value: T,
+        shrunk: T,
+        iterations: usize,
+    },
 }
 
 impl<T> PropertyResult<T> {
@@ -528,7 +558,11 @@ where
         if !property(&value) {
             let mut is_failing = |candidate: &T| !property(candidate);
             let shrunk = value.shrink_with(&mut is_failing);
-            return PropertyResult::Failed { value, shrunk, iterations: i + 1 };
+            return PropertyResult::Failed {
+                value,
+                shrunk,
+                iterations: i + 1,
+            };
         }
     }
     PropertyResult::Passed { iterations }

@@ -57,7 +57,13 @@ fn test_forge_test_draupnir_runs_unit_and_property_tests() {
         UNIT_PLUS_PROPERTY_PASSING,
     );
 
-    let output = forge(&["test", "--target", "wasm", "--draupnir", file_path.to_str().unwrap()]);
+    let output = forge(&[
+        "test",
+        "--target",
+        "wasm",
+        "--draupnir",
+        file_path.to_str().unwrap(),
+    ]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -105,7 +111,13 @@ fn test_forge_test_draupnir_reports_failing_property() {
     let dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = write_kzd(dir.path(), "failing_property.kzd", PROPERTY_FAILING);
 
-    let output = forge(&["test", "--target", "wasm", "--draupnir", file_path.to_str().unwrap()]);
+    let output = forge(&[
+        "test",
+        "--target",
+        "wasm",
+        "--draupnir",
+        file_path.to_str().unwrap(),
+    ]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 

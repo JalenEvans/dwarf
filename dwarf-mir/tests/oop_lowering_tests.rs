@@ -25,9 +25,7 @@
 //! `dwarf_mir::desugar` and `dwarf_mir::lib`.
 
 use dwarf_mir::pass::MirPass;
-use dwarf_mir::{
-    MirBinaryOp, MirDecl, MirExpr, MirField, MirParam,
-};
+use dwarf_mir::{MirBinaryOp, MirDecl, MirExpr, MirField, MirParam};
 use dwarf_syntax::hir::{BinaryOp, Decl, Expr, Field, LiteralValue, Param, Type};
 use dwarf_syntax::span::Span;
 
@@ -577,9 +575,7 @@ fn interface_declaration_has_no_mir_node_besides_method_skeletons() {
     let result = lower_to_mir(vec![interface]);
 
     assert!(
-        result
-            .iter()
-            .all(|d| matches!(d, MirDecl::Function { .. })),
+        result.iter().all(|d| matches!(d, MirDecl::Function { .. })),
         "interfaces themselves stay type-level: only method function skeletons appear in MIR"
     );
     assert_eq!(result.len(), 1, "one skeleton function, nothing else");
