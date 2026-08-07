@@ -6,6 +6,7 @@
 
 pub mod draupnir;
 pub mod dunit;
+pub mod gungnir;
 mod pipeline;
 pub mod resolver;
 pub use resolver::{FilesystemResolver, ModuleResolver, PureResolver};
