@@ -78,20 +78,43 @@ impl DwarfCompiler {
             }
         };
 
-        // Emit — with optional source map generation
+        // Emit — with optional source map generation. An emitter error (e.g.
+        // `EmitterError::UnsupportedFeature` on the wasm backend) must be
+        // surfaced as an error diagnostic rather than silently swallowed into an
+        // empty output string: callers that inspect `Severity::Error` diagnostics
+        // (like the wasm test dispatch) rely on it to report the failure instead
+        // of parsing an empty module and producing a misleading WAT error.
         let (output, source_map_json) = if options.source_map {
-            backend
-                .emit_module_with_source_map(&lir, filename, source)
-                .unwrap_or_else(|_| (String::new(), None))
+            match backend.emit_module_with_source_map(&lir, filename, source) {
+                Ok(result) => result,
+                Err(err) => {
+                    diagnostics.push(Diagnostic {
+                        code: "DWARF-E-EMIT-0001".to_string(),
+                        severity: Severity::Error,
+                        message: format!("emission failed: {err}"),
+                        file: Some(filename.to_string()),
+                        line: None,
+                        col: None,
+                    });
+                    (String::new(), None)
+                }
+            }
         } else {
-            backend
-                .emit_module(&lir)
-                .map(|o| (o, None))
-                .unwrap_or_else(|_| (String::new(), None))
+            match backend.emit_module(&lir) {
+                Ok(output) => (output, None),
+                Err(err) => {
+                    diagnostics.push(Diagnostic {
+                        code: "DWARF-E-EMIT-0001".to_string(),
+                        severity: Severity::Error,
+                        message: format!("emission failed: {err}"),
+                        file: Some(filename.to_string()),
+                        line: None,
+                        col: None,
+                    });
+                    (String::new(), None)
+                }
+            }
         };
-
-        // Also handle emission errors that came through the non-source-map path
-        // (if source_map was false and emit_module failed, we get empty string).
 
         let ext = match options.target.as_str() {
             "ts" => "ts",

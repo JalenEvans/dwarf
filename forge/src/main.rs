@@ -479,7 +479,11 @@ fn main() {
             // before_each/after_each hooks), so it picks up both unit `@test`
             // functions and `@property` tests in the file and reports each one.
             if testing::dispatch::is_wasm_target(&target) {
-                let results = testing::dispatch::run_wasm_tests(&files, filter.as_deref());
+                // DWARF-130: `--draupnir` is honored on the wasm path — the flag
+                // is forwarded into the dispatch so the Draupnir runtime is
+                // injected into each compile unit before running properties.
+                let results =
+                    testing::dispatch::run_wasm_tests(&files, filter.as_deref(), draupnir);
                 let passed = results.iter().filter(|r| r.passed).count();
                 for r in &results {
                     let verdict = if r.passed { "PASS" } else { "FAIL" };

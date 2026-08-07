@@ -88,7 +88,7 @@ fn test_is_wasm_target_rejects_legacy_targets() {
 #[test]
 fn test_run_wasm_tests_passing_test_reports_passed() {
     let (file, _dir) = write_kzd(PASSING_SOURCE);
-    let results = run_wasm_tests(&[file], None);
+    let results = run_wasm_tests(&[file], None, false);
 
     assert_eq!(
         results.len(),
@@ -117,7 +117,7 @@ fn test_run_wasm_tests_passing_test_reports_passed() {
 #[test]
 fn test_run_wasm_tests_failing_assert_reports_failed_with_message() {
     let (file, _dir) = write_kzd(FAILING_SOURCE);
-    let results = run_wasm_tests(&[file], None);
+    let results = run_wasm_tests(&[file], None, false);
 
     assert_eq!(
         results.len(),
@@ -147,7 +147,7 @@ fn test_run_wasm_tests_failing_assert_reports_failed_with_message() {
 #[test]
 fn test_run_wasm_tests_multiple_test_functions_one_item_each() {
     let (file, _dir) = write_kzd(MULTI_SOURCE);
-    let results = run_wasm_tests(&[file], None);
+    let results = run_wasm_tests(&[file], None, false);
 
     assert_eq!(
         results.len(),
@@ -167,7 +167,7 @@ fn test_run_wasm_tests_multiple_test_functions_one_item_each() {
 #[test]
 fn test_run_wasm_tests_respects_filter() {
     let (file, _dir) = write_kzd(MULTI_SOURCE);
-    let results = run_wasm_tests(&[file], Some("test_a"));
+    let results = run_wasm_tests(&[file], Some("test_a"), false);
 
     assert_eq!(
         results.len(),

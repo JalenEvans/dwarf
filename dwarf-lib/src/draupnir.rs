@@ -94,6 +94,39 @@ pub fn compile_draupnir() -> String {
         .join("\n\n")
 }
 
+/// Read the raw Draupnir runtime source files (in load order) and return them
+/// concatenated into a single Dwarf source string.
+///
+/// Unlike [`compile_draupnir`] — which returns the *emitted* output for a
+/// fixed default target — this returns the *source* form so the runtime can be
+/// prepended to a user compilation unit and desugar/typecheck *together* with
+/// user code under the same target. This is what the forge wasm test dispatch
+/// uses to make runtime declarations like `for_all` resolvable inside property
+/// bodies (DWARF-130).
+///
+/// # Panics
+///
+/// Panics if any draupnir source file cannot be found or read.
+pub fn runtime_sources() -> String {
+    DRAUPNIR_SOURCES
+        .iter()
+        .map(|name| {
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let source_path = PathBuf::from(manifest_dir)
+                .join("runtime")
+                .join("draupnir")
+                .join(name);
+            std::fs::read_to_string(&source_path).unwrap_or_else(|e| {
+                panic!(
+                    "draupnir source file {:?} should exist: {}",
+                    source_path, e
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -37,8 +37,29 @@ pub fn is_wasm_target(target: &str) -> bool {
 /// `filter`, when `Some`, restricts execution to tests whose function name
 /// matches the pattern (all tests run when `None`).
 ///
-pub fn run_wasm_tests(files: &[PathBuf], filter: Option<&str>) -> Vec<TestResultItem> {
+/// When `draupnir` is `true`, the Draupnir PBT runtime sources are prepended to
+/// each file before compilation so its declarations (e.g. `for_all`) resolve
+/// during typechecking (DWARF-130). The runtime methods desugar to callable
+/// signatures and the wasm backend emits the runtime; constructs genuinely
+/// outside the wasm i32 subset (e.g. a string literal in a property body)
+/// still surface as `unsupported feature` diagnostics and fail the run, which
+/// is the intended signal.
+///
+pub fn run_wasm_tests(
+    files: &[PathBuf],
+    filter: Option<&str>,
+    draupnir: bool,
+) -> Vec<TestResultItem> {
     let mut results = Vec::new();
+
+    // Precompute the Draupnir runtime source once (empty when disabled). It is
+    // prepended to every file so the runtime and the user source desugar and
+    // typecheck together in a single compilation unit.
+    let draupnir_runtime = if draupnir {
+        dwarf_lib::draupnir::runtime_sources()
+    } else {
+        String::new()
+    };
 
     for file in files {
         let file_str = file.to_string_lossy().into_owned();
@@ -57,12 +78,21 @@ pub fn run_wasm_tests(files: &[PathBuf], filter: Option<&str>) -> Vec<TestResult
         };
 
         // 2. Compile to the wasm target (WAT text).
+        //
+        //    When `draupnir` is set, prepend the runtime source so its
+        //    declarations are visible to the typechecker. The pipeline runs on
+        //    the combined source — the runtime and user code are one unit.
         let compiler = DwarfCompiler::new();
         let options = CompileOptions {
             target: "wasm".to_string(),
             ..Default::default()
         };
-        let compile_result = match compiler.compile(&source, &file_str, options) {
+        let program = if draupnir_runtime.is_empty() {
+            source
+        } else {
+            format!("{}\n\n{}", draupnir_runtime, source)
+        };
+        let compile_result = match compiler.compile(&program, &file_str, options) {
             Ok(result) => result,
             Err(errors) => {
                 let message = errors
