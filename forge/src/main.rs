@@ -5,10 +5,12 @@ use std::process;
 use dwarf_cli::{build, check, dev, emit, fmt, run, test};
 use dwarf_lib::CoverageMode;
 
-// DWARF-118: Wasm test runner module (RED phase — stubs)
+// DWARF-118/DWARF-129: Wasm test runner + `--target wasm` dispatch
 pub mod testing;
 // DWARF-118: Coverage reporter module
 pub mod coverage;
+// DWARF-120: Gungnir — Z3 formal verification bridge
+pub mod gungnir;
 
 /// Parse a CLI `--test-coverage` string into a typed [`CoverageMode`].
 /// Invalid values fall back to `None` (the compiler default applies).
@@ -271,6 +273,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Enable Draupnir property-based testing (DWARF-119).
+        /// Runs unit `@test` AND `@property` tests through the wasmtime
+        /// runner. Requires `--target wasm`.
+        #[arg(long)]
+        draupnir: bool,
+
         /// Diff mode: compile to all targets and compare against oracle
         #[arg(long)]
         diff: bool,
@@ -327,6 +335,21 @@ enum Commands {
         /// Coverage enforcement mode (on, off, warning, required)
         #[arg(long = "test-coverage")]
         test_coverage: Option<String>,
+    },
+
+    /// Verify @gungnir contracts with the Z3 SMT solver (DWARF-120)
+    Gungnir {
+        /// Source files to verify (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Per-query solver timeout in milliseconds (default: 5000)
+        #[arg(long, default_value_t = 5000)]
+        timeout_ms: u64,
     },
 
     /// Initialize a new Dwarf project
@@ -441,29 +464,66 @@ fn main() {
             files,
             target,
             json,
+            draupnir,
             diff,
             fix,
-            filter: _,
+            filter,
             quick,
             skip_edge_check,
             test_coverage,
         }) => {
-            // DWARF-118: The Wasm runner will use the `filter` field. For now the
-            // Jest passthrough is preserved; `filter` is accepted but unused.
-            eprintln!(
-                "forge: note — DWARF dUnit/wasm executor not yet wired (DWARF-118). \
-                 Results below are from the legacy Jest backend."
-            );
-            test::run_test(
-                files,
-                target,
-                json,
-                diff,
-                fix,
-                quick,
-                skip_edge_check,
-                parse_coverage_mode(test_coverage),
-            );
+            // DWARF-129 + DWARF-119: `--target wasm` routes through the
+            // wasmtime test runner instead of the legacy Jest passthrough, and
+            // does NOT print the "not yet wired (DWARF-118)" note. The wasm
+            // runner discovers EVERY exported function (except
+            // before_each/after_each hooks), so it picks up both unit `@test`
+            // functions and `@property` tests in the file and reports each one.
+            if testing::dispatch::is_wasm_target(&target) {
+                // DWARF-130: `--draupnir` is honored on the wasm path — the flag
+                // is forwarded into the dispatch so the Draupnir runtime is
+                // injected into each compile unit before running properties.
+                let results =
+                    testing::dispatch::run_wasm_tests(&files, filter.as_deref(), draupnir);
+                let passed = results.iter().filter(|r| r.passed).count();
+                for r in &results {
+                    let verdict = if r.passed { "PASS" } else { "FAIL" };
+                    println!("{verdict} {}: {}", r.file, r.message);
+                }
+                let total = results.len();
+                let status = if total > 0 && passed == total {
+                    "PASS"
+                } else {
+                    "FAIL"
+                };
+                println!("forge: {status} — {passed}/{total} tests passed");
+                // DWARF-119: a run with any failing test (unit or property)
+                // must exit non-zero so CI can react to regressions.
+                if status == "FAIL" {
+                    process::exit(1);
+                }
+            } else {
+                // Legacy path (ts / py / java) — unchanged.
+                if draupnir {
+                    eprintln!(
+                        "forge: note — --draupnir currently requires --target wasm; \
+                         falling through to the legacy runner."
+                    );
+                }
+                eprintln!(
+                    "forge: note — DWARF dUnit/wasm executor not yet wired (DWARF-118). \
+                     Results below are from the legacy Jest backend."
+                );
+                test::run_test(
+                    files,
+                    target,
+                    json,
+                    diff,
+                    fix,
+                    quick,
+                    skip_edge_check,
+                    parse_coverage_mode(test_coverage),
+                );
+            }
         }
         Some(Commands::ScaffoldTests { fn_name, file }) => {
             // DWARF-118: Generate a @covers-annotated test stub for a function.
@@ -500,6 +560,14 @@ fn main() {
             // DWARF-118: Report test coverage — functions tested, edges
             // covered, and @gungnir verification status.
             coverage::run_coverage(files, json, quick, skip_edge_check, test_coverage);
+        }
+        Some(Commands::Gungnir {
+            files,
+            json,
+            timeout_ms,
+        }) => {
+            // DWARF-120: Verify @gungnir contracts with the Z3 SMT solver.
+            gungnir::run_gungnir(files, json, timeout_ms);
         }
         Some(Commands::Init { name }) => match run_init(None, name.as_deref()) {
             Ok(()) => {}

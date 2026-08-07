@@ -1,5 +1,7 @@
 //! TypeRegistry — stores and resolves all type definitions.
 
+use std::collections::HashMap;
+
 use crate::types::{PrimitiveType, TypeDef, TypeId};
 
 /// The central store for type definitions.
@@ -15,6 +17,16 @@ use crate::types::{PrimitiveType, TypeDef, TypeId};
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypeRegistry {
     types: Vec<TypeDef>,
+    /// Maps a method-signature key to the TypeId of the method's
+    /// `TypeDef::Func` signature (implicit `self` excluded). The key is
+    /// `format!("{owner}:{name}")` — a single `String` rather than a
+    /// `(TypeId, String)` tuple because tuple keys are not valid JSON object
+    /// keys, so a registry with populated methods would panic on
+    /// serde_json serialization.
+    /// Populated by `resolve::register_decls`; used by inference to resolve
+    /// `self.method(...)` calls and by interface conformance checking.
+    #[serde(default)]
+    method_sigs: HashMap<String, TypeId>,
 }
 
 impl TypeRegistry {
@@ -43,6 +55,7 @@ impl TypeRegistry {
                     name: "Map".to_string(),
                 }, // 8
             ],
+            method_sigs: HashMap::new(),
         }
     }
 
@@ -81,6 +94,20 @@ impl TypeRegistry {
         id
     }
 
+    /// Register a method signature for an owning record/interface type.
+    ///
+    /// `func_id` must be the TypeId of a `TypeDef::Func` whose parameter list
+    /// excludes the implicit `self`.
+    pub fn register_method_sig(&mut self, owner: TypeId, name: String, func_id: TypeId) {
+        self.method_sigs.insert(format!("{owner}:{name}"), func_id);
+    }
+
+    /// Look up the `TypeDef::Func` TypeId registered for a method on an
+    /// owning record/interface type, or `None` if the type has no such method.
+    pub fn lookup_method_sig(&self, owner: TypeId, name: &str) -> Option<TypeId> {
+        self.method_sigs.get(&format!("{owner}:{name}")).copied()
+    }
+
     /// Get a type definition by ID. Returns None if ID is out of bounds.
     pub fn get(&self, id: TypeId) -> Option<&TypeDef> {
         self.types.get(id)
@@ -110,6 +137,46 @@ impl TypeRegistry {
     /// Number of registered types (including primitives).
     pub fn len(&self) -> usize {
         self.types.len()
+    }
+
+    /// Render a TypeId as a human-readable type name for error messages
+    /// (mirrors `dwarf-lsp`'s `type_id_to_name`).
+    ///
+    /// Primitive types and built-in generics use their source-level names;
+    /// generic instances render as `Base<Arg1, Arg2>`; anything else falls
+    /// back to `type#<id>`.
+    pub fn type_name(&self, type_id: TypeId) -> String {
+        use crate::types::{
+            ANY_TYPE_ID, BOOL_TYPE_ID, FLOAT_TYPE_ID, INT_TYPE_ID, LIST_TYPE_ID, MAP_TYPE_ID,
+            NEVER_TYPE_ID, NULL_TYPE_ID, OPTION_TYPE_ID, RESULT_TYPE_ID, STR_TYPE_ID,
+        };
+        match type_id {
+            INT_TYPE_ID => "Int".to_string(),
+            FLOAT_TYPE_ID => "Float".to_string(),
+            STR_TYPE_ID => "Str".to_string(),
+            BOOL_TYPE_ID => "Bool".to_string(),
+            NULL_TYPE_ID => "Null".to_string(),
+            OPTION_TYPE_ID => "Option".to_string(),
+            RESULT_TYPE_ID => "Result".to_string(),
+            LIST_TYPE_ID => "List".to_string(),
+            MAP_TYPE_ID => "Map".to_string(),
+            NEVER_TYPE_ID => "Never".to_string(),
+            ANY_TYPE_ID => "Any".to_string(),
+            _ => match self.types.get(type_id) {
+                Some(TypeDef::Primitive(p)) => format!("{p:?}"),
+                Some(TypeDef::BuiltinGeneric { name }) => name.clone(),
+                Some(TypeDef::GenericInstance { base, args }) => {
+                    let base_name = self.type_name(*base);
+                    let args_str = args
+                        .iter()
+                        .map(|a| self.type_name(*a))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{base_name}<{args_str}>")
+                }
+                _ => format!("type#{type_id}"),
+            },
+        }
     }
 
     /// Returns true if only built-in types (primitives + built-in generics) are registered.

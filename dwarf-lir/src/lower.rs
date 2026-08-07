@@ -13,6 +13,7 @@ use crate::{
 use dwarf_mir::{
     MirArm, MirBinaryOp, MirDecl, MirExpr, MirLiteral, MirParam, MirPat, MirStmt, MirUnaryOp,
 };
+use std::collections::HashMap;
 
 /// Lower a slice of MIR declarations to LIR declarations.
 ///
@@ -23,6 +24,24 @@ use dwarf_mir::{
 /// `MirDecl::TypeDef` variants have no LIR equivalent and are silently
 /// skipped.
 pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
+    // Pre-scan the declaration list for desugared method functions. MIR names
+    // record/interface methods as `"{Type}::{method}"` (DWARF-104). We build a
+    // map from the bare method name to the full desugared name so that call
+    // sites of the form `Call(Member(obj, "field"), args)` can be rewritten to
+    // a direct call `Call(Variable("{Type}::{field}"), [obj, ...args])`.
+    //
+    // Member calls whose field does NOT name a known method (e.g. the
+    // `__iter.next()` shape produced by for-loop desugaring) are left untouched.
+    let methods: HashMap<String, String> = mir_decls
+        .iter()
+        .filter_map(|decl| match decl {
+            MirDecl::Function { name, .. } => name
+                .split_once("::")
+                .map(|(_, method)| (method.to_string(), name.clone())),
+            _ => None,
+        })
+        .collect();
+
     mir_decls
         .iter()
         .filter_map(|decl| match decl {
@@ -39,7 +58,7 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
                 name: name.clone(),
                 params: lower_params(params),
                 return_type: return_type.clone(),
-                body: lower_expr(body),
+                body: lower_expr_methods(body, &methods),
                 effect: Effect::Pure,
                 hint: TargetHint::None,
                 is_pub: *is_pub,
@@ -98,7 +117,27 @@ pub fn lower_to_lir(mir_decls: &[MirDecl]) -> Vec<LirDecl> {
 }
 
 /// Lower a MIR expression to an LIR expression, adding [`TargetHint::None`].
+/// Lower a MIR expression to an LIR expression, adding [`TargetHint::None`].
+///
+/// This is the standalone identity lowering: `Call(Member(...))` call sites are
+/// preserved 1:1 and method dispatch is NOT applied. Method dispatch only
+/// happens inside [`lower_to_lir`], which pre-scans the declaration list and
+/// uses [`lower_expr_methods`] to rewrite known method calls.
 pub fn lower_expr(expr: &MirExpr) -> LirExpr {
+    lower_expr_methods(expr, &HashMap::new())
+}
+
+/// Lower a MIR expression to an LIR expression, resolving method dispatch
+/// against the given `{method_name → "Type::method"}` map.
+///
+/// When a call's callee is `Member(obj, field)` and `field` names a desugared
+/// method in the map, the call is rewritten to a direct call of the desugared
+/// function with the receiver hoisted into the `self` position:
+/// `Call(Member(obj, "field"), args)` → `Call(Variable("Type::field"), [obj, ...args])`.
+///
+/// Member calls that do NOT name a known method (e.g. the `__iter.next()` shape
+/// produced by for-loop desugaring) are left untouched.
+fn lower_expr_methods(expr: &MirExpr, methods: &HashMap<String, String>) -> LirExpr {
     match expr {
         MirExpr::Literal { value, span } => LirExpr::Literal {
             value: lower_literal(value),
@@ -110,20 +149,46 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             hint: TargetHint::None,
             span: *span,
         },
-        MirExpr::Call { func, args, span } => LirExpr::Call {
-            func: Box::new(lower_expr(func)),
-            args: args.iter().map(lower_expr).collect(),
-            hint: TargetHint::None,
-            span: *span,
-        },
+        MirExpr::Call { func, args, span } => {
+            // Method dispatch (DWARF-104): rewrite member calls that name a
+            // known desugared method into direct calls.
+            if let MirExpr::Member { obj, field, .. } = func.as_ref() {
+                if let Some(full_name) = methods.get(field) {
+                    let mut lir_args = Vec::with_capacity(args.len() + 1);
+                    lir_args.push(lower_expr_methods(obj, methods));
+                    lir_args.extend(args.iter().map(|a| lower_expr_methods(a, methods)));
+                    return LirExpr::Call {
+                        func: Box::new(LirExpr::Variable {
+                            name: full_name.clone(),
+                            hint: TargetHint::None,
+                            span: *span,
+                        }),
+                        args: lir_args,
+                        hint: TargetHint::None,
+                        span: *span,
+                    };
+                }
+            }
+
+            // Non-method member calls (and variable calls) pass through.
+            LirExpr::Call {
+                func: Box::new(lower_expr_methods(func, methods)),
+                args: args
+                    .iter()
+                    .map(|a| lower_expr_methods(a, methods))
+                    .collect(),
+                hint: TargetHint::None,
+                span: *span,
+            }
+        }
         MirExpr::Member { obj, field, span } => LirExpr::Member {
-            obj: Box::new(lower_expr(obj)),
+            obj: Box::new(lower_expr_methods(obj, methods)),
             field: field.clone(),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::OptionalAccess { obj, field, span } => LirExpr::OptionalAccess {
-            obj: Box::new(lower_expr(obj)),
+            obj: Box::new(lower_expr_methods(obj, methods)),
             field: field.clone(),
             hint: TargetHint::None,
             span: *span,
@@ -134,26 +199,31 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             else_,
             span,
         } => LirExpr::If {
-            cond: Box::new(lower_expr(cond)),
-            then: Box::new(lower_expr(then)),
-            else_: else_.as_ref().map(|e| Box::new(lower_expr(e))),
+            cond: Box::new(lower_expr_methods(cond, methods)),
+            then: Box::new(lower_expr_methods(then, methods)),
+            else_: else_
+                .as_ref()
+                .map(|e| Box::new(lower_expr_methods(e, methods))),
             hint: TargetHint::None,
             span: *span,
         },
-        MirExpr::Loop { body, .. } => lower_expr(body),
+        MirExpr::Loop { body, .. } => lower_expr_methods(body, methods),
 
         MirExpr::Match {
             expr: match_expr,
             arms,
             span,
         } => LirExpr::Match {
-            expr: Box::new(lower_expr(match_expr)),
-            arms: arms.iter().map(lower_arm).collect(),
+            expr: Box::new(lower_expr_methods(match_expr, methods)),
+            arms: arms.iter().map(|a| lower_arm_methods(a, methods)).collect(),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Block { stmts, span } => LirExpr::Block {
-            stmts: stmts.iter().map(lower_stmt).collect(),
+            stmts: stmts
+                .iter()
+                .map(|s| lower_stmt_methods(s, methods))
+                .collect(),
             hint: TargetHint::None,
             span: *span,
         },
@@ -162,40 +232,45 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             value,
             span,
         } => LirExpr::Assign {
-            target: Box::new(lower_expr(target)),
-            value: Box::new(lower_expr(value)),
+            target: Box::new(lower_expr_methods(target, methods)),
+            value: Box::new(lower_expr_methods(value, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Lambda { params, body, span } => LirExpr::Lambda {
             params: lower_params(params),
-            body: Box::new(lower_expr(body)),
+            body: Box::new(lower_expr_methods(body, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Record { fields, span } => LirExpr::Record {
             fields: fields
                 .iter()
-                .map(|(name, expr)| (name.clone(), lower_expr(expr)))
+                .map(|(name, expr)| (name.clone(), lower_expr_methods(expr, methods)))
                 .collect(),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Variant { name, arg, span } => LirExpr::Variant {
             name: name.clone(),
-            arg: arg.as_ref().map(|a| Box::new(lower_expr(a))),
+            arg: arg
+                .as_ref()
+                .map(|a| Box::new(lower_expr_methods(a, methods))),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Array { items, span } => LirExpr::Array {
-            items: items.iter().map(lower_expr).collect(),
+            items: items
+                .iter()
+                .map(|i| lower_expr_methods(i, methods))
+                .collect(),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Binary { op, lhs, rhs, span } => LirExpr::Binary {
             op: lower_binary_op(op),
-            lhs: Box::new(lower_expr(lhs)),
-            rhs: Box::new(lower_expr(rhs)),
+            lhs: Box::new(lower_expr_methods(lhs, methods)),
+            rhs: Box::new(lower_expr_methods(rhs, methods)),
             hint: TargetHint::None,
             span: *span,
         },
@@ -205,7 +280,7 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             span,
         } => LirExpr::Unary {
             op: lower_unary_op(op),
-            expr: Box::new(lower_expr(unary_expr)),
+            expr: Box::new(lower_expr_methods(unary_expr, methods)),
             hint: TargetHint::None,
             span: *span,
         },
@@ -221,12 +296,12 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
         } => LirExpr::ForAll {
             type_: type_.clone(),
             binding: lower_pat(binding),
-            property: Box::new(lower_expr(property)),
+            property: Box::new(lower_expr_methods(property, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::AssertConsistent { expr, span } => LirExpr::AssertConsistent {
-            expr: Box::new(lower_expr(expr)),
+            expr: Box::new(lower_expr_methods(expr, methods)),
             hint: TargetHint::None,
             span: *span,
         },
@@ -237,37 +312,39 @@ pub fn lower_expr(expr: &MirExpr) -> LirExpr {
             handler,
             span,
         } => LirExpr::Try {
-            body: Box::new(lower_expr(body)),
+            body: Box::new(lower_expr_methods(body, methods)),
             binding: lower_pat(binding),
-            guard: guard.as_ref().map(|g| Box::new(lower_expr(g))),
-            handler: Box::new(lower_expr(handler)),
+            guard: guard
+                .as_ref()
+                .map(|g| Box::new(lower_expr_methods(g, methods))),
+            handler: Box::new(lower_expr_methods(handler, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Throw { expr, span } => LirExpr::Throw {
-            expr: Box::new(lower_expr(expr)),
+            expr: Box::new(lower_expr_methods(expr, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::Propagate { expr, span } => LirExpr::Propagate {
-            expr: Box::new(lower_expr(expr)),
+            expr: Box::new(lower_expr_methods(expr, methods)),
             hint: TargetHint::None,
             span: *span,
         },
         MirExpr::NonNullAssert { expr, span } => LirExpr::NonNullAssert {
-            expr: Box::new(lower_expr(expr)),
+            expr: Box::new(lower_expr_methods(expr, methods)),
             hint: TargetHint::None,
             span: *span,
         },
     }
 }
 
-/// Lower a MIR match arm to an LIR match arm.
-fn lower_arm(arm: &MirArm) -> LirArm {
+/// Lower a MIR match arm to an LIR match arm, threading the method map.
+fn lower_arm_methods(arm: &MirArm, methods: &HashMap<String, String>) -> LirArm {
     LirArm {
         pattern: lower_pat(&arm.pattern),
-        guard: arm.guard.as_ref().map(lower_expr),
-        body: lower_expr(&arm.body),
+        guard: arm.guard.as_ref().map(|g| lower_expr_methods(g, methods)),
+        body: lower_expr_methods(&arm.body, methods),
     }
 }
 
@@ -291,15 +368,20 @@ pub fn lower_pat(pat: &MirPat) -> LirPat {
     }
 }
 
-/// Lower a MIR statement to an LIR statement.
-pub fn lower_stmt(stmt: &MirStmt) -> LirStmt {
+/// Lower a MIR statement to an LIR statement, threading the method map.
+fn lower_stmt_methods(stmt: &MirStmt, methods: &HashMap<String, String>) -> LirStmt {
     match stmt {
         MirStmt::Let { pat, value } => LirStmt::Let {
             pat: lower_pat(pat),
-            value: lower_expr(value),
+            value: lower_expr_methods(value, methods),
         },
-        MirStmt::Expr(expr) => LirStmt::Expr(lower_expr(expr)),
+        MirStmt::Expr(expr) => LirStmt::Expr(lower_expr_methods(expr, methods)),
     }
+}
+
+/// Lower a MIR statement to an LIR statement (standalone identity lowering).
+pub fn lower_stmt(stmt: &MirStmt) -> LirStmt {
+    lower_stmt_methods(stmt, &HashMap::new())
 }
 
 /// Lower a MIR literal to an LIR literal.

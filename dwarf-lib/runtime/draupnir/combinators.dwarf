@@ -1,0 +1,66 @@
+// Draupnir — Generators and Combinators
+// DWARF-119: The generator / combinator surface used to build property
+// arguments for `for_all`.
+//
+// Base generators (`int`, `nat`, `float`, `string`, `bool`) and generator
+// combinators (`list`, `option`, `result`, `one_of`, `refine`, `map`)
+// compose into the values handed to a property by `for_all`.
+//
+// NOTE: Function-level generics are not yet supported by the parser, so
+// generator values and callbacks use the most permissive concrete types
+// that the current compiler accepts.
+
+/// Base generator producing integer values.
+fn int(seed: Int) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Base generator producing non-negative integer values.
+fn nat(seed: Int) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Base generator producing floating-point values.
+fn float(seed: Float) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Base generator producing string values.
+fn string(seed: Int) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Base generator producing boolean values.
+fn bool(seed: Bool) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Generator combinator: builds a list from an element generator.
+fn list(gen: Any, size: Int) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Generator combinator: lifts an element generator into an option generator.
+fn option(gen: Any) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Generator combinator: builds a result from an ok/err element generator.
+fn result(gen: Any) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Generator combinator: picks uniformly from a list of generators.
+fn one_of(gens: List<Any>) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Combinator: keeps values from `gen` that satisfy `predicate`.
+fn refine(predicate: (Any) -> Bool, gen: Any) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}
+
+/// Combinator: transforms values from `gen` through `f`.
+fn map(f: (Any) -> Any, gen: Any) {
+    // Stub — PBT execution is not implemented on the wasm target (see follow-up ticket).
+}

@@ -1,0 +1,136 @@
+//! Draupnir — Dwarf Property-Based Testing Runtime (Rust module)
+//!
+//! This module provides the Rust-side interface to the Draupnir PBT library.
+//! It reads the Draupnir Dwarf source files and compiles them through the
+//! standard pipeline.
+//!
+//! DWARF-119: Interface compiles via the standard pipeline; PBT runtime behavior
+//! is stubbed — deep-behavioral implementation is a follow-up (tracked on the
+//! Draupnir deep-behavioral follow-up ticket).
+
+use std::path::PathBuf;
+
+use crate::{CompileOptions, DwarfCompiler};
+
+/// Draupnir deep-behavioral PBT engine (DWARF-130).
+///
+/// This module provides the Rust-native generator/shrinking engine exposed as
+/// `dwarf_lib::draupnir::engine`. It ships with the compile-level surface above
+/// (`compile_draupnir`) but implements real property-based testing behavior in
+/// `engine`.
+pub mod engine;
+
+/// The Draupnir runtime source files, in load order.
+const DRAUPNIR_SOURCES: [&str; 3] = ["draupnir.dwarf", "combinators.dwarf", "shrink.dwarf"];
+
+/// Compile a single Draupnir source file through the standard pipeline.
+///
+/// Mirrors `dunit::compile_dunit` for one file of the runtime library.
+fn compile_source(name: &str) -> String {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let source_path = PathBuf::from(manifest_dir)
+        .join("runtime")
+        .join("draupnir")
+        .join(name);
+
+    // Read the source file so compilation happens through the same string-based
+    // entry point the rest of the pipeline uses.
+    let source = std::fs::read_to_string(&source_path)
+        .unwrap_or_else(|e| panic!("draupnir source file {:?} should exist: {}", source_path, e));
+
+    // Compile through the standard pipeline.
+    let compiler = DwarfCompiler::new();
+    let filename = source_path
+        .to_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| name.to_string());
+    let options = CompileOptions::default();
+
+    let result = compiler
+        .compile(&source, &filename, options)
+        .unwrap_or_else(|errors| {
+            let msgs = errors
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            panic!("Failed to compile {}:\n{}", name, msgs)
+        });
+
+    result.output
+}
+
+/// Compile the Draupnir property-based testing library and return the combined
+/// compiled output.
+///
+/// This function reads the Draupnir runtime source files
+/// (`draupnir.dwarf`, `combinators.dwarf`, `shrink.dwarf`) from the runtime
+/// directory, compiles each through the standard Dwarf compiler pipeline, and
+/// concatenates the individual outputs into a single runtime module.
+///
+/// # Returns
+///
+/// A string containing the compiled output (target language determined by
+/// default compiler options — typically TypeScript).
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - Any draupnir source file cannot be found
+/// - Any source file cannot be read
+/// - Compilation fails
+///
+/// # Examples
+///
+/// ```rust
+/// let output = dwarf_lib::draupnir::compile_draupnir();
+/// assert!(!output.is_empty());
+/// ```
+pub fn compile_draupnir() -> String {
+    DRAUPNIR_SOURCES
+        .iter()
+        .map(|name| compile_source(name))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// Read the raw Draupnir runtime source files (in load order) and return them
+/// concatenated into a single Dwarf source string.
+///
+/// Unlike [`compile_draupnir`] — which returns the *emitted* output for a
+/// fixed default target — this returns the *source* form so the runtime can be
+/// prepended to a user compilation unit and desugar/typecheck *together* with
+/// user code under the same target. This is what the forge wasm test dispatch
+/// uses to make runtime declarations like `for_all` resolvable inside property
+/// bodies (DWARF-130).
+///
+/// # Panics
+///
+/// Panics if any draupnir source file cannot be found or read.
+pub fn runtime_sources() -> String {
+    DRAUPNIR_SOURCES
+        .iter()
+        .map(|name| {
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let source_path = PathBuf::from(manifest_dir)
+                .join("runtime")
+                .join("draupnir")
+                .join(name);
+            std::fs::read_to_string(&source_path).unwrap_or_else(|e| {
+                panic!("draupnir source file {:?} should exist: {}", source_path, e)
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compile_draupnir_returns_string() {
+        // This test verifies the function signature is correct
+        let _output: String = compile_draupnir();
+    }
+}

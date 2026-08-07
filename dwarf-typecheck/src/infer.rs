@@ -533,6 +533,9 @@ fn infer_record(
 /// Infer the type of a member access expression (e.g. `point.x`).
 ///
 /// The object must be a record type. Returns the type of the named field.
+/// If the record has no such field, falls back to a registered method of the
+/// same name (e.g. `self.get()` resolves to the method's `Func` signature),
+/// so method calls like `self.other(...)` can be type-checked.
 fn infer_member_access(
     obj: &Expr,
     field: &str,
@@ -546,11 +549,15 @@ fn infer_member_access(
         .ok_or_else(|| format!("unknown type ID: {}", obj_type_id))?;
 
     match obj_def {
-        TypeDef::Record(fields) => fields
-            .iter()
-            .find(|f| f.name == field)
-            .map(|f| f.type_id)
-            .ok_or_else(|| format!("record has no field named '{}'", field)),
+        TypeDef::Record(fields) => {
+            if let Some(f) = fields.iter().find(|f| f.name == field) {
+                return Ok(f.type_id);
+            }
+            if let Some(func_id) = registry.lookup_method_sig(obj_type_id, field) {
+                return Ok(func_id);
+            }
+            Err(format!("record has no field named '{}'", field))
+        }
         _ => Err("member access on non-record type".to_string()),
     }
 }

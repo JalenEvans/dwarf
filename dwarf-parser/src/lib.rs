@@ -1855,6 +1855,48 @@ impl Parser {
         }
         Ok(exprs)
     }
+
+    /// Public entry point for parsing a *single* expression from this token
+    /// stream. Used by downstream crates (e.g. Gungnir) to re-parse decorator
+    /// condition strings (`@ensures(result >= 0)`) back into `Expr`.
+    ///
+    /// The caller owns the token stream; the parser simply begins at the first
+    /// token and stops after the first complete expression.
+    pub fn parse_single_expr(&mut self) -> Result<Expr, ParseError> {
+        self.parse_expression()
+    }
+}
+
+/// Tokenize + parse a bare expression source string (e.g. `old(a) < result`)
+/// into an `Expr`, mirroring the wiring used by `expr_to_source_string`.
+///
+/// This is the standalone companion to `Parser::parse_single_expr`: it runs the
+/// lexer over `source`, hands the tokens to a fresh `Parser`, and returns the
+/// parsed top-level expression. Used by Gungnir to recover `@requires` /
+/// `@ensures` / `@invariant` conditions that the parser stores as strings.
+pub fn parse_expr_str(source: &str) -> Result<Expr, String> {
+    // Tokenize
+    let mut lexer = dwarf_lexer::Lexer::new(source);
+    let mut tokens = Vec::new();
+    loop {
+        match lexer.next_token() {
+            Ok(token) => {
+                let is_eof = token.kind == dwarf_syntax::token::TokenKind::Eof;
+                tokens.push(token);
+                if is_eof {
+                    break;
+                }
+            }
+            Err(_) => return Err("lexer error while parsing expression".to_string()),
+        }
+    }
+
+    // Parse a single expression
+    let mut parser = Parser::new(tokens);
+    match parser.parse_single_expr() {
+        Ok(expr) => Ok(expr),
+        Err(e) => Err(format!("{} (code {})", e.message, e.code)),
+    }
 }
 
 #[cfg(test)]

@@ -17,7 +17,17 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# DWARF-127: Wasm execution engine for the dUnit test runner.
+wasmtime = "29"
+# DWARF-129: Parse the compiler's emitted WAT text into module bytes for the
+# wasmtime dispatch path (`forge test --target wasm`).
+wat = "1"
 
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
+# DWARF-129: integration tests drive the WAT emitter directly to build modules
+# for the wasmtime runner. These are test-only; production wiring goes through
+# dwarf-lib's backend selection.
+dwarf-emitter = { path = "../dwarf-emitter" }
+dwarf-lir = { path = "../dwarf-lir" }
