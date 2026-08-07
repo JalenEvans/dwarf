@@ -56,6 +56,16 @@ fn forge(args: &[&str]) -> std::process::Output {
     forge_with_env(args, None)
 }
 
+/// Whether a Z3 solver is resolvable (mirror of the bridge's `DWARF_Z3` then
+/// `$PATH` resolution).
+fn has_z3() -> bool {
+    if let Some(path) = std::env::var_os("DWARF_Z3") {
+        return std::path::PathBuf::from(path).is_file();
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path).any(|dir| dir.join("z3").is_file())
+}
+
 /// Helper: write a .kzd file into `dir` and return its full path.
 fn write_kzd(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
     let file_path = dir.join(name);
@@ -109,6 +119,9 @@ fn test_forge_gungnir_subcommand_exists() {
 #[test]
 fn test_forge_gungnir_reports_proved() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     let file_path = write_kzd(dir.path(), "abs.kzd", ABS_SRC);
 
     let output = forge(&["gungnir", file_path.to_str().unwrap()]);
@@ -133,6 +146,9 @@ fn test_forge_gungnir_reports_proved() {
 #[test]
 fn test_forge_gungnir_reports_counterexample_with_values() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     let file_path = write_kzd(dir.path(), "identity.kzd", IDENTITY_SRC);
 
     let output = forge(&["gungnir", file_path.to_str().unwrap()]);
@@ -158,6 +174,9 @@ fn test_forge_gungnir_reports_counterexample_with_values() {
 #[test]
 fn test_forge_gungnir_only_reports_annotated_functions() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     let file_path = write_kzd(
         dir.path(),
         "mixed.kzd",
@@ -251,6 +270,9 @@ fn test_forge_gungnir_timeout_flag_recognized() {
 #[test]
 fn test_forge_gungnir_accepts_unproven_status() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     // No verifiable contract — the function is discovered but cannot be proven.
     let file_path = write_kzd(
         dir.path(),
@@ -278,6 +300,9 @@ fn test_forge_gungnir_accepts_unproven_status() {
 #[test]
 fn test_forge_gungnir_no_contract_is_unproven_not_counterexample() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     let file_path = write_kzd(
         dir.path(),
         "nopost.kzd",
@@ -307,6 +332,9 @@ fn test_forge_gungnir_no_contract_is_unproven_not_counterexample() {
 #[test]
 fn test_forge_gungnir_result_in_body_is_not_proved() {
     let dir = tempfile::tempdir().expect("tempdir");
+    if !has_z3() {
+        return;
+    }
     let file_path = write_kzd(
         dir.path(),
         "vacuous.kzd",
