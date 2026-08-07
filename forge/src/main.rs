@@ -9,6 +9,8 @@ use dwarf_lib::CoverageMode;
 pub mod testing;
 // DWARF-118: Coverage reporter module
 pub mod coverage;
+// DWARF-120: Gungnir — Z3 formal verification bridge
+pub mod gungnir;
 
 /// Parse a CLI `--test-coverage` string into a typed [`CoverageMode`].
 /// Invalid values fall back to `None` (the compiler default applies).
@@ -335,6 +337,21 @@ enum Commands {
         test_coverage: Option<String>,
     },
 
+    /// Verify @gungnir contracts with the Z3 SMT solver (DWARF-120)
+    Gungnir {
+        /// Source files to verify (.kzd)
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Per-query solver timeout in milliseconds (default: 5000)
+        #[arg(long, default_value_t = 5000)]
+        timeout_ms: u64,
+    },
+
     /// Initialize a new Dwarf project
     Init {
         /// Project name (optional — defaults to directory name)
@@ -539,6 +556,14 @@ fn main() {
             // DWARF-118: Report test coverage — functions tested, edges
             // covered, and @gungnir verification status.
             coverage::run_coverage(files, json, quick, skip_edge_check, test_coverage);
+        }
+        Some(Commands::Gungnir {
+            files,
+            json,
+            timeout_ms,
+        }) => {
+            // DWARF-120: Verify @gungnir contracts with the Z3 SMT solver.
+            gungnir::run_gungnir(files, json, timeout_ms);
         }
         Some(Commands::Init { name }) => match run_init(None, name.as_deref()) {
             Ok(()) => {}
